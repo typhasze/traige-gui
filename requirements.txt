@@ -1,0 +1,4 @@
+Flask==2.0.1
+tkinter==8.6.11
+Pillow==8.2.0
+requests==2.26.0

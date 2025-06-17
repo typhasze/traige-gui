@@ -1,0 +1,260 @@
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox, Listbox, Scrollbar, Frame, Label, Entry, Button, Text, END, SINGLE, VERTICAL, HORIZONTAL
+import os
+from core_logic import FoxgloveLogic # Assuming core_logic.py is in the same directory
+
+class FoxgloveAppGUIManager:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Foxglove MCAP Launcher")
+        self.logic = FoxgloveLogic()
+        
+        self.current_mcap_folder_absolute = None
+        self.mcap_filename_from_link = None
+        self.mcap_files_list = []
+
+        self.create_widgets()
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        # Set a minimum size for the window
+        self.root.minsize(700, 550)
+
+
+    def log_message(self, message, is_error=False, clear_first=False):
+        self.status_text.config(state=tk.NORMAL)
+        if clear_first:
+            self.status_text.delete('1.0', tk.END)
+        
+        tag = "error" if is_error else "info"
+        prefix = "ERROR: " if is_error else "INFO: "
+        
+        # Split message by newlines to apply tags correctly if needed
+        for line in message.splitlines():
+            self.status_text.insert(tk.END, f"{prefix}{line}\n", tag)
+            
+        self.status_text.see(tk.END)
+        self.status_text.config(state=tk.DISABLED)
+
+    def create_widgets(self):
+        # Main frame
+        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # --- Input Frame ---
+        input_frame = ttk.LabelFrame(main_frame, text="Foxglove Link Analysis", padding="10")
+        input_frame.pack(padx=5, pady=5, fill="x")
+
+        Label(input_frame, text="Foxglove Link:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.link_entry = ttk.Entry(input_frame, width=60)
+        self.link_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        self.analyze_button = ttk.Button(input_frame, text="Analyze Link", command=self.analyze_link)
+        self.analyze_button.grid(row=0, column=2, padx=5, pady=5)
+        input_frame.columnconfigure(1, weight=1)
+
+        # --- File List Frame ---
+        file_list_frame = ttk.LabelFrame(main_frame, text="MCAP Files", padding="10")
+        file_list_frame.pack(padx=5, pady=5, fill="both", expand=True)
+
+        self.mcap_list_label = ttk.Label(file_list_frame, text="Files in folder:")
+        self.mcap_list_label.pack(anchor="w", pady=(0,5))
+
+        list_container = ttk.Frame(file_list_frame)
+        list_container.pack(fill="both", expand=True)
+
+        yscrollbar = Scrollbar(list_container, orient=VERTICAL)
+        xscrollbar = Scrollbar(list_container, orient=HORIZONTAL)
+        
+        self.mcap_listbox = Listbox(list_container, selectmode=SINGLE, 
+                                    yscrollcommand=yscrollbar.set, xscrollcommand=xscrollbar.set,
+                                    height=10, exportselection=False) # exportselection=False is important
+        
+        yscrollbar.config(command=self.mcap_listbox.yview)
+        xscrollbar.config(command=self.mcap_listbox.xview)
+        
+        yscrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        xscrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+        self.mcap_listbox.pack(side=tk.LEFT, fill="both", expand=True)
+        
+        self.mcap_listbox.bind('<<ListboxSelect>>', self.on_file_select)
+
+        # --- Action Buttons Frame ---
+        action_frame = ttk.LabelFrame(main_frame, text="Launch Actions", padding="10")
+        action_frame.pack(padx=5, pady=5, fill="x")
+
+        self.launch_foxglove_button = ttk.Button(action_frame, text="Open with Foxglove", command=self.launch_foxglove_selected, state=tk.DISABLED)
+        self.launch_foxglove_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
+
+        self.launch_bazel_gui_button = ttk.Button(action_frame, text="Open with Bazel Bag GUI", command=self.launch_bazel_gui_selected, state=tk.DISABLED)
+        self.launch_bazel_gui_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
+        
+        self.launch_bazel_viz_button = ttk.Button(action_frame, text="Launch Bazel Tools Viz", command=self.launch_bazel_viz) # No file needed
+        self.launch_bazel_viz_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
+
+        self.launch_all_button = ttk.Button(action_frame, text="Launch All for Selected", command=self.launch_all_selected, state=tk.DISABLED)
+        self.launch_all_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
+
+
+        # --- Status/Log Frame ---
+        status_frame = ttk.LabelFrame(main_frame, text="Log", padding="10")
+        status_frame.pack(padx=5, pady=5, fill="both", expand=True)
+        
+        log_container = ttk.Frame(status_frame)
+        log_container.pack(fill="both", expand=True)
+
+        log_yscrollbar = Scrollbar(log_container, orient=VERTICAL)
+        self.status_text = Text(log_container, height=6, wrap=tk.WORD, yscrollcommand=log_yscrollbar.set, state=tk.DISABLED)
+        log_yscrollbar.config(command=self.status_text.yview)
+        log_yscrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.status_text.pack(side=tk.LEFT, fill="both", expand=True)
+        
+        self.status_text.tag_configure("error", foreground="red")
+        self.status_text.tag_configure("info", foreground="black")
+
+
+    def analyze_link(self):
+        link = self.link_entry.get()
+        if not link:
+            self.log_message("Please enter a Foxglove link.", is_error=True, clear_first=True)
+            return
+
+        self.log_message(f"Analyzing link: {link}", clear_first=True)
+        extracted_remote_folder, self.mcap_filename_from_link = self.logic.extract_mcap_details_from_foxglove_link(link)
+
+        if not extracted_remote_folder or not self.mcap_filename_from_link:
+            self.log_message("Could not extract MCAP details from the link.", is_error=True)
+            self.clear_file_list_and_disable_buttons()
+            return
+
+        self.log_message(f"Extracted remote folder: {extracted_remote_folder}")
+        self.log_message(f"MCAP file from link: {self.mcap_filename_from_link}")
+
+        self.current_mcap_folder_absolute = self.logic.get_local_folder_path(extracted_remote_folder)
+        self.log_message(f"Mapped local folder: {self.current_mcap_folder_absolute}")
+        
+        display_folder_name = os.path.basename(self.current_mcap_folder_absolute) if self.current_mcap_folder_absolute else "N/A"
+        self.mcap_list_label.config(text=f"Files in: {display_folder_name} (Full path: {self.current_mcap_folder_absolute})")
+
+        self.mcap_files_list, error = self.logic.list_mcap_files(self.current_mcap_folder_absolute)
+        if error:
+            self.log_message(error, is_error=True)
+            self.clear_file_list_and_disable_buttons()
+            return
+        
+        if not self.mcap_files_list:
+            self.log_message("No .mcap files found in the directory.", is_error=True) # Changed to error
+            self.clear_file_list_and_disable_buttons()
+            return
+
+        self.populate_file_list()
+
+    def clear_file_list_and_disable_buttons(self):
+        self.mcap_listbox.delete(0, tk.END)
+        self.mcap_files_list = []
+        # self.current_mcap_folder_absolute = None # Keep for label
+        # self.mcap_filename_from_link = None # Keep for context
+        self.disable_file_specific_action_buttons()
+
+
+    def populate_file_list(self):
+        self.mcap_listbox.delete(0, tk.END)
+        highlight_idx = -1
+        for i, filename in enumerate(self.mcap_files_list):
+            self.mcap_listbox.insert(tk.END, filename)
+            if filename == self.mcap_filename_from_link:
+                self.mcap_listbox.itemconfig(i, {'bg':'#FFFF99'}) # Light yellow
+                highlight_idx = i
+        
+        if highlight_idx != -1:
+            self.mcap_listbox.selection_set(highlight_idx)
+            self.mcap_listbox.see(highlight_idx)
+            self.on_file_select(None) 
+        else:
+            self.log_message(f"Note: File from link ('{self.mcap_filename_from_link}') not found in the listed files.")
+            self.disable_file_specific_action_buttons()
+
+
+    def on_file_select(self, event): # event can be None
+        if self.mcap_listbox.curselection():
+            self.enable_file_specific_action_buttons()
+        else:
+            self.disable_file_specific_action_buttons()
+
+    def enable_file_specific_action_buttons(self):
+        self.launch_foxglove_button.config(state=tk.NORMAL)
+        self.launch_bazel_gui_button.config(state=tk.NORMAL)
+        self.launch_all_button.config(state=tk.NORMAL)
+
+    def disable_file_specific_action_buttons(self):
+        self.launch_foxglove_button.config(state=tk.DISABLED)
+        self.launch_bazel_gui_button.config(state=tk.DISABLED)
+        self.launch_all_button.config(state=tk.DISABLED)
+
+    def get_selected_mcap_path(self):
+        selection_indices = self.mcap_listbox.curselection()
+        if not selection_indices:
+            self.log_message("No MCAP file selected.", is_error=True)
+            return None
+        
+        selected_filename = self.mcap_listbox.get(selection_indices[0])
+        if self.current_mcap_folder_absolute and os.path.isdir(self.current_mcap_folder_absolute):
+             return os.path.join(self.current_mcap_folder_absolute, selected_filename)
+        self.log_message("Error: Current MCAP folder path is not set or invalid.", is_error=True)
+        return None
+
+    def get_selected_mcap_paths(self):
+        # Remove multi-select support, revert to single file logic if needed
+        selection_indices = self.mcap_listbox.curselection()
+        if not selection_indices:
+            self.log_message("No MCAP file selected.", is_error=True)
+            return []
+        selected_filename = self.mcap_listbox.get(selection_indices[0])
+        if self.current_mcap_folder_absolute and os.path.isdir(self.current_mcap_folder_absolute):
+            return [os.path.join(self.current_mcap_folder_absolute, selected_filename)]
+        self.log_message("Error: Current MCAP folder path is not set or invalid.", is_error=True)
+        return []
+
+    def launch_foxglove_selected(self):
+        selected_path = self.get_selected_mcap_path()
+        if selected_path:
+            self.log_message(f"Launching Foxglove with {os.path.basename(selected_path)}...")
+            message, error = self.logic.launch_foxglove(selected_path)
+            if message: self.log_message(message)
+            if error: self.log_message(error, is_error=True)
+
+    def launch_bazel_gui_selected(self):
+        selected_path = self.get_selected_mcap_path()
+        if selected_path:
+            self.log_message(f"Launching Bazel Bag GUI for {os.path.basename(selected_path)}...")
+            message, error = self.logic.launch_bazel_bag_gui(selected_path)
+            if message: self.log_message(message)
+            if error: self.log_message(error, is_error=True)
+            
+    def launch_bazel_viz(self):
+        self.log_message(f"Launching Bazel Tools Viz...")
+        message, error = self.logic.launch_bazel_tools_viz()
+        if message: self.log_message(message)
+        if error: self.log_message(error, is_error=True)
+            
+    def launch_all_selected(self):
+        selected_path = self.get_selected_mcap_path()
+        if selected_path:
+            self.log_message(f"Launching all tools for {os.path.basename(selected_path)}...")
+            
+            msg_fox, err_fox = self.logic.launch_foxglove(selected_path)
+            if msg_fox: self.log_message(f"Foxglove: {msg_fox}")
+            if err_fox: self.log_message(f"Foxglove: {err_fox}", is_error=True)
+
+            msg_gui, err_gui = self.logic.launch_bazel_bag_gui(selected_path)
+            if msg_gui: self.log_message(f"Bazel Bag GUI: {msg_gui}")
+            if err_gui: self.log_message(f"Bazel Bag GUI: {err_gui}", is_error=True)
+            
+            # Bazel Tools Viz is launched without a file argument here
+            msg_viz, err_viz = self.logic.launch_bazel_tools_viz()
+            if msg_viz: self.log_message(f"Bazel Tools Viz: {msg_viz}")
+            if err_viz: self.log_message(f"Bazel Tools Viz: {err_viz}", is_error=True)
+
+    def on_closing(self):
+        if messagebox.askokcancel("Quit", "Do you want to quit? This will attempt to terminate applications launched by this tool."):
+            self.log_message("Terminating launched processes...", clear_first=True)
+            termination_log = self.logic.terminate_all_processes()
+            self.log_message(termination_log)
+            self.root.destroy()
