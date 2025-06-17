@@ -1,6 +1,7 @@
 import urllib.parse
 import os
 import subprocess
+import shutil
 
 def perform_operation(data):
     # Placeholder for core logic operation
@@ -136,6 +137,36 @@ class FoxgloveLogic:
             return self._launch_process(['bazel', 'run', '//tools/bag:gui', '--', mcap_glob], 'Bazel Bag GUI', cwd=self.bazel_working_dir, mcap_path=mcap_dir_or_file)
         else:
             return self._launch_process(['bazel', 'run', '//tools/bag:gui', mcap_dir_or_file], 'Bazel Bag GUI', cwd=self.bazel_working_dir, mcap_path=mcap_dir_or_file)
+
+    def play_bazel_bag_gui_with_symlinks(self, mcap_filepaths):
+        import threading
+        symlink_dir = '/tmp/selected_bags_symlinks'
+        # Cleanup if exists
+        if os.path.exists(symlink_dir):
+            shutil.rmtree(symlink_dir)
+        os.makedirs(symlink_dir, exist_ok=True)
+        # Create symlinks
+        for bag in mcap_filepaths:
+            if os.path.isfile(bag):
+                link_name = os.path.join(symlink_dir, os.path.basename(bag))
+                try:
+                    os.symlink(bag, link_name)
+                except FileExistsError:
+                    pass
+        # Find all .mcap files in the symlink dir
+        mcap_files = [os.path.join(symlink_dir, f) for f in os.listdir(symlink_dir) if f.lower().endswith('.mcap')]
+        if not mcap_files:
+            return None, "No .mcap files found in symlink directory.", symlink_dir
+        # Run bazel command with all .mcap files as arguments
+        proc = subprocess.Popen(['bazel', 'run', '//tools/bag:gui', '--'] + mcap_files, cwd=self.bazel_working_dir)
+        self.running_processes.append({'name': 'Bazel Bag GUI', 'process': proc, 'path': symlink_dir, 'command': ['bazel', 'run', '//tools/bag:gui', '--'] + mcap_files, 'cwd': self.bazel_working_dir})
+        # Cleanup symlink dir after a delay
+        def delayed_cleanup():
+            import time
+            time.sleep(10)
+            shutil.rmtree(symlink_dir, ignore_errors=True)
+        threading.Thread(target=delayed_cleanup, daemon=True).start()
+        return f"Bazel Bag GUI launched with {len(mcap_files)} bag(s).", None, symlink_dir
 
     def terminate_all_processes(self):
         log_messages = []

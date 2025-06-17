@@ -1,7 +1,9 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, Listbox, Scrollbar, Frame, Label, Entry, Button, Text, END, SINGLE, VERTICAL, HORIZONTAL
 import os
+import signal
 from core_logic import FoxgloveLogic # Assuming core_logic.py is in the same directory
+import shutil
 
 class FoxgloveAppGUIManager:
     def __init__(self, root):
@@ -15,6 +17,7 @@ class FoxgloveAppGUIManager:
 
         self.create_widgets()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.setup_signal_handlers()
         # Set a minimum size for the window
         self.root.minsize(700, 550)
 
@@ -203,33 +206,42 @@ class FoxgloveAppGUIManager:
         return None
 
     def get_selected_mcap_paths(self):
-        # Remove multi-select support, revert to single file logic if needed
         selection_indices = self.mcap_listbox.curselection()
-        if not selection_indices:
-            self.log_message("No MCAP file selected.", is_error=True)
-            return []
-        selected_filename = self.mcap_listbox.get(selection_indices[0])
-        if self.current_mcap_folder_absolute and os.path.isdir(self.current_mcap_folder_absolute):
-            return [os.path.join(self.current_mcap_folder_absolute, selected_filename)]
-        self.log_message("Error: Current MCAP folder path is not set or invalid.", is_error=True)
-        return []
+        selected_paths = []
+        for idx in selection_indices:
+            selected_filename = self.mcap_listbox.get(idx)
+            if self.current_mcap_folder_absolute and os.path.isdir(self.current_mcap_folder_absolute):
+                selected_paths.append(os.path.join(self.current_mcap_folder_absolute, selected_filename))
+        return selected_paths
 
     def launch_foxglove_selected(self):
-        selected_path = self.get_selected_mcap_path()
-        if selected_path:
-            self.log_message(f"Launching Foxglove with {os.path.basename(selected_path)}...")
-            message, error = self.logic.launch_foxglove(selected_path)
-            if message: self.log_message(message)
-            if error: self.log_message(error, is_error=True)
+        selected_paths = self.get_selected_mcap_paths()
+        if not selected_paths:
+            self.log_message("No MCAP file selected.", is_error=True)
+            return
+        last_path = selected_paths[-1]
+        self.log_message(f"Launching Foxglove with {os.path.basename(last_path)}...")
+        message, error = self.logic.launch_foxglove(last_path)
+        if message: self.log_message(message)
+        if error: self.log_message(error, is_error=True)
 
     def launch_bazel_gui_selected(self):
-        selected_path = self.get_selected_mcap_path()
-        if selected_path:
-            self.log_message(f"Launching Bazel Bag GUI for {os.path.basename(selected_path)}...")
-            message, error = self.logic.launch_bazel_bag_gui(selected_path)
+        selected_paths = self.get_selected_mcap_paths()
+        if not selected_paths:
+            self.log_message("No MCAP file(s) selected.", is_error=True)
+            return
+        if len(selected_paths) == 1:
+            self.log_message(f"Launching Bazel Bag GUI for {os.path.basename(selected_paths[0])}...")
+            message, error = self.logic.launch_bazel_bag_gui(selected_paths[0])
             if message: self.log_message(message)
             if error: self.log_message(error, is_error=True)
-            
+        else:
+            self.log_message(f"Launching Bazel Bag GUI for {len(selected_paths)} selected bags using symlinks...")
+            message, error, symlink_dir = self.logic.play_bazel_bag_gui_with_symlinks(selected_paths)
+            if message: self.log_message(message)
+            if error: self.log_message(error, is_error=True)
+            # No cleanup of symlink_dir as per new requirement
+
     def launch_bazel_viz(self):
         self.log_message(f"Launching Bazel Tools Viz...")
         message, error = self.logic.launch_bazel_tools_viz()
@@ -255,8 +267,23 @@ class FoxgloveAppGUIManager:
             if err_viz: self.log_message(f"Bazel Tools Viz: {err_viz}", is_error=True)
 
     def on_closing(self):
-        if messagebox.askokcancel("Quit", "Do you want to quit? This will attempt to terminate applications launched by this tool."):
-            self.log_message("Terminating launched processes...", clear_first=True)
-            termination_log = self.logic.terminate_all_processes()
-            self.log_message(termination_log)
-            self.root.destroy()
+        # Clean up symlink dir if it exists
+        symlink_dir = '/tmp/selected_bags_symlinks'
+        if os.path.exists(symlink_dir):
+            try:
+                shutil.rmtree(symlink_dir, ignore_errors=True)
+                self.log_message(f"Cleaned up symlink dir: {symlink_dir}")
+            except Exception as e:
+                self.log_message(f"Error cleaning symlink dir: {e}", is_error=True)
+        self.log_message("Terminating launched processes...", clear_first=True)
+        termination_log = self.logic.terminate_all_processes()
+        self.log_message(termination_log)
+        self.root.destroy()
+
+    def setup_signal_handlers(self):
+        import sys
+        def handler(signum, frame):
+            self.on_closing()
+            sys.exit(0)
+        signal.signal(signal.SIGINT, handler)
+        signal.signal(signal.SIGTERM, handler)
