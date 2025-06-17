@@ -63,7 +63,7 @@ class FoxgloveAppGUIManager:
         yscrollbar = Scrollbar(list_container, orient=VERTICAL)
         xscrollbar = Scrollbar(list_container, orient=HORIZONTAL)
         
-        self.mcap_listbox = Listbox(list_container, selectmode=SINGLE, 
+        self.mcap_listbox = Listbox(list_container, selectmode=tk.EXTENDED, 
                                     yscrollcommand=yscrollbar.set, xscrollcommand=xscrollbar.set,
                                     height=10, exportselection=False) # exportselection=False is important
         
@@ -173,8 +173,10 @@ class FoxgloveAppGUIManager:
 
 
     def on_file_select(self, event): # event can be None
-        if self.mcap_listbox.curselection():
+        selection = self.mcap_listbox.curselection()
+        if selection:
             self.enable_file_specific_action_buttons()
+            self.log_message(f"Selected {len(selection)} bag(s).", clear_first=False)
         else:
             self.disable_file_specific_action_buttons()
 
