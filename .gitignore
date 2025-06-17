@@ -1,0 +1,2 @@
+#Ignore folders and subfolders
+__pycache__/
