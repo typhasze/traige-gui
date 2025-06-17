@@ -43,12 +43,21 @@ class FoxgloveLogic:
     def get_local_folder_path(self, extracted_remote_folder):
         """
         Constructs the absolute local folder path from the extracted remote folder.
+        Tries the main data path, then a backup path if not found.
         """
         if extracted_remote_folder.startswith('/'):
             relative_path = extracted_remote_folder[1:]
         else:
             relative_path = extracted_remote_folder
-        return os.path.join(self.local_base_path_absolute, relative_path)
+        main_path = os.path.join(self.local_base_path_absolute, relative_path)
+        if os.path.isdir(main_path):
+            return main_path
+        # Try backup path
+        backup_base = os.path.expanduser('~/data/psa_logs_backup_nas3')
+        backup_path = os.path.join(backup_base, relative_path)
+        if os.path.isdir(backup_path):
+            return backup_path
+        return main_path  # Default to main path if neither exists
 
     def list_mcap_files(self, local_folder_path_absolute):
         """
