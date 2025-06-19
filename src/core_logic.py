@@ -209,6 +209,33 @@ class FoxgloveLogic:
              log_messages.append("Cleanup attempt complete. No active processes found or all terminated.")
         return "\n".join(log_messages)
 
+    def list_default_subfolders(self):
+        """
+        Lists all subfolders in the default directory (~/data/default).
+        Returns a list of absolute paths to subfolders.
+        """
+        default_path = os.path.join(self.local_base_path_absolute, 'default')
+        if not os.path.isdir(default_path):
+            return []
+        return [
+            os.path.join(default_path, d)
+            for d in os.listdir(default_path)
+            if os.path.isdir(os.path.join(default_path, d))
+        ]
+
+    def list_subfolders_in_path(self, folder_path):
+        """
+        Lists all subfolders in the given folder_path.
+        Returns a list of absolute paths to subfolders.
+        """
+        if not os.path.isdir(folder_path):
+            return []
+        return [
+            os.path.join(folder_path, d)
+            for d in os.listdir(folder_path)
+            if os.path.isdir(os.path.join(folder_path, d))
+        ]
+
 # Remove the old ApplicationLogic class if it's no longer needed, or keep it if used elsewhere.
 # For this specific UI, we are focusing on FoxgloveLogic.
 # class ApplicationLogic:

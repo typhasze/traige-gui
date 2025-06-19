@@ -57,6 +57,27 @@ class FoxgloveAppGUIManager:
         file_list_frame = ttk.LabelFrame(main_frame, text="MCAP Files", padding="10")
         file_list_frame.pack(padx=5, pady=5, fill="both", expand=True)
 
+        # Tabs for subfolders in default
+        self.subfolder_tabs = None
+        self.subfolder_tab_names = []
+        self.subfolder_tab_paths = []
+        subfolders = self.logic.list_default_subfolders()
+        if len(subfolders) > 1:
+            self.subfolder_tabs = ttk.Notebook(file_list_frame)
+            for folder in subfolders:
+                tab_name = os.path.basename(folder)
+                self.subfolder_tab_names.append(tab_name)
+                self.subfolder_tab_paths.append(folder)
+                tab_frame = ttk.Frame(self.subfolder_tabs)
+                self.subfolder_tabs.add(tab_frame, text=tab_name)
+            self.subfolder_tabs.pack(fill="x", pady=(0, 5))
+            self.subfolder_tabs.bind("<<NotebookTabChanged>>", self.on_subfolder_tab_changed)
+            self.current_mcap_folder_absolute = self.subfolder_tab_paths[0]
+        elif len(subfolders) == 1:
+            self.current_mcap_folder_absolute = subfolders[0]
+        else:
+            self.current_mcap_folder_absolute = None
+
         self.mcap_list_label = ttk.Label(file_list_frame, text="Files in folder:")
         self.mcap_list_label.pack(anchor="w", pady=(0,5))
 
@@ -113,6 +134,21 @@ class FoxgloveAppGUIManager:
         self.status_text.tag_configure("info", foreground="black")
 
 
+        # --- Default Folder Selection ---
+        folder_select_frame = ttk.Frame(main_frame)
+        folder_select_frame.pack(padx=5, pady=(0,5), fill="x")
+        ttk.Label(folder_select_frame, text="Default folder path:").pack(side=tk.LEFT)
+        self.default_folder_var = tk.StringVar()
+        self.default_folder_entry = ttk.Entry(folder_select_frame, textvariable=self.default_folder_var, width=60)
+        self.default_folder_entry.pack(side=tk.LEFT, padx=5, fill="x", expand=True)
+        self.default_folder_browse = ttk.Button(folder_select_frame, text="Browse", command=self.browse_default_folder)
+        self.default_folder_browse.pack(side=tk.LEFT, padx=5)
+        # Set initial value (optional: could use last used or a guess)
+        self.default_folder_var.set(os.path.expanduser('~/data/default'))
+
+        # After widget creation, load tabs for the initial default folder
+        self.refresh_subfolder_tabs()
+
     def analyze_link(self):
         link = self.link_entry.get()
         if not link:
@@ -148,6 +184,21 @@ class FoxgloveAppGUIManager:
             return
 
         self.populate_file_list()
+
+        # --- Update default folder and tabs for link search ---
+        # Find the parent 'default' folder of the resolved folder
+        resolved_folder = self.current_mcap_folder_absolute
+        if resolved_folder:
+            parent_default = resolved_folder
+            while parent_default and os.path.basename(parent_default) != 'default':
+                parent_default = os.path.dirname(parent_default)
+            if os.path.basename(parent_default) == 'default':
+                self.default_folder_var.set(parent_default)
+                self.refresh_subfolder_tabs()
+                # Try to select the correct tab
+                if self.subfolder_tabs and resolved_folder in self.subfolder_tab_paths:
+                    idx = self.subfolder_tab_paths.index(resolved_folder)
+                    self.subfolder_tabs.select(idx)
 
     def clear_file_list_and_disable_buttons(self):
         self.mcap_listbox.delete(0, tk.END)
@@ -287,3 +338,65 @@ class FoxgloveAppGUIManager:
             sys.exit(0)
         signal.signal(signal.SIGINT, handler)
         signal.signal(signal.SIGTERM, handler)
+
+    def on_subfolder_tab_changed(self, event):
+        if self.subfolder_tabs:
+            idx = self.subfolder_tabs.index(self.subfolder_tabs.select())
+            self.current_mcap_folder_absolute = self.subfolder_tab_paths[idx]
+            display_folder_name = self.subfolder_tab_names[idx]
+            self.mcap_list_label.config(text=f"Files in: {display_folder_name} (Full path: {self.current_mcap_folder_absolute})")
+            self.mcap_files_list, error = self.logic.list_mcap_files(self.current_mcap_folder_absolute)
+            if error:
+                self.log_message(error, is_error=True)
+                self.clear_file_list_and_disable_buttons()
+                return
+            if not self.mcap_files_list:
+                self.log_message("No .mcap files found in the directory.", is_error=True)
+                self.clear_file_list_and_disable_buttons()
+                return
+            self.populate_file_list()
+
+    def browse_default_folder(self):
+        folder = filedialog.askdirectory(title="Select 'default' folder")
+        if folder:
+            self.default_folder_var.set(folder)
+            self.refresh_subfolder_tabs()
+
+    def refresh_subfolder_tabs(self):
+        # Remove old tabs if any
+        if self.subfolder_tabs:
+            self.subfolder_tabs.destroy()
+            self.subfolder_tabs = None
+            self.subfolder_tab_names = []
+            self.subfolder_tab_paths = []
+        default_folder = self.default_folder_var.get()
+        subfolders = self.logic.list_subfolders_in_path(default_folder)
+        file_list_frame = self.mcap_list_label.master
+        if len(subfolders) > 1:
+            self.subfolder_tabs = ttk.Notebook(file_list_frame)
+            for folder in subfolders:
+                tab_name = os.path.basename(folder)
+                self.subfolder_tab_names.append(tab_name)
+                self.subfolder_tab_paths.append(folder)
+                tab_frame = ttk.Frame(self.subfolder_tabs)
+                self.subfolder_tabs.add(tab_frame, text=tab_name)
+            self.subfolder_tabs.pack(fill="x", pady=(0, 5))
+            self.subfolder_tabs.bind("<<NotebookTabChanged>>", self.on_subfolder_tab_changed)
+            self.current_mcap_folder_absolute = self.subfolder_tab_paths[0]
+        elif len(subfolders) == 1:
+            self.current_mcap_folder_absolute = subfolders[0]
+        else:
+            self.current_mcap_folder_absolute = None
+        # Update file list for the selected tab/folder
+        if self.subfolder_tabs:
+            self.on_subfolder_tab_changed(None)
+        elif self.current_mcap_folder_absolute:
+            display_folder_name = os.path.basename(self.current_mcap_folder_absolute)
+            self.mcap_list_label.config(text=f"Files in: {display_folder_name} (Full path: {self.current_mcap_folder_absolute})")
+            self.mcap_files_list, error = self.logic.list_mcap_files(self.current_mcap_folder_absolute)
+            if not error and self.mcap_files_list:
+                self.populate_file_list()
+            else:
+                self.clear_file_list_and_disable_buttons()
+        else:
+            self.clear_file_list_and_disable_buttons()
