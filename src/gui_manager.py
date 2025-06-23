@@ -144,11 +144,13 @@ class FoxgloveAppGUIManager:
         folder_select_frame = ttk.Frame(main_frame)
         folder_select_frame.pack(padx=5, pady=(0,5), fill="x")
         ttk.Label(folder_select_frame, text="Current folder path:").pack(side=tk.LEFT)
-        self.default_folder_var = tk.StringVar()
-        self.default_folder_entry = ttk.Entry(folder_select_frame, textvariable=self.default_folder_var, width=60)
-        self.default_folder_entry.pack(side=tk.LEFT, padx=5, fill="x", expand=True)
-        # Set initial value (optional: could use last used or a guess)
-        self.default_folder_var.set(os.path.expanduser('~/data/default'))
+        self.current_subfolder_var = tk.StringVar()
+        self.current_subfolder_entry = ttk.Entry(folder_select_frame, textvariable=self.current_subfolder_var, width=60, state="readonly")
+        self.current_subfolder_entry.pack(side=tk.LEFT, padx=5, fill="x", expand=True)
+        # Enable Ctrl+A to select all text in the current subfolder path entry (read-only, for copying)
+        self.current_subfolder_entry.bind('<Control-a>', select_all)
+        self.current_subfolder_entry.bind('<Control-A>', select_all)
+        self.current_subfolder_var.set("")
 
         # After widget creation, load tabs for the initial default folder
         self.refresh_subfolder_tabs()
@@ -183,22 +185,23 @@ class FoxgloveAppGUIManager:
             return
         
         if not self.mcap_files_list:
-            self.log_message("No .mcap files found in the directory.", is_error=True) # Changed to error
+            self.log_message("No .mcap files found in the directory.", is_error=True)
             self.clear_file_list_and_disable_buttons()
             return
 
         self.populate_file_list()
 
         # --- Update default folder and tabs for link search ---
-        # Find the parent 'default' folder of the resolved folder
         resolved_folder = self.current_mcap_folder_absolute
         if resolved_folder:
+            # Set the current subfolder path entry to the resolved folder
+            self.current_subfolder_var.set(resolved_folder)
+            # Find the parent 'default' folder of the resolved folder
             parent_default = resolved_folder
             while parent_default and os.path.basename(parent_default) != 'default':
                 parent_default = os.path.dirname(parent_default)
             if os.path.basename(parent_default) == 'default':
-                self.default_folder_var.set(parent_default)
-                self.refresh_subfolder_tabs()
+                self.refresh_subfolder_tabs(parent_default)
                 # Try to select the correct tab
                 if self.subfolder_tabs and resolved_folder in self.subfolder_tab_paths:
                     idx = self.subfolder_tab_paths.index(resolved_folder)
@@ -349,6 +352,8 @@ class FoxgloveAppGUIManager:
             self.current_mcap_folder_absolute = self.subfolder_tab_paths[idx]
             display_folder_name = self.subfolder_tab_names[idx]
             self.mcap_list_label.config(text=f"Files in: {display_folder_name} (Full path: {self.current_mcap_folder_absolute})")
+            # Update the current subfolder path entry to match the selected tab
+            self.current_subfolder_var.set(self.current_mcap_folder_absolute)
             self.mcap_files_list, error = self.logic.list_mcap_files(self.current_mcap_folder_absolute)
             if error:
                 self.log_message(error, is_error=True)
@@ -363,17 +368,24 @@ class FoxgloveAppGUIManager:
     def browse_default_folder(self):
         folder = filedialog.askdirectory(title="Select 'default' folder")
         if folder:
-            self.default_folder_var.set(folder)
+            # self.default_folder_var.set(folder) # No longer needed
             self.refresh_subfolder_tabs()
 
-    def refresh_subfolder_tabs(self):
+    def refresh_subfolder_tabs(self, default_folder=None):
         # Remove old tabs if any
         if self.subfolder_tabs:
             self.subfolder_tabs.destroy()
             self.subfolder_tabs = None
             self.subfolder_tab_names = []
             self.subfolder_tab_paths = []
-        default_folder = self.default_folder_var.get()
+        # Always use the parent 'default' folder for subfolder search
+        if default_folder is None:
+            # Try to get parent 'default' of current_subfolder_var
+            current_path = self.current_subfolder_var.get() or os.path.expanduser('~/data/default')
+            parent_default = current_path
+            while parent_default and os.path.basename(parent_default) != 'default':
+                parent_default = os.path.dirname(parent_default)
+            default_folder = parent_default if os.path.basename(parent_default) == 'default' else os.path.expanduser('~/data/default')
         subfolders = self.logic.list_subfolders_in_path(default_folder)
         file_list_frame = self.mcap_list_label.master
         if len(subfolders) > 1:
