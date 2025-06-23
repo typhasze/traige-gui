@@ -236,6 +236,34 @@ class FoxgloveLogic:
             if os.path.isdir(os.path.join(folder_path, d))
         ]
 
+    def find_parent_default_folder(self, path):
+        """
+        Given a path, walk up the directory tree to find the parent 'default' folder.
+        Returns the absolute path to the parent 'default' folder, or None if not found.
+        """
+        if not path:
+            return None
+        parent_default = path
+        while parent_default and os.path.basename(parent_default) != 'default':
+            new_parent = os.path.dirname(parent_default)
+            if new_parent == parent_default:
+                break
+            parent_default = new_parent
+        if os.path.basename(parent_default) == 'default':
+            return parent_default
+        return None
+
+    def get_effective_default_folder(self, current_path=None):
+        """
+        Returns the parent 'default' folder of current_path, or ~/data/default if not found.
+        """
+        if not current_path:
+            current_path = os.path.expanduser('~/data/default')
+        parent_default = self.find_parent_default_folder(current_path)
+        if parent_default:
+            return parent_default
+        return os.path.expanduser('~/data/default')
+
 # Remove the old ApplicationLogic class if it's no longer needed, or keep it if used elsewhere.
 # For this specific UI, we are focusing on FoxgloveLogic.
 # class ApplicationLogic:

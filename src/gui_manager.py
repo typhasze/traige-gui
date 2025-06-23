@@ -394,12 +394,9 @@ class FoxgloveAppGUIManager:
             self.subfolder_tab_paths = []
         # Always use the parent 'default' folder for subfolder search
         if default_folder is None:
-            # Try to get parent 'default' of current_subfolder_var
+            # Use core logic to resolve the effective default folder
             current_path = self.current_subfolder_var.get() or os.path.expanduser('~/data/default')
-            parent_default = current_path
-            while parent_default and os.path.basename(parent_default) != 'default':
-                parent_default = os.path.dirname(parent_default)
-            default_folder = parent_default if os.path.basename(parent_default) == 'default' else os.path.expanduser('~/data/default')
+            default_folder = self.logic.get_effective_default_folder(current_path)
         subfolders = self.logic.list_subfolders_in_path(default_folder)
         file_list_frame = self.mcap_list_label.master
         if len(subfolders) > 1:
