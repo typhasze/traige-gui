@@ -49,6 +49,13 @@ class FoxgloveAppGUIManager:
         Label(input_frame, text="Foxglove Link:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.link_entry = ttk.Entry(input_frame, width=60)
         self.link_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        # Enable Ctrl+A to select all text in the entry (Linux/Windows/Mac)
+        def select_all(event):
+            event.widget.focus_set()
+            event.widget.select_range(0, 'end')
+            return 'break'
+        self.link_entry.bind('<Control-a>', select_all)
+        self.link_entry.bind('<Control-A>', select_all)
         self.analyze_button = ttk.Button(input_frame, text="Analyze Link", command=self.analyze_link)
         self.analyze_button.grid(row=0, column=2, padx=5, pady=5)
         input_frame.columnconfigure(1, weight=1)
