@@ -222,26 +222,30 @@ class FoxgloveAppGUIManager:
     def populate_file_list(self):
         self.mcap_listbox.delete(0, tk.END)
         highlight_idx = -1
+        # Use normalized comparison for matching
+        target = self.mcap_filename_from_link.strip().lower() if self.mcap_filename_from_link else None
         for i, filename in enumerate(self.mcap_files_list):
             self.mcap_listbox.insert(tk.END, filename)
-            if filename == self.mcap_filename_from_link:
+            if target and os.path.basename(filename).strip().lower() == target:
                 self.mcap_listbox.itemconfig(i, {'bg':'#FFFF99'}) # Light yellow
                 highlight_idx = i
         
         if highlight_idx != -1:
             self.mcap_listbox.selection_set(highlight_idx)
             self.mcap_listbox.see(highlight_idx)
-            self.on_file_select(None) 
+            self.on_file_select(None, suppress_log=True)
         else:
-            self.log_message(f"Note: File from link ('{self.mcap_filename_from_link}') not found in the listed files.")
+            if self.mcap_filename_from_link:
+                self.log_message(f"Note: File from link ('{self.mcap_filename_from_link}') not found in the listed files.")
             self.disable_file_specific_action_buttons()
 
 
-    def on_file_select(self, event): # event can be None
+    def on_file_select(self, event, suppress_log=False): # event can be None
         selection = self.mcap_listbox.curselection()
         if selection:
             self.enable_file_specific_action_buttons()
-            self.log_message(f"Selected {len(selection)} bag(s).", clear_first=False)
+            if not suppress_log:
+                self.log_message(f"Selected {len(selection)} bag(s).", clear_first=False)
         else:
             self.disable_file_specific_action_buttons()
 
