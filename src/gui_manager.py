@@ -133,16 +133,13 @@ class FoxgloveAppGUIManager:
         self.status_text.tag_configure("error", foreground="red")
         self.status_text.tag_configure("info", foreground="black")
 
-
-        # --- Default Folder Selection ---
+        # --- Current Folder Selection ---
         folder_select_frame = ttk.Frame(main_frame)
         folder_select_frame.pack(padx=5, pady=(0,5), fill="x")
-        ttk.Label(folder_select_frame, text="Default folder path:").pack(side=tk.LEFT)
+        ttk.Label(folder_select_frame, text="Current folder path:").pack(side=tk.LEFT)
         self.default_folder_var = tk.StringVar()
         self.default_folder_entry = ttk.Entry(folder_select_frame, textvariable=self.default_folder_var, width=60)
         self.default_folder_entry.pack(side=tk.LEFT, padx=5, fill="x", expand=True)
-        self.default_folder_browse = ttk.Button(folder_select_frame, text="Browse", command=self.browse_default_folder)
-        self.default_folder_browse.pack(side=tk.LEFT, padx=5)
         # Set initial value (optional: could use last used or a guess)
         self.default_folder_var.set(os.path.expanduser('~/data/default'))
 
