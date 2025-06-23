@@ -114,6 +114,10 @@ class FoxgloveAppGUIManager:
         self.launch_foxglove_button = ttk.Button(action_frame, text="Open with Foxglove", command=self.launch_foxglove_selected, state=tk.DISABLED)
         self.launch_foxglove_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
 
+        # New button: Open Foxglove with Browser (does nothing for now)
+        self.launch_foxglove_browser_button = ttk.Button(action_frame, text="Open Foxglove with Browser", command=self.open_foxglove_with_browser, state=tk.NORMAL)
+        self.launch_foxglove_browser_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
+
         self.launch_bazel_gui_button = ttk.Button(action_frame, text="Open with Bazel Bag GUI", command=self.launch_bazel_gui_selected, state=tk.DISABLED)
         self.launch_bazel_gui_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
         
@@ -323,6 +327,12 @@ class FoxgloveAppGUIManager:
             msg_viz, err_viz = self.logic.launch_bazel_tools_viz()
             if msg_viz: self.log_message(f"Bazel Tools Viz: {msg_viz}")
             if err_viz: self.log_message(f"Bazel Tools Viz: {err_viz}", is_error=True)
+
+    def open_foxglove_with_browser(self):
+        import webbrowser
+        url = "https://foxglove.data.ventitechnologies.net/?ds=remote-file&ds.url=https://rosbag.data.ventitechnologies.net/20250618/PROD/PSA8607/rosbags/default/PSA8607_2025-06-18_13-37-43/PSA8607_2025-06-18-17-27-45_46.mcap"
+        webbrowser.open(url)
+        self.log_message("Opened Foxglove in browser.")
 
     def on_closing(self):
         # Clean up symlink dir if it exists
