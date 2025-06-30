@@ -236,6 +236,10 @@ class FoxgloveAppGUIManager:
         
         self.explorer_listbox.bind('<Double-Button-1>', self.on_explorer_double_click)
         self.explorer_listbox.bind('<<ListboxSelect>>', self.on_explorer_select)
+        # Keyboard navigation bindings
+        self.explorer_listbox.bind('<Return>', self.on_explorer_enter_key)
+        self.explorer_listbox.bind('<KP_Enter>', self.on_explorer_enter_key)  # Numpad Enter
+        self.explorer_listbox.bind('<BackSpace>', self.on_explorer_backspace_key)
 
         # --- File Actions Frame ---
         file_actions_frame = ttk.LabelFrame(self.explorer_frame, text="File Actions", padding="10")
@@ -939,3 +943,11 @@ class FoxgloveAppGUIManager:
                         mcap_paths.append(item_path)
         
         return mcap_paths
+
+    def on_explorer_enter_key(self, event):
+        """Handle Enter key in explorer listbox: enter directory or open file"""
+        self.on_explorer_double_click(event)
+
+    def on_explorer_backspace_key(self, event):
+        """Handle Backspace key in explorer listbox: go up directory"""
+        self.go_up_directory()
