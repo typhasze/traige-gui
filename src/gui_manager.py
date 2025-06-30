@@ -265,22 +265,22 @@ class FoxgloveAppGUIManager:
 
     def create_settings_widgets(self):
         settings_frame = self.settings_frame
-        # Bazel Tools Viz command
-        ttk.Label(settings_frame, text="Bazel Tools Viz Command:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        self.bazel_tools_viz_var = tk.StringVar(value=' '.join(self.logic.get_bazel_tools_viz_cmd()))
-        self.bazel_tools_viz_entry = ttk.Entry(settings_frame, textvariable=self.bazel_tools_viz_var, width=60)
-        self.bazel_tools_viz_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-        # Bazel Bag GUI command
-        ttk.Label(settings_frame, text="Bazel Bag GUI Command:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-        self.bazel_bag_gui_var = tk.StringVar(value=' '.join(self.logic.get_bazel_bag_gui_cmd()))
-        self.bazel_bag_gui_entry = ttk.Entry(settings_frame, textvariable=self.bazel_bag_gui_var, width=60)
-        self.bazel_bag_gui_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-        # Bazel Working Directory
-        ttk.Label(settings_frame, text="Bazel Working Directory:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
+        # Bazel Working Directory (move to top)
+        ttk.Label(settings_frame, text="Bazel Working Directory:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.bazel_working_dir_var = tk.StringVar(value=self.logic.get_bazel_working_dir())
         self.bazel_working_dir_entry = ttk.Entry(settings_frame, textvariable=self.bazel_working_dir_var, width=60)
-        self.bazel_working_dir_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
-        # Save and Reset buttons
+        self.bazel_working_dir_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        # Bazel Tools Viz command
+        ttk.Label(settings_frame, text="Bazel Tools Viz Command:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        self.bazel_tools_viz_var = tk.StringVar(value=' '.join(self.logic.get_bazel_tools_viz_cmd()))
+        self.bazel_tools_viz_entry = ttk.Entry(settings_frame, textvariable=self.bazel_tools_viz_var, width=60)
+        self.bazel_tools_viz_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+        # Bazel Bag GUI command
+        ttk.Label(settings_frame, text="Bazel Bag GUI Command:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
+        self.bazel_bag_gui_var = tk.StringVar(value=' '.join(self.logic.get_bazel_bag_gui_cmd()))
+        self.bazel_bag_gui_entry = ttk.Entry(settings_frame, textvariable=self.bazel_bag_gui_var, width=60)
+        self.bazel_bag_gui_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+        # Save and Reset buttons (move to row 3)
         btn_frame = ttk.Frame(settings_frame)
         btn_frame.grid(row=3, column=0, columnspan=2, pady=10)
         ttk.Button(btn_frame, text="Save", command=self.save_settings).pack(side=tk.LEFT, padx=5)
