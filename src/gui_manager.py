@@ -5,6 +5,7 @@ import signal
 import subprocess
 import platform
 from core_logic import FoxgloveLogic # Assuming core_logic.py is in the same directory
+from logic.file_explorer_logic import FileExplorerLogic
 import shutil
 
 class FoxgloveAppGUIManager:
@@ -12,6 +13,7 @@ class FoxgloveAppGUIManager:
         self.root = root
         self.root.title("Foxglove MCAP Launcher")
         self.logic = FoxgloveLogic()
+        self.file_explorer_logic = FileExplorerLogic()
         
         self.current_mcap_folder_absolute = None
         self.mcap_filename_from_link = None
@@ -558,56 +560,32 @@ class FoxgloveAppGUIManager:
         try:
             self.explorer_listbox.delete(0, tk.END)
             self.explorer_files_list = []
-            
             if not os.path.exists(self.current_explorer_path):
                 self.log_message(f"Path does not exist: {self.current_explorer_path}", is_error=True)
                 return
-            
             if not os.path.isdir(self.current_explorer_path):
                 self.log_message(f"Path is not a directory: {self.current_explorer_path}", is_error=True)
                 return
-            
             # Update path display
             self.explorer_path_var.set(self.current_explorer_path)
-            
             # Add parent directory option (unless we're at root)
             parent_dir = os.path.dirname(self.current_explorer_path)
             if parent_dir != self.current_explorer_path:  # Not at root
                 self.explorer_listbox.insert(tk.END, "⬆️ .. (Parent Directory)")
                 self.explorer_files_list.append("..")
-            
-            # List directories first, then files
-            items = os.listdir(self.current_explorer_path)
-            dirs = []
-            files = []
-            
-            for item in items:
-                if item.startswith('.'):  # Skip hidden files
-                    continue
-                item_path = os.path.join(self.current_explorer_path, item)
-                if os.path.isdir(item_path):
-                    dirs.append(item)
-                else:
-                    files.append(item)
-            
-            # Sort directories and files separately
-            dirs.sort(key=str.lower)
-            files.sort(key=str.lower)
-            
+            # Use FileExplorerLogic to list directories and files
+            dirs, files = self.file_explorer_logic.list_directory(self.current_explorer_path)
             view_mode = self.explorer_view_mode.get()
-            
             # Add directories
             for d in dirs:
                 display_text = self._format_directory_display(d, view_mode)
                 self.explorer_listbox.insert(tk.END, display_text)
                 self.explorer_files_list.append(d)
-            
             # Add files
             for f in files:
                 display_text = self._format_file_display(f, view_mode)
                 self.explorer_listbox.insert(tk.END, display_text)
                 self.explorer_files_list.append(f)
-                
         except PermissionError:
             self.log_message(f"Permission denied accessing: {self.current_explorer_path}", is_error=True)
         except Exception as e:
@@ -615,14 +593,13 @@ class FoxgloveAppGUIManager:
 
     def _format_directory_display(self, dirname, view_mode):
         """Format directory display based on view mode"""
+        dir_path = os.path.join(self.current_explorer_path, dirname)
         if view_mode == "simple":
             return f"📁 {dirname}"
         elif view_mode == "icons":
             return f"📁\n{dirname[:15]}..." if len(dirname) > 15 else f"📁\n{dirname}"
         else:  # detailed
-            dir_path = os.path.join(self.current_explorer_path, dirname)
             try:
-                # Count items in directory
                 item_count = len([x for x in os.listdir(dir_path) if not x.startswith('.')])
                 return f"📁 {dirname:<30} ({item_count} items)"
             except (PermissionError, OSError):
@@ -631,54 +608,31 @@ class FoxgloveAppGUIManager:
     def _format_file_display(self, filename, view_mode):
         """Format file display based on view mode"""
         file_path = os.path.join(self.current_explorer_path, filename)
-        
-        # Get file icon
-        ext = os.path.splitext(filename)[1].lower()
-        if ext in ['.mcap']:
-            icon = "🎥"
-        elif ext in ['.txt', '.log', '.md']:
-            icon = "📄"
-        elif ext in ['.py', '.js', '.cpp', '.h', '.c', '.java']:
-            icon = "📜"
-        elif ext in ['.jpg', '.png', '.gif', '.bmp', '.jpeg']:
-            icon = "🖼️"
-        elif ext in ['.zip', '.tar', '.gz', '.rar']:
-            icon = "�"
-        elif ext in ['.pdf']:
-            icon = "📕"
-        elif ext in ['.json', '.xml', '.yaml', '.yml']:
-            icon = "⚙️"
-        else:
-            icon = "📄"
-        
+        info = self.file_explorer_logic.get_file_info(file_path)
+        icon = info['icon']
         if view_mode == "simple":
             return f"{icon} {filename}"
         elif view_mode == "icons":
             short_name = filename[:12] + "..." if len(filename) > 15 else filename
             return f"{icon}\n{short_name}"
         else:  # detailed
-            try:
-                # Get file size
-                size = os.path.getsize(file_path)
-                size_str = self._format_file_size(size)
-                # Get modification time
-                mod_time = os.path.getmtime(file_path)
-                import time
-                mod_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(mod_time))
-                return f"{icon} {filename:<30} {size_str:>10} {mod_str}"
-            except (OSError, PermissionError):
-                return f"{icon} {filename:<30} {'N/A':>10} {'N/A'}"
+            size_str = info['size_str']
+            import time
+            mod_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(info['mtime'])) if info['mtime'] else 'N/A'
+            return f"{icon} {filename:<30} {size_str:>10} {mod_str}"
 
-    def _format_file_size(self, size_bytes):
-        """Format file size in human readable format"""
-        if size_bytes == 0:
-            return "0 B"
-        size_names = ["B", "KB", "MB", "GB", "TB"]
-        import math
-        i = int(math.floor(math.log(size_bytes, 1024)))
-        p = math.pow(1024, i)
-        s = round(size_bytes / p, 2)
-        return f"{s} {size_names[i]}"
+    def get_selected_explorer_mcap_paths(self):
+        """Get paths of all selected MCAP files in the explorer"""
+        selection = self.explorer_listbox.curselection()
+        mcap_paths = []
+        for idx in selection:
+            if idx < len(self.explorer_files_list):
+                selected_item = self.explorer_files_list[idx]
+                if selected_item != "..":
+                    item_path = os.path.join(self.current_explorer_path, selected_item)
+                    if os.path.isfile(item_path) and self.file_explorer_logic.is_mcap_file(item_path):
+                        mcap_paths.append(item_path)
+        return mcap_paths
 
     def go_back(self):
         """Navigate back in history"""
@@ -727,14 +681,13 @@ class FoxgloveAppGUIManager:
             self.log_message(f"Invalid path: {new_path}", is_error=True)
             self.explorer_path_var.set(self.current_explorer_path)
 
-    def on_explorer_double_click(self, event):
-        """Handle double-click on explorer listbox items"""
+    def explorer_navigate_selected(self):
+        """Navigate into directory or open file for the currently selected item in explorer_listbox."""
         selection = self.explorer_listbox.curselection()
         if selection:
             idx = selection[0]
             if idx < len(self.explorer_files_list):
                 selected_item = self.explorer_files_list[idx]
-                
                 if selected_item == "..":
                     self.go_up_directory()
                 else:
@@ -746,60 +699,17 @@ class FoxgloveAppGUIManager:
                     else:
                         self.open_file(item_path)
 
-    def on_explorer_select(self, event):
-        """Handle selection change in explorer listbox"""
-        selection = self.explorer_listbox.curselection()
-        if selection:
-            # Get selected MCAP files
-            mcap_files_selected = self.get_selected_explorer_mcap_paths()
-            
-            # Enable/disable buttons based on selection
-            if len(selection) == 1:
-                idx = selection[0]
-                if idx < len(self.explorer_files_list):
-                    selected_item = self.explorer_files_list[idx]
-                    if selected_item != "..":
-                        item_path = os.path.join(self.current_explorer_path, selected_item)
-                        if os.path.isfile(item_path):
-                            self.open_file_button.config(state=tk.NORMAL)
-                            self.copy_path_button.config(state=tk.NORMAL)
-                            
-                            # Enable MCAP-specific buttons for .mcap files
-                            if item_path.lower().endswith('.mcap'):
-                                self.open_with_foxglove_button.config(state=tk.NORMAL)
-                                self.open_with_bazel_button.config(state=tk.NORMAL)
-                            else:
-                                self.open_with_foxglove_button.config(state=tk.DISABLED)
-                                self.open_with_bazel_button.config(state=tk.DISABLED)
-                        else:
-                            self.open_file_button.config(state=tk.DISABLED)
-                            self.open_with_foxglove_button.config(state=tk.DISABLED)
-                            self.open_with_bazel_button.config(state=tk.DISABLED)
-                            self.copy_path_button.config(state=tk.NORMAL)
-                    else:
-                        self.open_file_button.config(state=tk.DISABLED)
-                        self.open_with_foxglove_button.config(state=tk.DISABLED)
-                        self.open_with_bazel_button.config(state=tk.DISABLED)
-                        self.copy_path_button.config(state=tk.DISABLED)
-            else:
-                # Multiple selection - disable single file actions
-                self.open_file_button.config(state=tk.DISABLED)
-                self.open_with_foxglove_button.config(state=tk.DISABLED)
-                self.open_with_bazel_button.config(state=tk.DISABLED)
-                self.copy_path_button.config(state=tk.DISABLED)
-            
-            # Enable multiple MCAP button if more than one MCAP is selected
-            if len(mcap_files_selected) > 1:
-                self.open_multiple_bazel_button.config(state=tk.NORMAL)
-            else:
-                self.open_multiple_bazel_button.config(state=tk.DISABLED)
-                
-        else:
-            self.open_file_button.config(state=tk.DISABLED)
-            self.open_with_foxglove_button.config(state=tk.DISABLED)
-            self.open_with_bazel_button.config(state=tk.DISABLED)
-            self.open_multiple_bazel_button.config(state=tk.DISABLED)
-            self.copy_path_button.config(state=tk.DISABLED)
+    def on_explorer_double_click(self, event):
+        """Handle double-click on explorer listbox items"""
+        self.explorer_navigate_selected()
+
+    def on_explorer_enter_key(self, event):
+        """Handle Enter key in explorer listbox: enter directory or open file"""
+        self.explorer_navigate_selected()
+
+    def on_explorer_backspace_key(self, event):
+        """Handle Backspace key in explorer listbox: go up directory"""
+        self.go_up_directory()
 
     def open_selected_file(self):
         """Open the currently selected file"""
@@ -814,47 +724,23 @@ class FoxgloveAppGUIManager:
                         self.open_file(item_path)
 
     def open_file(self, file_path):
-        """Open a file using the system default application"""
-        try:
-            system = platform.system()
-            if system == "Linux":
-                subprocess.run(["xdg-open", file_path], check=True)
-            elif system == "Darwin":  # macOS
-                subprocess.run(["open", file_path], check=True)
-            elif system == "Windows":
-                os.startfile(file_path)
-            else:
-                self.log_message(f"Unsupported system: {system}", is_error=True)
-                return
-            
-            self.log_message(f"Opened file: {os.path.basename(file_path)}")
-        except subprocess.CalledProcessError as e:
-            self.log_message(f"Failed to open file: {e}", is_error=True)
-        except Exception as e:
-            self.log_message(f"Error opening file: {e}", is_error=True)
+        """Open a file using the system default application via FileExplorerLogic"""
+        success, msg = self.file_explorer_logic.open_file(file_path)
+        if success:
+            self.log_message(msg)
+        else:
+            self.log_message(msg, is_error=True)
 
     def open_in_file_manager(self):
-        """Open current directory in system file manager"""
-        try:
-            system = platform.system()
-            if system == "Linux":
-                subprocess.run(["xdg-open", self.current_explorer_path], check=True)
-            elif system == "Darwin":  # macOS
-                subprocess.run(["open", self.current_explorer_path], check=True)
-            elif system == "Windows":
-                subprocess.run(["explorer", self.current_explorer_path], check=True)
-            else:
-                self.log_message(f"Unsupported system: {system}", is_error=True)
-                return
-            
-            self.log_message(f"Opened in file manager: {self.current_explorer_path}")
-        except subprocess.CalledProcessError as e:
-            self.log_message(f"Failed to open file manager: {e}", is_error=True)
-        except Exception as e:
-            self.log_message(f"Error opening file manager: {e}", is_error=True)
+        """Open current directory in system file manager via FileExplorerLogic"""
+        success, msg = self.file_explorer_logic.open_in_file_manager(self.current_explorer_path)
+        if success:
+            self.log_message(msg)
+        else:
+            self.log_message(msg, is_error=True)
 
     def copy_selected_path(self):
-        """Copy the path of the selected item to clipboard"""
+        """Copy the path of the selected item to clipboard via FileExplorerLogic"""
         selection = self.explorer_listbox.curselection()
         if selection:
             idx = selection[0]
@@ -862,12 +748,11 @@ class FoxgloveAppGUIManager:
                 selected_item = self.explorer_files_list[idx]
                 if selected_item != "..":
                     item_path = os.path.join(self.current_explorer_path, selected_item)
-                    try:
-                        self.root.clipboard_clear()
-                        self.root.clipboard_append(item_path)
-                        self.log_message(f"Copied to clipboard: {item_path}")
-                    except Exception as e:
-                        self.log_message(f"Error copying to clipboard: {e}", is_error=True)
+                    success, msg = self.file_explorer_logic.copy_to_clipboard(self.root, item_path)
+                    if success:
+                        self.log_message(msg)
+                    else:
+                        self.log_message(msg, is_error=True)
 
     def open_with_foxglove(self):
         """Open the selected MCAP file with Foxglove"""
@@ -929,25 +814,51 @@ class FoxgloveAppGUIManager:
         else:
             self.log_message("No MCAP files selected.", is_error=True)
 
-    def get_selected_explorer_mcap_paths(self):
-        """Get paths of all selected MCAP files in the explorer"""
+    def on_explorer_select(self, event):
+        """Handle selection change in explorer listbox (enables/disables file action buttons)."""
+        def set_mcap_buttons_state(item_path):
+            """Enable or disable MCAP-specific buttons based on file extension."""
+            if item_path.lower().endswith('.mcap'):
+                self.open_with_foxglove_button.config(state=tk.NORMAL)
+                self.open_with_bazel_button.config(state=tk.NORMAL)
+            else:
+                self.open_with_foxglove_button.config(state=tk.DISABLED)
+                self.open_with_bazel_button.config(state=tk.DISABLED)
+
         selection = self.explorer_listbox.curselection()
-        mcap_paths = []
-        
-        for idx in selection:
-            if idx < len(self.explorer_files_list):
-                selected_item = self.explorer_files_list[idx]
-                if selected_item != "..":
-                    item_path = os.path.join(self.current_explorer_path, selected_item)
-                    if os.path.isfile(item_path) and item_path.lower().endswith('.mcap'):
-                        mcap_paths.append(item_path)
-        
-        return mcap_paths
+        if not selection:
+            # No selection: disable all file action buttons
+            self.open_file_button.config(state=tk.DISABLED)
+            self.open_with_foxglove_button.config(state=tk.DISABLED)
+            self.open_with_bazel_button.config(state=tk.DISABLED)
+            self.copy_path_button.config(state=tk.DISABLED)
+            return
 
-    def on_explorer_enter_key(self, event):
-        """Handle Enter key in explorer listbox: enter directory or open file"""
-        self.on_explorer_double_click(event)
+        idx = selection[0]
+        if idx >= len(self.explorer_files_list):
+            # Out of range selection
+            self.open_file_button.config(state=tk.DISABLED)
+            self.open_with_foxglove_button.config(state=tk.DISABLED)
+            self.open_with_bazel_button.config(state=tk.DISABLED)
+            self.copy_path_button.config(state=tk.DISABLED)
+            return
 
-    def on_explorer_backspace_key(self, event):
-        """Handle Backspace key in explorer listbox: go up directory"""
-        self.go_up_directory()
+        selected_item = self.explorer_files_list[idx]
+        if selected_item == "..":
+            # Parent directory: disable all file action buttons
+            self.open_file_button.config(state=tk.DISABLED)
+            self.open_with_foxglove_button.config(state=tk.DISABLED)
+            self.open_with_bazel_button.config(state=tk.DISABLED)
+            self.copy_path_button.config(state=tk.DISABLED)
+            return
+
+        item_path = os.path.join(self.current_explorer_path, selected_item)
+        if os.path.isfile(item_path):
+            self.open_file_button.config(state=tk.NORMAL)
+            self.copy_path_button.config(state=tk.NORMAL)
+            set_mcap_buttons_state(item_path)
+        else:
+            self.open_file_button.config(state=tk.DISABLED)
+            self.copy_path_button.config(state=tk.NORMAL)
+            self.open_with_foxglove_button.config(state=tk.DISABLED)
+            self.open_with_bazel_button.config(state=tk.DISABLED)
