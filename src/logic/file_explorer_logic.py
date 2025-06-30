@@ -85,3 +85,28 @@ class FileExplorerLogic:
             return True, f"Copied to clipboard: {text}"
         except Exception as e:
             return False, f"Error copying to clipboard: {e}"
+
+    def get_file_action_states(self, item_path, is_parent_dir=False):
+        """
+        Given a path, return a dict of which file action buttons should be enabled.
+        If is_parent_dir is True, disables all actions.
+        """
+        states = {
+            "open_file": False,
+            "copy_path": False,
+            "open_with_foxglove": False,
+            "open_with_bazel": False
+        }
+        if is_parent_dir:
+            return states
+        if not os.path.exists(item_path):
+            return states
+        if os.path.isfile(item_path):
+            states["open_file"] = True
+            states["copy_path"] = True
+            if self.is_mcap_file(item_path):
+                states["open_with_foxglove"] = True
+                states["open_with_bazel"] = True
+        elif os.path.isdir(item_path):
+            states["copy_path"] = True
+        return states

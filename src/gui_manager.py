@@ -181,16 +181,11 @@ class FoxgloveAppGUIManager:
         nav_frame = ttk.Frame(self.explorer_frame)
         nav_frame.pack(fill="x", padx=5, pady=5)
         
-        # Navigation buttons
+        # Navigation buttons (removed: Up, Back, Browse, Refresh)
         nav_buttons_frame = ttk.Frame(nav_frame)
         nav_buttons_frame.pack(fill="x", pady=(0, 5))
-        
-        ttk.Button(nav_buttons_frame, text="⬅️ Back", command=self.go_back).pack(side=tk.LEFT, padx=(0,5))
-        ttk.Button(nav_buttons_frame, text="⬆️ Up", command=self.go_up_directory).pack(side=tk.LEFT, padx=(0,5))
+        # Only keep Data button
         ttk.Button(nav_buttons_frame, text="💾 Data", command=self.go_home_directory).pack(side=tk.LEFT, padx=(0,5))
-        ttk.Button(nav_buttons_frame, text="📁 Browse", command=self.browse_directory).pack(side=tk.LEFT, padx=(0,5))
-        ttk.Button(nav_buttons_frame, text="🔄 Refresh", command=self.refresh_explorer).pack(side=tk.LEFT, padx=(0,5))
-        
         # View options
         view_frame = ttk.LabelFrame(nav_buttons_frame, text="View", padding="5")
         view_frame.pack(side=tk.RIGHT, padx=(5,0))
@@ -816,49 +811,32 @@ class FoxgloveAppGUIManager:
 
     def on_explorer_select(self, event):
         """Handle selection change in explorer listbox (enables/disables file action buttons)."""
-        def set_mcap_buttons_state(item_path):
-            """Enable or disable MCAP-specific buttons based on file extension."""
-            if item_path.lower().endswith('.mcap'):
-                self.open_with_foxglove_button.config(state=tk.NORMAL)
-                self.open_with_bazel_button.config(state=tk.NORMAL)
-            else:
-                self.open_with_foxglove_button.config(state=tk.DISABLED)
-                self.open_with_bazel_button.config(state=tk.DISABLED)
-
         selection = self.explorer_listbox.curselection()
+        # Default: all actions disabled
+        states = {
+            "open_file": False,
+            "copy_path": False,
+            "open_with_foxglove": False,
+            "open_with_bazel": False
+        }
+        is_parent_dir = False
+        item_path = None
         if not selection:
             # No selection: disable all file action buttons
-            self.open_file_button.config(state=tk.DISABLED)
-            self.open_with_foxglove_button.config(state=tk.DISABLED)
-            self.open_with_bazel_button.config(state=tk.DISABLED)
-            self.copy_path_button.config(state=tk.DISABLED)
-            return
-
-        idx = selection[0]
-        if idx >= len(self.explorer_files_list):
-            # Out of range selection
-            self.open_file_button.config(state=tk.DISABLED)
-            self.open_with_foxglove_button.config(state=tk.DISABLED)
-            self.open_with_bazel_button.config(state=tk.DISABLED)
-            self.copy_path_button.config(state=tk.DISABLED)
-            return
-
-        selected_item = self.explorer_files_list[idx]
-        if selected_item == "..":
-            # Parent directory: disable all file action buttons
-            self.open_file_button.config(state=tk.DISABLED)
-            self.open_with_foxglove_button.config(state=tk.DISABLED)
-            self.open_with_bazel_button.config(state=tk.DISABLED)
-            self.copy_path_button.config(state=tk.DISABLED)
-            return
-
-        item_path = os.path.join(self.current_explorer_path, selected_item)
-        if os.path.isfile(item_path):
-            self.open_file_button.config(state=tk.NORMAL)
-            self.copy_path_button.config(state=tk.NORMAL)
-            set_mcap_buttons_state(item_path)
+            pass
         else:
-            self.open_file_button.config(state=tk.DISABLED)
-            self.copy_path_button.config(state=tk.NORMAL)
-            self.open_with_foxglove_button.config(state=tk.DISABLED)
-            self.open_with_bazel_button.config(state=tk.DISABLED)
+            idx = selection[0]
+            if idx >= len(self.explorer_files_list):
+                pass  # Out of range selection
+            else:
+                selected_item = self.explorer_files_list[idx]
+                if selected_item == "..":
+                    is_parent_dir = True
+                else:
+                    item_path = os.path.join(self.current_explorer_path, selected_item)
+                states = self.file_explorer_logic.get_file_action_states(item_path, is_parent_dir)
+        # Set button states
+        self.open_file_button.config(state=tk.NORMAL if states["open_file"] else tk.DISABLED)
+        self.copy_path_button.config(state=tk.NORMAL if states["copy_path"] else tk.DISABLED)
+        self.open_with_foxglove_button.config(state=tk.NORMAL if states["open_with_foxglove"] else tk.DISABLED)
+        self.open_with_bazel_button.config(state=tk.NORMAL if states["open_with_bazel"] else tk.DISABLED)
