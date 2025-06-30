@@ -198,23 +198,12 @@ class FoxgloveAppGUIManager:
         file_actions_frame = ttk.LabelFrame(self.explorer_frame, text="File Actions", padding="10")
         file_actions_frame.pack(padx=5, pady=5, fill="x")
 
-        self.open_file_button = ttk.Button(file_actions_frame, text="Open File", command=self.open_selected_file, state=tk.DISABLED)
-        self.open_file_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
-
-        self.open_with_foxglove_button = ttk.Button(file_actions_frame, text="Open with Foxglove", command=self.open_with_foxglove, state=tk.DISABLED)
-        self.open_with_foxglove_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
-
-        self.open_with_bazel_button = ttk.Button(file_actions_frame, text="Open with Bazel", command=self.open_with_bazel, state=tk.DISABLED)
-        self.open_with_bazel_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
-
-        self.open_multiple_bazel_button = ttk.Button(file_actions_frame, text="Open Multiple with Bazel", command=self.open_multiple_with_bazel, state=tk.DISABLED)
-        self.open_multiple_bazel_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
-
-        self.open_folder_button = ttk.Button(file_actions_frame, text="Open in File Manager", command=self.open_in_file_manager)
-        self.open_folder_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
-
-        self.copy_path_button = ttk.Button(file_actions_frame, text="Copy Path", command=self.copy_selected_path, state=tk.DISABLED)
-        self.copy_path_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
+        self.open_file_button = self._create_button(file_actions_frame, "Open File", self.open_selected_file, state=tk.DISABLED)
+        self.open_with_foxglove_button = self._create_button(file_actions_frame, "Open with Foxglove", self.open_with_foxglove, state=tk.DISABLED)
+        self.open_with_bazel_button = self._create_button(file_actions_frame, "Open with Bazel", self.open_with_bazel, state=tk.DISABLED)
+        self.open_multiple_bazel_button = self._create_button(file_actions_frame, "Open Multiple with Bazel", self.open_multiple_with_bazel, state=tk.DISABLED)
+        self.open_folder_button = self._create_button(file_actions_frame, "Open in File Manager", self.open_in_file_manager)
+        self.copy_path_button = self._create_button(file_actions_frame, "Copy Path", self.copy_selected_path, state=tk.DISABLED)
 
         # --- Search Bar for Directory Filtering ---
         search_frame = ttk.Frame(self.explorer_frame)
@@ -324,8 +313,23 @@ class FoxgloveAppGUIManager:
             self.log_message(f"Error refreshing explorer: {e}", is_error=True)
 
     def on_explorer_search(self, *args):
-        """Callback for search bar: refresh explorer with filter applied"""
+        """Callback for search bar: refresh explorer with filter applied and highlight first directory if present"""
         self.refresh_explorer()
+        # Only auto-select if the search bar has focus and the listbox does not have focus or selection
+        focus_widget = self.root.focus_get()
+        listbox_has_focus = focus_widget == self.explorer_listbox
+        selection = self.explorer_listbox.curselection()
+        if self.root.focus_get() == self.explorer_search_entry and not listbox_has_focus and not selection:
+            if self.explorer_listbox.size() > 0:
+                first_idx = 0
+                if self.explorer_files_list and self.explorer_files_list[0] == "..":
+                    if len(self.explorer_files_list) > 1:
+                        first_idx = 1
+                    else:
+                        return  # Only parent dir present
+                self.explorer_listbox.selection_clear(0, tk.END)
+                self.explorer_listbox.selection_set(first_idx)
+                self.explorer_listbox.see(first_idx)
 
     def create_settings_widgets(self):
         settings_frame = self.settings_frame
@@ -657,6 +661,12 @@ class FoxgloveAppGUIManager:
         else:
             self.clear_file_list_and_disable_buttons()
 
+    def _create_button(self, parent, text, command, state=tk.NORMAL, **pack_opts):
+        """Helper to create and pack a ttk.Button with common options."""
+        btn = ttk.Button(parent, text=text, command=command, state=state)
+        btn.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x", **pack_opts)
+        return btn
+
     # File Explorer Methods
     def refresh_explorer(self, event=None):
         """Refresh the file explorer with current directory contents, filtered by search if set"""
@@ -783,6 +793,7 @@ class FoxgloveAppGUIManager:
                 selected_item = self.explorer_files_list[idx]
                 if selected_item == "..":
                     self.go_up_directory()
+                    self.clear_explorer_search()  # Clear search bar on directory navigation
                 else:
                     item_path = os.path.join(self.current_explorer_path, selected_item)
                     if os.path.isdir(item_path):
@@ -798,6 +809,7 @@ class FoxgloveAppGUIManager:
                             self._add_to_history(self.current_explorer_path)
                             self.current_explorer_path = data_path
                             self.refresh_explorer()
+                        self.clear_explorer_search()  # Clear search bar on directory navigation
                     else:
                         self.open_file(item_path)
 
@@ -810,8 +822,9 @@ class FoxgloveAppGUIManager:
         self.explorer_navigate_selected()
 
     def on_explorer_backspace_key(self, event):
-        """Handle Backspace key in explorer listbox: go up directory"""
+        """Handle Backspace key in explorer listbox: go up directory and clear search bar"""
         self.go_up_directory()
+        self.clear_explorer_search()
 
     def open_selected_file(self):
         """Open the currently selected file"""
