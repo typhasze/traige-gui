@@ -49,173 +49,225 @@ class FoxgloveLogic:
             relative_path = extracted_remote_folder[1:]
         else:
             relative_path = extracted_remote_folder
-
-        local_folder_path_absolute = os.path.join(self.local_base_path_absolute, relative_path)
-        
-        if os.path.exists(local_folder_path_absolute):
-            return local_folder_path_absolute
-        else:
-            backup_path = os.path.expanduser('~/data')
-            backup_local_folder_path_absolute = os.path.join(backup_path, relative_path)
-            if os.path.exists(backup_local_folder_path_absolute):
-                return backup_local_folder_path_absolute
-            else:
-                return local_folder_path_absolute
+        main_path = os.path.join(self.local_base_path_absolute, relative_path)
+        if os.path.isdir(main_path):
+            return main_path
+        # Try backup path
+        backup_base = os.path.expanduser('~/data/psa_logs_backup_nas3')
+        backup_path = os.path.join(backup_base, relative_path)
+        if os.path.isdir(backup_path):
+            return backup_path
+        return main_path  # Default to main path if neither exists
 
     def list_mcap_files(self, local_folder_path_absolute):
         """
-        Lists .mcap files in the given directory. Returns (files_list, error_message).
+        Lists .mcap files in the specified local directory.
+        Returns a tuple: (list_of_files, error_message_or_None)
         """
-        if not local_folder_path_absolute:
-            return [], "No folder path provided."
-        
-        if not os.path.exists(local_folder_path_absolute):
-            return [], f"Directory does not exist: {local_folder_path_absolute}"
-        
+        mcap_files = []
         if not os.path.isdir(local_folder_path_absolute):
-            return [], f"Path is not a directory: {local_folder_path_absolute}"
-        
+            return [], f"Local folder not found or is not a directory: {local_folder_path_absolute}"
         try:
-            all_files = os.listdir(local_folder_path_absolute)
-            mcap_files = [f for f in all_files if f.lower().endswith('.mcap')]
+            for item in os.listdir(local_folder_path_absolute):
+                if item.lower().endswith('.mcap'):
+                    mcap_files.append(item)
             mcap_files.sort()
             return mcap_files, None
         except PermissionError:
-            return [], f"Permission denied: {local_folder_path_absolute}"
+            return [], f"Permission denied to access folder: {local_folder_path_absolute}"
         except Exception as e:
-            return [], f"Error listing files: {e}"
+            return [], f"An unexpected error occurred while listing files: {e}"
+
+    def _is_any_viz_running(self):
+        """
+        Returns True if any viz process (Foxglove, Bazel Tools Viz, Bazel Bag GUI) is running.
+        """
+        for proc_info in self.running_processes:
+            proc = proc_info['process']
+            if proc.poll() is None and proc_info['name'] in [
+                'Foxglove Studio', 'Bazel Tools Viz', 'Bazel Bag GUI']:
+                return True
+        return False
+
+    def _terminate_process_by_name(self, name):
+        """
+        Terminates any running process with the given name.
+        """
+        for proc_info in list(self.running_processes):
+            if proc_info['name'] == name:
+                proc = proc_info['process']
+                if proc.poll() is None:
+                    try:
+                        proc.terminate()
+                        proc.wait(timeout=3)
+                    except Exception:
+                        try:
+                            proc.kill()
+                            proc.wait()
+                        except Exception:
+                            pass
+                self.running_processes.remove(proc_info)
+
+    def _is_process_running_by_name(self, name):
+        for proc_info in self.running_processes:
+            if proc_info['name'] == name:
+                proc = proc_info['process']
+                if proc.poll() is None:
+                    return True
+        return False
+
+    def _launch_process(self, command, name, cwd=None, mcap_path=None):
+        if name == 'Bazel Tools Viz':
+            if self._is_process_running_by_name(name):
+                return f"{name} is already running.", None
+        elif name in ['Foxglove Studio', 'Bazel Bag GUI']:
+            self._terminate_process_by_name(name)
+        try:
+            proc = subprocess.Popen(command, cwd=cwd)
+            self.running_processes.append({'name': name, 'process': proc, 'path': mcap_path, 'command': command, 'cwd': cwd})
+            return f"{name} launched (PID: {proc.pid}).", None
+        except FileNotFoundError:
+            return None, f"Command for '{name}' ('{command[0]}') not found. Ensure it's installed and in PATH."
+        except Exception as e:
+            return None, f"Failed to launch {name}: {e}"
+
+    def launch_foxglove(self, mcap_filepath_absolute):
+        return self._launch_process(['foxglove-studio', '--file', mcap_filepath_absolute], 'Foxglove Studio', mcap_path=mcap_filepath_absolute)
+
+    def launch_bazel_tools_viz(self):
+        if not os.path.isdir(self.bazel_working_dir):
+            return None, f"Bazel working directory not found: {self.bazel_working_dir}"
+        return self._launch_process(['bazel', 'run', '//tools/viz'], 'Bazel Tools Viz', cwd=self.bazel_working_dir)
+
+    def launch_bazel_bag_gui(self, mcap_dir_or_file):
+        # If a directory is provided, launch with all .mcap files in it
+        if os.path.isdir(mcap_dir_or_file):
+            mcap_glob = os.path.join(mcap_dir_or_file, '*.mcap')
+            return self._launch_process(['bazel', 'run', '//tools/bag:gui', '--', mcap_glob], 'Bazel Bag GUI', cwd=self.bazel_working_dir, mcap_path=mcap_dir_or_file)
+        else:
+            return self._launch_process(['bazel', 'run', '//tools/bag:gui', mcap_dir_or_file], 'Bazel Bag GUI', cwd=self.bazel_working_dir, mcap_path=mcap_dir_or_file)
+
+    def play_bazel_bag_gui_with_symlinks(self, mcap_filepaths):
+        import threading
+        symlink_dir = '/tmp/selected_bags_symlinks'
+        # Cleanup if exists
+        if os.path.exists(symlink_dir):
+            shutil.rmtree(symlink_dir)
+        os.makedirs(symlink_dir, exist_ok=True)
+        # Create symlinks
+        for bag in mcap_filepaths:
+            if os.path.isfile(bag):
+                link_name = os.path.join(symlink_dir, os.path.basename(bag))
+                try:
+                    os.symlink(bag, link_name)
+                except FileExistsError:
+                    pass
+        # Find all .mcap files in the symlink dir
+        mcap_files = [os.path.join(symlink_dir, f) for f in os.listdir(symlink_dir) if f.lower().endswith('.mcap')]
+        if not mcap_files:
+            return None, "No .mcap files found in symlink directory.", symlink_dir
+        # Run bazel command with all .mcap files as arguments
+        proc = subprocess.Popen(['bazel', 'run', '//tools/bag:gui', '--'] + mcap_files, cwd=self.bazel_working_dir)
+        self.running_processes.append({'name': 'Bazel Bag GUI', 'process': proc, 'path': symlink_dir, 'command': ['bazel', 'run', '//tools/bag:gui', '--'] + mcap_files, 'cwd': self.bazel_working_dir})
+        # Cleanup symlink dir after a delay
+        def delayed_cleanup():
+            import time
+            time.sleep(10)
+            shutil.rmtree(symlink_dir, ignore_errors=True)
+        threading.Thread(target=delayed_cleanup, daemon=True).start()
+        return f"Bazel Bag GUI launched with {len(mcap_files)} bag(s).", None, symlink_dir
+
+    def terminate_all_processes(self):
+        log_messages = []
+        if not self.running_processes:
+            log_messages.append("No processes were recorded as running by this application.")
+        
+        for proc_info in list(self.running_processes): # Iterate over a copy for safe removal
+            proc = proc_info['process']
+            name = proc_info['name']
+            if proc.poll() is None:
+                log_messages.append(f"Terminating {name} (PID: {proc.pid})...")
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=3) # Wait for graceful termination
+                    log_messages.append(f"{name} terminated.")
+                except subprocess.TimeoutExpired:
+                    log_messages.append(f"{name} did not terminate gracefully, killing...")
+                    proc.kill()
+                    proc.wait()
+                    log_messages.append(f"{name} killed.")
+                except Exception as e:
+                    log_messages.append(f"Error terminating {name}: {e}")
+            else:
+                log_messages.append(f"{name} (PID: {proc.pid}) was already terminated.")
+            
+            # Remove from list after processing
+            if proc_info in self.running_processes:
+                self.running_processes.remove(proc_info)
+                
+        if not log_messages: # Should not happen if logic above is correct
+             log_messages.append("Cleanup attempt complete. No active processes found or all terminated.")
+        return "\n".join(log_messages)
 
     def list_default_subfolders(self):
-        """List subfolders in the default ~/data/default directory."""
-        default_folder_path = os.path.join(self.local_base_path_absolute, 'default')
-        return self.list_subfolders_in_path(default_folder_path)
+        """
+        Lists all subfolders in the default directory (~/data/default).
+        Returns a list of absolute paths to subfolders.
+        """
+        default_path = os.path.join(self.local_base_path_absolute, 'default')
+        if not os.path.isdir(default_path):
+            return []
+        return [
+            os.path.join(default_path, d)
+            for d in os.listdir(default_path)
+            if os.path.isdir(os.path.join(default_path, d))
+        ]
 
     def list_subfolders_in_path(self, folder_path):
-        """List all subdirectories in the given folder path."""
-        if not folder_path or not os.path.exists(folder_path) or not os.path.isdir(folder_path):
+        """
+        Lists all subfolders in the given folder_path.
+        Returns a list of absolute paths to subfolders.
+        """
+        if not os.path.isdir(folder_path):
             return []
-        
-        try:
-            items = os.listdir(folder_path)
-            subfolders = []
-            for item in items:
-                item_path = os.path.join(folder_path, item)
-                if os.path.isdir(item_path):
-                    subfolders.append(item_path)
-            subfolders.sort()
-            return subfolders
-        except (PermissionError, OSError):
-            return []
+        return [
+            os.path.join(folder_path, d)
+            for d in os.listdir(folder_path)
+            if os.path.isdir(os.path.join(folder_path, d))
+        ]
 
     def find_parent_default_folder(self, path):
-        """Find the parent 'default' folder of the given path."""
-        current_path = path
-        while current_path and current_path != os.path.dirname(current_path):
-            if os.path.basename(current_path) == 'default':
-                return current_path
-            current_path = os.path.dirname(current_path)
+        """
+        Given a path, walk up the directory tree to find the parent 'default' folder.
+        Returns the absolute path to the parent 'default' folder, or None if not found.
+        """
+        if not path:
+            return None
+        parent_default = path
+        while parent_default and os.path.basename(parent_default) != 'default':
+            new_parent = os.path.dirname(parent_default)
+            if new_parent == parent_default:
+                break
+            parent_default = new_parent
+        if os.path.basename(parent_default) == 'default':
+            return parent_default
         return None
 
     def get_effective_default_folder(self, current_path=None):
-        """Get the effective default folder to use for subfolder search."""
-        if current_path:
-            parent_default = self.find_parent_default_folder(current_path)
-            if parent_default:
-                return parent_default
-        
-        # Fall back to standard default folder
-        return os.path.join(self.local_base_path_absolute, 'default')
+        """
+        Returns the parent 'default' folder of current_path, or ~/data/default if not found.
+        """
+        if not current_path:
+            current_path = os.path.expanduser('~/data/default')
+        parent_default = self.find_parent_default_folder(current_path)
+        if parent_default:
+            return parent_default
+        return os.path.expanduser('~/data/default')
 
-    def launch_foxglove(self, mcap_file_path):
-        """Launch Foxglove with the given MCAP file."""
-        if not mcap_file_path or not os.path.isfile(mcap_file_path):
-            return None, f"Invalid MCAP file path: {mcap_file_path}"
-        
-        try:
-            # Try to launch foxglove-studio first, then fallback to other commands
-            commands_to_try = [
-                ['foxglove-studio', mcap_file_path],
-                ['foxglove', mcap_file_path],
-                ['ros2', 'bag', 'play', mcap_file_path]
-            ]
-            
-            for cmd in commands_to_try:
-                try:
-                    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    self.running_processes.append(process)
-                    return f"Launched Foxglove with {os.path.basename(mcap_file_path)}", None
-                except FileNotFoundError:
-                    continue
-            
-            return None, "Foxglove not found. Please install foxglove-studio."
-        except Exception as e:
-            return None, f"Error launching Foxglove: {e}"
-
-    def launch_bazel_bag_gui(self, mcap_file_path):
-        """Launch Bazel Bag GUI with the given MCAP file."""
-        if not mcap_file_path or not os.path.isfile(mcap_file_path):
-            return None, f"Invalid MCAP file path: {mcap_file_path}"
-        
-        try:
-            cmd = ['bazel', 'run', '//tools/bag_gui:bag_gui', '--', mcap_file_path]
-            process = subprocess.Popen(cmd, cwd=self.bazel_working_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.running_processes.append(process)
-            return f"Launched Bazel Bag GUI with {os.path.basename(mcap_file_path)}", None
-        except Exception as e:
-            return None, f"Error launching Bazel Bag GUI: {e}"
-
-    def launch_bazel_tools_viz(self):
-        """Launch Bazel Tools Viz."""
-        try:
-            cmd = ['bazel', 'run', '//tools/viz:viz']
-            process = subprocess.Popen(cmd, cwd=self.bazel_working_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.running_processes.append(process)
-            return "Launched Bazel Tools Viz", None
-        except Exception as e:
-            return None, f"Error launching Bazel Tools Viz: {e}"
-
-    def play_bazel_bag_gui_with_symlinks(self, mcap_file_paths):
-        """Launch Bazel Bag GUI with multiple MCAP files using symlinks."""
-        if not mcap_file_paths:
-            return None, "No MCAP files provided.", None
-        
-        # Create symlink directory
-        symlink_dir = '/tmp/selected_bags_symlinks'
-        
-        try:
-            # Clean up existing symlink directory
-            if os.path.exists(symlink_dir):
-                shutil.rmtree(symlink_dir, ignore_errors=True)
-            
-            # Create new symlink directory
-            os.makedirs(symlink_dir, exist_ok=True)
-            
-            # Create symlinks
-            for mcap_file_path in mcap_file_paths:
-                if os.path.isfile(mcap_file_path):
-                    basename = os.path.basename(mcap_file_path)
-                    symlink_path = os.path.join(symlink_dir, basename)
-                    os.symlink(mcap_file_path, symlink_path)
-            
-            # Launch Bazel Bag GUI with the symlink directory
-            cmd = ['bazel', 'run', '//tools/bag_gui:bag_gui', '--', symlink_dir]
-            process = subprocess.Popen(cmd, cwd=self.bazel_working_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.running_processes.append(process)
-            
-            return f"Launched Bazel Bag GUI with {len(mcap_file_paths)} files via symlinks", None, symlink_dir
-        except Exception as e:
-            return None, f"Error launching Bazel Bag GUI with symlinks: {e}", symlink_dir
-
-    def terminate_all_processes(self):
-        """Terminate all running processes."""
-        terminated_count = 0
-        for process in self.running_processes:
-            try:
-                if process.poll() is None:  # Process is still running
-                    process.terminate()
-                    terminated_count += 1
-            except Exception:
-                pass
-        
-        self.running_processes.clear()
-        return f"Terminated {terminated_count} process(es)."
+# Remove the old ApplicationLogic class if it's no longer needed, or keep it if used elsewhere.
+# For this specific UI, we are focusing on FoxgloveLogic.
+# class ApplicationLogic:
+#     def __init__(self):
+#         # Initialize any necessary variables or states
+#         self.data = None
+# ... (rest of ApplicationLogic)
