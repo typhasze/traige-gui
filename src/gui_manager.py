@@ -26,11 +26,8 @@ class FoxgloveAppGUIManager:
         self.explorer_history = []  # Navigation history
 
         self.create_widgets()
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
-        self.setup_signal_handlers()
         # Set a minimum size for the window
         self.root.minsize(800, 600)
-
 
     def log_message(self, message, is_error=False, clear_first=False):
         self.status_text.config(state=tk.NORMAL)
@@ -59,17 +56,20 @@ class FoxgloveAppGUIManager:
         # Create Foxglove tab
         self.foxglove_frame = ttk.Frame(self.main_notebook)
         self.main_notebook.add(self.foxglove_frame, text="Foxglove MCAP")
-        
         # Create File Explorer tab
         self.explorer_frame = ttk.Frame(self.main_notebook)
         self.main_notebook.add(self.explorer_frame, text="File Explorer")
-
+        # Create Settings tab
+        self.settings_frame = ttk.Frame(self.main_notebook)
+        self.main_notebook.add(self.settings_frame, text="Settings")
         # Create widgets for each tab
         self.create_foxglove_widgets()
         self.create_explorer_widgets()
-        
+        self.create_settings_widgets()
         # Set up logging frame that's shared between tabs
         self.create_shared_log_frame(main_frame)
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.setup_signal_handlers()
 
     def create_foxglove_widgets(self):
         # --- Input Frame ---
@@ -262,6 +262,50 @@ class FoxgloveAppGUIManager:
 
         # Load initial directory
         self.refresh_explorer()
+
+    def create_settings_widgets(self):
+        settings_frame = self.settings_frame
+        # Bazel Tools Viz command
+        ttk.Label(settings_frame, text="Bazel Tools Viz Command:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        self.bazel_tools_viz_var = tk.StringVar(value=' '.join(self.logic.get_bazel_tools_viz_cmd()))
+        self.bazel_tools_viz_entry = ttk.Entry(settings_frame, textvariable=self.bazel_tools_viz_var, width=60)
+        self.bazel_tools_viz_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        # Bazel Bag GUI command
+        ttk.Label(settings_frame, text="Bazel Bag GUI Command:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        self.bazel_bag_gui_var = tk.StringVar(value=' '.join(self.logic.get_bazel_bag_gui_cmd()))
+        self.bazel_bag_gui_entry = ttk.Entry(settings_frame, textvariable=self.bazel_bag_gui_var, width=60)
+        self.bazel_bag_gui_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+        # Bazel Working Directory
+        ttk.Label(settings_frame, text="Bazel Working Directory:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
+        self.bazel_working_dir_var = tk.StringVar(value=self.logic.get_bazel_working_dir())
+        self.bazel_working_dir_entry = ttk.Entry(settings_frame, textvariable=self.bazel_working_dir_var, width=60)
+        self.bazel_working_dir_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+        # Save and Reset buttons
+        btn_frame = ttk.Frame(settings_frame)
+        btn_frame.grid(row=3, column=0, columnspan=2, pady=10)
+        ttk.Button(btn_frame, text="Save", command=self.save_settings).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Reset", command=self.reset_settings).pack(side=tk.LEFT, padx=5)
+        settings_frame.columnconfigure(1, weight=1)
+
+    def save_settings(self):
+        # Split command string into list for each
+        viz_cmd = self.bazel_tools_viz_var.get().strip().split()
+        bag_cmd = self.bazel_bag_gui_var.get().strip().split()
+        working_dir = self.bazel_working_dir_var.get().strip()
+        ok1, err1 = self.logic.set_bazel_tools_viz_cmd(viz_cmd)
+        ok2, err2 = self.logic.set_bazel_bag_gui_cmd(bag_cmd)
+        ok3, err3 = self.logic.set_bazel_working_dir(working_dir)
+        if ok1 and ok2 and ok3:
+            self.log_message("Settings saved.")
+        else:
+            self.log_message(f"Error saving settings: {err1 or ''} {err2 or ''} {err3 or ''}", is_error=True)
+
+    def reset_settings(self):
+        self.logic.settings = self.logic.load_settings()
+        self.bazel_tools_viz_var.set(' '.join(self.logic.get_bazel_tools_viz_cmd()))
+        self.bazel_bag_gui_var.set(' '.join(self.logic.get_bazel_bag_gui_cmd()))
+        self.bazel_working_dir_var.set(self.logic.get_bazel_working_dir())
+        self.log_message("Settings reset to last saved.")
 
     def create_shared_log_frame(self, parent_frame):
         # --- Status/Log Frame ---

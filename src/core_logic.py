@@ -2,6 +2,7 @@ import urllib.parse
 import os
 import subprocess
 import shutil
+import json
 
 def perform_operation(data):
     # Placeholder for core logic operation
@@ -15,6 +16,62 @@ class FoxgloveLogic:
         self.local_base_path_absolute = os.path.expanduser('~/data')
         # Default Bazel working directory
         self.bazel_working_dir = os.path.expanduser('~/av-system/catkin_ws/src')
+        self.settings_path = os.path.expanduser('~/.foxglove_gui_settings.json')
+        self.settings = self.load_settings()
+
+    def load_settings(self):
+        """
+        Loads settings from a JSON file, or returns defaults if not found.
+        """
+        default_settings = {
+            'bazel_tools_viz_cmd': ['bazel', 'run', '//tools/viz'],
+            'bazel_bag_gui_cmd': ['bazel', 'run', '//tools/bag:gui'],
+            'bazel_working_dir': os.path.expanduser('~/av-system/catkin_ws/src'),
+        }
+        if os.path.exists(self.settings_path):
+            try:
+                with open(self.settings_path, 'r') as f:
+                    user_settings = json.load(f)
+                # Merge defaults with user settings
+                for k, v in default_settings.items():
+                    if k not in user_settings:
+                        user_settings[k] = v
+                return user_settings
+            except Exception:
+                return default_settings
+        return default_settings
+
+    def save_settings(self):
+        """
+        Saves current settings to the JSON file.
+        """
+        try:
+            with open(self.settings_path, 'w') as f:
+                json.dump(self.settings, f, indent=2)
+            return True, None
+        except Exception as e:
+            return False, str(e)
+
+    def set_bazel_tools_viz_cmd(self, cmd_list):
+        self.settings['bazel_tools_viz_cmd'] = cmd_list
+        return self.save_settings()
+
+    def set_bazel_bag_gui_cmd(self, cmd_list):
+        self.settings['bazel_bag_gui_cmd'] = cmd_list
+        return self.save_settings()
+
+    def set_bazel_working_dir(self, dir_path):
+        self.settings['bazel_working_dir'] = dir_path
+        return self.save_settings()
+
+    def get_bazel_tools_viz_cmd(self):
+        return self.settings.get('bazel_tools_viz_cmd', ['bazel', 'run', '//tools/viz'])
+
+    def get_bazel_bag_gui_cmd(self):
+        return self.settings.get('bazel_bag_gui_cmd', ['bazel', 'run', '//tools/bag:gui'])
+
+    def get_bazel_working_dir(self):
+        return self.settings.get('bazel_working_dir', os.path.expanduser('~/av-system/catkin_ws/src'))
 
     def extract_mcap_details_from_foxglove_link(self, link):
         """
@@ -135,17 +192,18 @@ class FoxgloveLogic:
         return self._launch_process(['foxglove-studio', '--file', mcap_filepath_absolute], 'Foxglove Studio', mcap_path=mcap_filepath_absolute)
 
     def launch_bazel_tools_viz(self):
-        if not os.path.isdir(self.bazel_working_dir):
-            return None, f"Bazel working directory not found: {self.bazel_working_dir}"
-        return self._launch_process(['bazel', 'run', '//tools/viz'], 'Bazel Tools Viz', cwd=self.bazel_working_dir)
+        bazel_dir = self.get_bazel_working_dir()
+        if not os.path.isdir(bazel_dir):
+            return None, f"Bazel working directory not found: {bazel_dir}"
+        return self._launch_process(self.get_bazel_tools_viz_cmd(), 'Bazel Tools Viz', cwd=bazel_dir)
 
     def launch_bazel_bag_gui(self, mcap_dir_or_file):
-        # If a directory is provided, launch with all .mcap files in it
+        bazel_dir = self.get_bazel_working_dir()
         if os.path.isdir(mcap_dir_or_file):
             mcap_glob = os.path.join(mcap_dir_or_file, '*.mcap')
-            return self._launch_process(['bazel', 'run', '//tools/bag:gui', '--', mcap_glob], 'Bazel Bag GUI', cwd=self.bazel_working_dir, mcap_path=mcap_dir_or_file)
+            return self._launch_process(self.get_bazel_bag_gui_cmd() + ['--', mcap_glob], 'Bazel Bag GUI', cwd=bazel_dir, mcap_path=mcap_dir_or_file)
         else:
-            return self._launch_process(['bazel', 'run', '//tools/bag:gui', mcap_dir_or_file], 'Bazel Bag GUI', cwd=self.bazel_working_dir, mcap_path=mcap_dir_or_file)
+            return self._launch_process(self.get_bazel_bag_gui_cmd() + [mcap_dir_or_file], 'Bazel Bag GUI', cwd=bazel_dir, mcap_path=mcap_dir_or_file)
 
     def play_bazel_bag_gui_with_symlinks(self, mcap_filepaths):
         import threading
@@ -166,9 +224,10 @@ class FoxgloveLogic:
         mcap_files = [os.path.join(symlink_dir, f) for f in os.listdir(symlink_dir) if f.lower().endswith('.mcap')]
         if not mcap_files:
             return None, "No .mcap files found in symlink directory.", symlink_dir
+        bazel_dir = self.get_bazel_working_dir()
         # Run bazel command with all .mcap files as arguments
-        proc = subprocess.Popen(['bazel', 'run', '//tools/bag:gui', '--'] + mcap_files, cwd=self.bazel_working_dir)
-        self.running_processes.append({'name': 'Bazel Bag GUI', 'process': proc, 'path': symlink_dir, 'command': ['bazel', 'run', '//tools/bag:gui', '--'] + mcap_files, 'cwd': self.bazel_working_dir})
+        proc = subprocess.Popen(['bazel', 'run', '//tools/bag:gui', '--'] + mcap_files, cwd=bazel_dir)
+        self.running_processes.append({'name': 'Bazel Bag GUI', 'process': proc, 'path': symlink_dir, 'command': ['bazel', 'run', '//tools/bag:gui', '--'] + mcap_files, 'cwd': bazel_dir})
         # Cleanup symlink dir after a delay
         def delayed_cleanup():
             import time
