@@ -35,37 +35,47 @@ class FileExplorerLogic:
         except Exception:
             return {'size': None, 'mtime': None, 'icon': get_file_icon(path), 'size_str': 'N/A'}
 
-    def _run_subprocess(self, cmd, path, is_file=True):
-        """Helper to run a subprocess for opening files or directories."""
+    def open_file(self, file_path):
+        """Open a file using the system default application. Returns (success, message)."""
         import platform
         import subprocess
         import os
         try:
             system = platform.system()
             if system == "Linux":
-                subprocess.run(["xdg-open", path], check=True)
+                subprocess.run(["xdg-open", file_path], check=True)
             elif system == "Darwin":
-                subprocess.run(["open", path], check=True)
+                subprocess.run(["open", file_path], check=True)
             elif system == "Windows":
-                if is_file and hasattr(os, 'startfile'):
-                    os.startfile(path)
-                else:
-                    subprocess.run(["explorer", path], check=True)
+                os.startfile(file_path)
             else:
                 return False, f"Unsupported system: {system}"
-            return True, f"Opened {'file' if is_file else 'in file manager'}: {os.path.basename(path) if is_file else path}"
+            return True, f"Opened file: {os.path.basename(file_path)}"
         except subprocess.CalledProcessError as e:
-            return False, f"Failed to open {'file' if is_file else 'file manager'}: {e}"
+            return False, f"Failed to open file: {e}"
         except Exception as e:
-            return False, f"Error opening {'file' if is_file else 'file manager'}: {e}"
-
-    def open_file(self, file_path):
-        """Open a file using the system default application. Returns (success, message)."""
-        return self._run_subprocess(None, file_path, is_file=True)
+            return False, f"Error opening file: {e}"
 
     def open_in_file_manager(self, dir_path):
         """Open a directory in the system file manager. Returns (success, message)."""
-        return self._run_subprocess(None, dir_path, is_file=False)
+        import platform
+        import subprocess
+        import os
+        try:
+            system = platform.system()
+            if system == "Linux":
+                subprocess.run(["xdg-open", dir_path], check=True)
+            elif system == "Darwin":
+                subprocess.run(["open", dir_path], check=True)
+            elif system == "Windows":
+                subprocess.run(["explorer", dir_path], check=True)
+            else:
+                return False, f"Unsupported system: {system}"
+            return True, f"Opened in file manager: {dir_path}"
+        except subprocess.CalledProcessError as e:
+            return False, f"Failed to open file manager: {e}"
+        except Exception as e:
+            return False, f"Error opening file manager: {e}"
 
     def copy_to_clipboard(self, root, text):
         """Copy text to clipboard using the Tk root. Returns (success, message)."""
