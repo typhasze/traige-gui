@@ -211,21 +211,6 @@ class FoxgloveAppGUIManager:
         
         ttk.Button(path_frame, text="Go", command=self.navigate_to_path).pack(side=tk.LEFT)
 
-        # --- Search/Filter Bar ---
-        search_frame = ttk.Frame(self.explorer_frame)
-        search_frame.pack(fill="x", padx=5, pady=(0, 5))
-        ttk.Label(search_frame, text="Search:").pack(side=tk.LEFT, padx=(0, 5))
-        self.explorer_search_var = tk.StringVar()
-        self.explorer_search_entry = ttk.Entry(search_frame, textvariable=self.explorer_search_var, width=30)
-        self.explorer_search_entry.pack(side=tk.LEFT, fill="x", expand=True)
-        self.explorer_search_entry.bind('<KeyRelease>', self.on_explorer_search)
-        self.explorer_search_entry.bind('<Down>', self.focus_explorer_listbox)
-        self.explorer_search_entry.bind('<Up>', self.focus_explorer_listbox)
-        self.explorer_search_entry.bind('<Return>', self.select_first_and_focus_listbox)
-        self.explorer_search_entry.bind('<Escape>', self.clear_search_and_focus)
-        clear_btn = ttk.Button(search_frame, text="Clear", command=self.clear_explorer_search)
-        clear_btn.pack(side=tk.LEFT, padx=(5, 0))
-
         # --- File/Folder List Frame ---
         explorer_list_frame = ttk.LabelFrame(self.explorer_frame, text="Files and Folders", padding="10")
         explorer_list_frame.pack(padx=5, pady=5, fill="both", expand=True)
@@ -251,9 +236,6 @@ class FoxgloveAppGUIManager:
         
         self.explorer_listbox.bind('<Double-Button-1>', self.on_explorer_double_click)
         self.explorer_listbox.bind('<<ListboxSelect>>', self.on_explorer_select)
-        self.explorer_listbox.bind('<Return>', self.on_explorer_listbox_enter)
-        self.explorer_listbox.bind('<Escape>', self.clear_search_and_focus)
-        self.explorer_listbox.bind('<BackSpace>', self.on_explorer_listbox_backspace)
 
         # --- File Actions Frame ---
         file_actions_frame = ttk.LabelFrame(self.explorer_frame, text="File Actions", padding="10")
@@ -608,12 +590,6 @@ class FoxgloveAppGUIManager:
             dirs.sort(key=str.lower)
             files.sort(key=str.lower)
             
-            # --- Apply search filter ---
-            filter_str = self.explorer_search_var.get().strip().lower() if hasattr(self, 'explorer_search_var') else ""
-            if filter_str:
-                dirs = [d for d in dirs if filter_str in d.lower()]
-                files = [f for f in files if filter_str in f.lower()]
-            
             view_mode = self.explorer_view_mode.get()
             
             # Add directories
@@ -633,13 +609,8 @@ class FoxgloveAppGUIManager:
         except Exception as e:
             self.log_message(f"Error refreshing explorer: {e}", is_error=True)
 
-    def _truncate_name(self, name, width=32):
-        """Truncate and pad name for table-like alignment"""
-        if len(name) > width:
-            return name[:width-3] + '...'
-        return name.ljust(width)
-
     def _format_directory_display(self, dirname, view_mode):
+        """Format directory display based on view mode"""
         if view_mode == "simple":
             return f"📁 {dirname}"
         elif view_mode == "icons":
@@ -647,15 +618,17 @@ class FoxgloveAppGUIManager:
         else:  # detailed
             dir_path = os.path.join(self.current_explorer_path, dirname)
             try:
+                # Count items in directory
                 item_count = len([x for x in os.listdir(dir_path) if not x.startswith('.')])
-                name_col = self._truncate_name(dirname)
-                return f"📁 {name_col}   {'-':>10} {'-':>16}  ({item_count} items)"
+                return f"📁 {dirname:<30} ({item_count} items)"
             except (PermissionError, OSError):
-                name_col = self._truncate_name(dirname)
-                return f"📁 {name_col}   {'-':>10} {'-':>16}  (Access denied)"
+                return f"📁 {dirname:<30} (Access denied)"
 
     def _format_file_display(self, filename, view_mode):
+        """Format file display based on view mode"""
         file_path = os.path.join(self.current_explorer_path, filename)
+        
+        # Get file icon
         ext = os.path.splitext(filename)[1].lower()
         if ext in ['.mcap']:
             icon = "🎥"
@@ -666,13 +639,14 @@ class FoxgloveAppGUIManager:
         elif ext in ['.jpg', '.png', '.gif', '.bmp', '.jpeg']:
             icon = "🖼️"
         elif ext in ['.zip', '.tar', '.gz', '.rar']:
-            icon = "📦"
+            icon = "�"
         elif ext in ['.pdf']:
             icon = "📕"
         elif ext in ['.json', '.xml', '.yaml', '.yml']:
             icon = "⚙️"
         else:
             icon = "📄"
+        
         if view_mode == "simple":
             return f"{icon} {filename}"
         elif view_mode == "icons":
@@ -680,16 +654,16 @@ class FoxgloveAppGUIManager:
             return f"{icon}\n{short_name}"
         else:  # detailed
             try:
+                # Get file size
                 size = os.path.getsize(file_path)
                 size_str = self._format_file_size(size)
+                # Get modification time
                 mod_time = os.path.getmtime(file_path)
                 import time
                 mod_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(mod_time))
-                name_col = self._truncate_name(filename)
-                return f"{icon} {name_col}   {size_str:>10} {mod_str:>16}"
+                return f"{icon} {filename:<30} {size_str:>10} {mod_str}"
             except (OSError, PermissionError):
-                name_col = self._truncate_name(filename)
-                return f"{icon} {name_col}   {'N/A':>10} {'N/A':>16}"
+                return f"{icon} {filename:<30} {'N/A':>10} {'N/A'}"
 
     def _format_file_size(self, size_bytes):
         """Format file size in human readable format"""
@@ -965,64 +939,3 @@ class FoxgloveAppGUIManager:
                         mcap_paths.append(item_path)
         
         return mcap_paths
-
-    def on_explorer_search(self, event=None):
-        """Callback for search/filter bar in file explorer"""
-        self.refresh_explorer()
-
-    def clear_explorer_search(self):
-        self.explorer_search_var.set("")
-        self.refresh_explorer()
-
-    def focus_explorer_listbox(self, event=None):
-        self.explorer_listbox.focus_set()
-        if self.explorer_listbox.size() > 0:
-            cur = self.explorer_listbox.curselection()
-            if not cur:
-                self.explorer_listbox.selection_set(0)
-                self.explorer_listbox.activate(0)
-        return 'break'
-
-    def select_first_and_focus_listbox(self, event=None):
-        if self.explorer_listbox.size() > 0:
-            self.explorer_listbox.selection_clear(0, tk.END)
-            self.explorer_listbox.selection_set(0)
-            self.explorer_listbox.activate(0)
-            self.explorer_listbox.focus_set()
-            # If the first item is a folder, enter it
-            selected_item = self.explorer_files_list[0] if len(self.explorer_files_list) > 0 else None
-            if selected_item and selected_item != "..":
-                item_path = os.path.join(self.current_explorer_path, selected_item)
-                if os.path.isdir(item_path):
-                    self._add_to_history(self.current_explorer_path)
-                    self.current_explorer_path = item_path
-                    self.refresh_explorer()
-        return 'break'
-
-    def clear_search_and_focus(self, event=None):
-        self.clear_explorer_search()
-        self.explorer_search_entry.focus_set()
-        return 'break'
-
-    def on_explorer_listbox_enter(self, event=None):
-        selection = self.explorer_listbox.curselection()
-        if selection:
-            idx = selection[0]
-            if idx < len(self.explorer_files_list):
-                selected_item = self.explorer_files_list[idx]
-                if selected_item == "..":
-                    self.go_up_directory()
-                else:
-                    item_path = os.path.join(self.current_explorer_path, selected_item)
-                    if os.path.isdir(item_path):
-                        self._add_to_history(self.current_explorer_path)
-                        self.current_explorer_path = item_path
-                        self.clear_explorer_search()  # Clear search bar after entering folder
-                        self.refresh_explorer()
-                    else:
-                        self.open_file(item_path)
-        return 'break'
-
-    def on_explorer_listbox_backspace(self, event=None):
-        self.go_up_directory()
-        return 'break'
