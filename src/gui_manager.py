@@ -70,6 +70,8 @@ class FoxgloveAppGUIManager:
         self.create_shared_log_frame(main_frame)
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.setup_signal_handlers()
+        # Now that all widgets are created, refresh explorer
+        self.refresh_explorer()
 
     def create_foxglove_widgets(self):
         # --- Input Frame ---
@@ -180,24 +182,8 @@ class FoxgloveAppGUIManager:
         # --- Path Navigation Frame ---
         nav_frame = ttk.Frame(self.explorer_frame)
         nav_frame.pack(fill="x", padx=5, pady=5)
-        
-        # Navigation buttons (removed: Up, Back, Browse, Refresh)
-        nav_buttons_frame = ttk.Frame(nav_frame)
-        nav_buttons_frame.pack(fill="x", pady=(0, 5))
-        # Only keep Data button
-        ttk.Button(nav_buttons_frame, text="💾 Data", command=self.go_home_directory).pack(side=tk.LEFT, padx=(0,5))
-        # View options
-        view_frame = ttk.LabelFrame(nav_buttons_frame, text="View", padding="5")
-        view_frame.pack(side=tk.RIGHT, padx=(5,0))
-        
-        ttk.Radiobutton(view_frame, text="📋 Detailed", variable=self.explorer_view_mode, 
-                       value="detailed", command=self.refresh_explorer).pack(side=tk.LEFT)
-        ttk.Radiobutton(view_frame, text="📄 Simple", variable=self.explorer_view_mode, 
-                       value="simple", command=self.refresh_explorer).pack(side=tk.LEFT)
-        ttk.Radiobutton(view_frame, text="🗂️ Icons", variable=self.explorer_view_mode, 
-                       value="icons", command=self.refresh_explorer).pack(side=tk.LEFT)
-        
-        # Current path display
+
+        # Current path display (MISSING, add this)
         path_frame = ttk.Frame(nav_frame)
         path_frame.pack(fill="x")
         ttk.Label(path_frame, text="Path:").pack(side=tk.LEFT, padx=(0,5))
@@ -205,8 +191,43 @@ class FoxgloveAppGUIManager:
         self.explorer_path_entry = ttk.Entry(path_frame, textvariable=self.explorer_path_var, width=50)
         self.explorer_path_entry.pack(side=tk.LEFT, fill="x", expand=True, padx=(0,5))
         self.explorer_path_entry.bind('<Return>', self.navigate_to_path)
-        
         ttk.Button(path_frame, text="Go", command=self.navigate_to_path).pack(side=tk.LEFT)
+        ttk.Button(path_frame, text="Home", command=self.go_home_directory).pack(side=tk.LEFT, padx=(5,0))
+
+        # --- File Actions Frame ---
+        file_actions_frame = ttk.LabelFrame(self.explorer_frame, text="File Actions", padding="10")
+        file_actions_frame.pack(padx=5, pady=5, fill="x")
+
+        self.open_file_button = ttk.Button(file_actions_frame, text="Open File", command=self.open_selected_file, state=tk.DISABLED)
+        self.open_file_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
+
+        self.open_with_foxglove_button = ttk.Button(file_actions_frame, text="Open with Foxglove", command=self.open_with_foxglove, state=tk.DISABLED)
+        self.open_with_foxglove_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
+
+        self.open_with_bazel_button = ttk.Button(file_actions_frame, text="Open with Bazel", command=self.open_with_bazel, state=tk.DISABLED)
+        self.open_with_bazel_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
+
+        self.open_multiple_bazel_button = ttk.Button(file_actions_frame, text="Open Multiple with Bazel", command=self.open_multiple_with_bazel, state=tk.DISABLED)
+        self.open_multiple_bazel_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
+
+        self.open_folder_button = ttk.Button(file_actions_frame, text="Open in File Manager", command=self.open_in_file_manager)
+        self.open_folder_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
+
+        self.copy_path_button = ttk.Button(file_actions_frame, text="Copy Path", command=self.copy_selected_path, state=tk.DISABLED)
+        self.copy_path_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
+
+        # --- Search Bar for Directory Filtering ---
+        search_frame = ttk.Frame(self.explorer_frame)
+        search_frame.pack(fill="x", padx=5, pady=(0, 5))
+        ttk.Label(search_frame, text="Search:").pack(side=tk.LEFT, padx=(0, 5))
+        self.explorer_search_var = tk.StringVar()
+        self.explorer_search_var.trace_add('write', self.on_explorer_search)
+        self.explorer_search_entry = ttk.Entry(search_frame, textvariable=self.explorer_search_var, width=30)
+        self.explorer_search_entry.pack(side=tk.LEFT, fill="x", expand=True)
+        # Robust ESC binding
+        self.explorer_search_entry.bind('<Escape>', self._on_explorer_search_escape)
+        self.explorer_search_entry.bind('<Up>', self.focus_explorer_listbox_up)
+        self.explorer_search_entry.bind('<Down>', self.focus_explorer_listbox_down)
 
         # --- File/Folder List Frame ---
         explorer_list_frame = ttk.LabelFrame(self.explorer_frame, text="Files and Folders", padding="10")
@@ -237,30 +258,73 @@ class FoxgloveAppGUIManager:
         self.explorer_listbox.bind('<Return>', self.on_explorer_enter_key)
         self.explorer_listbox.bind('<KP_Enter>', self.on_explorer_enter_key)  # Numpad Enter
         self.explorer_listbox.bind('<BackSpace>', self.on_explorer_backspace_key)
+        # Bind all printable keypresses to focus search bar
+        self.explorer_listbox.bind('<Key>', self._focus_search_on_typing)
 
-        # --- File Actions Frame ---
-        file_actions_frame = ttk.LabelFrame(self.explorer_frame, text="File Actions", padding="10")
-        file_actions_frame.pack(padx=5, pady=5, fill="x")
+        # Bind ESC to the whole explorer tab to clear search bar from anywhere
+        self.explorer_frame.bind_all('<Escape>', self._on_explorer_search_escape, add='+')
 
-        self.open_file_button = ttk.Button(file_actions_frame, text="Open File", command=self.open_selected_file, state=tk.DISABLED)
-        self.open_file_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
+    def _focus_search_on_typing(self, event):
+        """If a printable key is pressed in the listbox, focus the search bar and type the char."""
+        if event.char and event.char.isprintable() and not event.state & 0x4:  # ignore Ctrl
+            self.explorer_search_entry.focus_set()
+            # Insert the char at the end of the search bar
+            current = self.explorer_search_var.get()
+            # If search bar is not empty and selection, replace selection
+            if self.explorer_search_entry.selection_present():
+                self.explorer_search_entry.delete('sel.first', 'sel.last')
+            self.explorer_search_entry.insert(tk.END, event.char)
+            # Move cursor to end
+            self.explorer_search_entry.icursor(tk.END)
+            return 'break'
+        # Allow navigation keys to work as normal
+        return None
 
-        self.open_with_foxglove_button = ttk.Button(file_actions_frame, text="Open with Foxglove", command=self.open_with_foxglove, state=tk.DISABLED)
-        self.open_with_foxglove_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
+    def _on_explorer_search_escape(self, event=None):
+        """Clear the explorer search bar on ESC."""
+        self.explorer_search_var.set("")
+        return 'break'
 
-        self.open_with_bazel_button = ttk.Button(file_actions_frame, text="Open with Bazel", command=self.open_with_bazel, state=tk.DISABLED)
-        self.open_with_bazel_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
+    def refresh_explorer(self):
+        """Refresh the file explorer with current directory contents, applying search filter if set"""
+        try:
+            self.explorer_listbox.delete(0, tk.END)
+            self.explorer_files_list = []
+            if not os.path.exists(self.current_explorer_path):
+                self.log_message(f"Path does not exist: {self.current_explorer_path}", is_error=True)
+                return
+            if not os.path.isdir(self.current_explorer_path):
+                self.log_message(f"Path is not a directory: {self.current_explorer_path}", is_error=True)
+                return
+            # Update path display
+            self.explorer_path_var.set(self.current_explorer_path)
+            # Add parent directory option (unless we're at root)
+            parent_dir = os.path.dirname(self.current_explorer_path)
+            if parent_dir != self.current_explorer_path:  # Not at root
+                self.explorer_listbox.insert(tk.END, "⬆️ .. (Parent Directory)")
+                self.explorer_files_list.append("..")
+            # Use FileExplorerLogic to list directories and files
+            dirs, files = self.file_explorer_logic.list_directory(self.current_explorer_path)
+            # Apply search filter if set
+            search_query = self.explorer_search_var.get().strip().lower() if hasattr(self, 'explorer_search_var') else ''
+            if search_query:
+                dirs = [d for d in dirs if search_query in d.lower()]
+                files = [f for f in files if search_query in f.lower()]
+            for d in dirs:
+                self.explorer_listbox.insert(tk.END, f"📁 {d}")
+                self.explorer_files_list.append(d)
+            for f in files:
+                info = self.file_explorer_logic.get_file_info(os.path.join(self.current_explorer_path, f))
+                icon = info['icon'] if 'icon' in info else ''
+                self.explorer_listbox.insert(tk.END, f"{icon} {f}")
+                self.explorer_files_list.append(f)
+        except PermissionError:
+            self.log_message(f"Permission denied accessing: {self.current_explorer_path}", is_error=True)
+        except Exception as e:
+            self.log_message(f"Error refreshing explorer: {e}", is_error=True)
 
-        self.open_multiple_bazel_button = ttk.Button(file_actions_frame, text="Open Multiple with Bazel", command=self.open_multiple_with_bazel, state=tk.DISABLED)
-        self.open_multiple_bazel_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
-
-        self.open_folder_button = ttk.Button(file_actions_frame, text="Open in File Manager", command=self.open_in_file_manager)
-        self.open_folder_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
-
-        self.copy_path_button = ttk.Button(file_actions_frame, text="Copy Path", command=self.copy_selected_path, state=tk.DISABLED)
-        self.copy_path_button.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x")
-
-        # Load initial directory
+    def on_explorer_search(self, *args):
+        """Callback for search bar: refresh explorer with filter applied"""
         self.refresh_explorer()
 
     def create_settings_widgets(self):
@@ -594,8 +658,8 @@ class FoxgloveAppGUIManager:
             self.clear_file_list_and_disable_buttons()
 
     # File Explorer Methods
-    def refresh_explorer(self):
-        """Refresh the file explorer with current directory contents"""
+    def refresh_explorer(self, event=None):
+        """Refresh the file explorer with current directory contents, filtered by search if set"""
         try:
             self.explorer_listbox.delete(0, tk.END)
             self.explorer_files_list = []
@@ -614,16 +678,18 @@ class FoxgloveAppGUIManager:
                 self.explorer_files_list.append("..")
             # Use FileExplorerLogic to list directories and files
             dirs, files = self.file_explorer_logic.list_directory(self.current_explorer_path)
-            view_mode = self.explorer_view_mode.get()
-            # Add directories
+            # Apply search filter if set
+            search_query = self.explorer_search_var.get().strip().lower() if hasattr(self, 'explorer_search_var') else ''
+            if search_query:
+                dirs = [d for d in dirs if search_query in d.lower()]
+                files = [f for f in files if search_query in f.lower()]
             for d in dirs:
-                display_text = self._format_directory_display(d, view_mode)
-                self.explorer_listbox.insert(tk.END, display_text)
+                self.explorer_listbox.insert(tk.END, f"📁 {d}")
                 self.explorer_files_list.append(d)
-            # Add files
             for f in files:
-                display_text = self._format_file_display(f, view_mode)
-                self.explorer_listbox.insert(tk.END, display_text)
+                info = self.file_explorer_logic.get_file_info(os.path.join(self.current_explorer_path, f))
+                icon = info['icon'] if 'icon' in info else ''
+                self.explorer_listbox.insert(tk.END, f"{icon} {f}")
                 self.explorer_files_list.append(f)
         except PermissionError:
             self.log_message(f"Permission denied accessing: {self.current_explorer_path}", is_error=True)
@@ -631,34 +697,12 @@ class FoxgloveAppGUIManager:
             self.log_message(f"Error refreshing explorer: {e}", is_error=True)
 
     def _format_directory_display(self, dirname, view_mode):
-        """Format directory display based on view mode"""
-        dir_path = os.path.join(self.current_explorer_path, dirname)
-        if view_mode == "simple":
-            return f"📁 {dirname}"
-        elif view_mode == "icons":
-            return f"📁\n{dirname[:15]}..." if len(dirname) > 15 else f"📁\n{dirname}"
-        else:  # detailed
-            try:
-                item_count = len([x for x in os.listdir(dir_path) if not x.startswith('.')])
-                return f"📁 {dirname:<30} ({item_count} items)"
-            except (PermissionError, OSError):
-                return f"📁 {dirname:<30} (Access denied)"
+        # No longer used
+        return dirname
 
     def _format_file_display(self, filename, view_mode):
-        """Format file display based on view mode"""
-        file_path = os.path.join(self.current_explorer_path, filename)
-        info = self.file_explorer_logic.get_file_info(file_path)
-        icon = info['icon']
-        if view_mode == "simple":
-            return f"{icon} {filename}"
-        elif view_mode == "icons":
-            short_name = filename[:12] + "..." if len(filename) > 15 else filename
-            return f"{icon}\n{short_name}"
-        else:  # detailed
-            size_str = info['size_str']
-            import time
-            mod_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(info['mtime'])) if info['mtime'] else 'N/A'
-            return f"{icon} {filename:<30} {size_str:>10} {mod_str}"
+        # No longer used
+        return filename
 
     def get_selected_explorer_mcap_paths(self):
         """Get paths of all selected MCAP files in the explorer"""
@@ -688,12 +732,22 @@ class FoxgloveAppGUIManager:
             self.explorer_history = self.explorer_history[-10:]
 
     def go_up_directory(self):
-        """Navigate to parent directory"""
-        parent_dir = os.path.dirname(self.current_explorer_path)
-        if parent_dir != self.current_explorer_path:  # Not at root
-            self._add_to_history(self.current_explorer_path)
-            self.current_explorer_path = parent_dir
-            self.refresh_explorer()
+        """Navigate to parent directory, but do not go above ~/data"""
+        data_root = os.path.expanduser('~/data')
+        # Normalize paths for comparison
+        current = os.path.abspath(self.current_explorer_path)
+        data_root = os.path.abspath(data_root)
+        parent_dir = os.path.dirname(current)
+        # Prevent navigating above ~/data
+        if os.path.normpath(current) == os.path.normpath(data_root):
+            # Already at ~/data, do nothing
+            return
+        if os.path.commonpath([parent_dir, data_root]) != data_root:
+            # Parent is above ~/data, do nothing
+            return
+        self._add_to_history(self.current_explorer_path)
+        self.current_explorer_path = parent_dir
+        self.refresh_explorer()
 
     def go_home_directory(self):
         """Navigate to data directory (~/data)"""
@@ -732,9 +786,18 @@ class FoxgloveAppGUIManager:
                 else:
                     item_path = os.path.join(self.current_explorer_path, selected_item)
                     if os.path.isdir(item_path):
-                        self._add_to_history(self.current_explorer_path)
-                        self.current_explorer_path = item_path
-                        self.refresh_explorer()
+                        # Prevent navigating above ~/data
+                        data_path = os.path.expanduser("~/data")
+                        abs_item_path = os.path.abspath(item_path)
+                        if abs_item_path == os.path.abspath(data_path) or abs_item_path.startswith(os.path.abspath(data_path) + os.sep):
+                            self._add_to_history(self.current_explorer_path)
+                            self.current_explorer_path = item_path
+                            self.refresh_explorer()
+                        else:
+                            # If trying to go above ~/data, stay at ~/data
+                            self._add_to_history(self.current_explorer_path)
+                            self.current_explorer_path = data_path
+                            self.refresh_explorer()
                     else:
                         self.open_file(item_path)
 
@@ -884,3 +947,35 @@ class FoxgloveAppGUIManager:
         self.copy_path_button.config(state=tk.NORMAL if states["copy_path"] else tk.DISABLED)
         self.open_with_foxglove_button.config(state=tk.NORMAL if states["open_with_foxglove"] else tk.DISABLED)
         self.open_with_bazel_button.config(state=tk.NORMAL if states["open_with_bazel"] else tk.DISABLED)
+
+    def clear_explorer_search(self):
+        """Clear the explorer search bar."""
+        self.explorer_search_var.set("")
+        return 'break'
+
+    def focus_explorer_listbox_up(self, event=None):
+        """Move focus to listbox and select previous item."""
+        self.explorer_listbox.focus_set()
+        cur = self.explorer_listbox.curselection()
+        if cur:
+            idx = max(cur[0] - 1, 0)
+        else:
+            idx = 0
+        self.explorer_listbox.selection_clear(0, tk.END)
+        self.explorer_listbox.selection_set(idx)
+        self.explorer_listbox.see(idx)
+        return 'break'
+
+    def focus_explorer_listbox_down(self, event=None):
+        """Move focus to listbox and select next item."""
+        self.explorer_listbox.focus_set()
+        cur = self.explorer_listbox.curselection()
+        max_idx = self.explorer_listbox.size() - 1
+        if cur:
+            idx = min(cur[0] + 1, max_idx)
+        else:
+            idx = 0
+        self.explorer_listbox.selection_clear(0, tk.END)
+        self.explorer_listbox.selection_set(idx)
+        self.explorer_listbox.see(idx)
+        return 'break'
