@@ -78,6 +78,8 @@ class FoxgloveAppGUIManager:
         self.setup_signal_handlers()
         # Now that all widgets are created, refresh explorer
         self.refresh_explorer()
+        # Bind tab change event to update button states
+        self.main_notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
 
     def create_file_actions_frame(self, parent_frame):
         # --- File Actions Frame ---
@@ -89,7 +91,6 @@ class FoxgloveAppGUIManager:
         self.launch_foxglove_button = self._create_button(file_actions_frame, "Open with Foxglove", self.open_with_foxglove, state=tk.DISABLED)
         self.launch_bazel_gui_button = self._create_button(file_actions_frame, "Open with Bazel", self.launch_bazel_gui_selected, state=tk.DISABLED)
         self.launch_bazel_viz_button = self._create_button(file_actions_frame, "Launch Bazel Tools Viz", self.launch_bazel_viz)
-        self.launch_all_button = self._create_button(file_actions_frame, "Launch All for Selected", self.launch_all_selected, state=tk.DISABLED)
         self.open_folder_button = self._create_button(file_actions_frame, "Open in File Manager", self.open_in_file_manager)
         self.copy_path_button = self._create_button(file_actions_frame, "Copy Path", self.copy_selected_path, state=tk.DISABLED)
 
@@ -474,12 +475,10 @@ class FoxgloveAppGUIManager:
     def enable_file_specific_action_buttons(self):
         self.launch_foxglove_button.config(state=tk.NORMAL)
         self.launch_bazel_gui_button.config(state=tk.NORMAL)
-        self.launch_all_button.config(state=tk.NORMAL)
 
     def disable_file_specific_action_buttons(self):
         self.launch_foxglove_button.config(state=tk.DISABLED)
         self.launch_bazel_gui_button.config(state=tk.DISABLED)
-        self.launch_all_button.config(state=tk.DISABLED)
 
     def get_selected_mcap_path(self):
         selection_indices = self.mcap_listbox.curselection()
@@ -536,24 +535,6 @@ class FoxgloveAppGUIManager:
         if message: self.log_message(message)
         if error: self.log_message(error, is_error=True)
             
-    def launch_all_selected(self):
-        selected_path = self.get_selected_mcap_path()
-        if selected_path:
-            self.log_message(f"Launching all tools for {os.path.basename(selected_path)}...")
-            
-            msg_fox, err_fox = self.logic.launch_foxglove(selected_path)
-            if msg_fox: self.log_message(f"Foxglove: {msg_fox}")
-            if err_fox: self.log_message(f"Foxglove: {err_fox}", is_error=True)
-
-            msg_gui, err_gui = self.logic.launch_bazel_bag_gui(selected_path)
-            if msg_gui: self.log_message(f"Bazel Bag GUI: {msg_gui}")
-            if err_gui: self.log_message(f"Bazel Bag GUI: {err_gui}", is_error=True)
-            
-            # Bazel Tools Viz is launched without a file argument here
-            msg_viz, err_viz = self.logic.launch_bazel_tools_viz()
-            if msg_viz: self.log_message(f"Bazel Tools Viz: {msg_viz}")
-            if err_viz: self.log_message(f"Bazel Tools Viz: {err_viz}", is_error=True)
-
     def on_closing(self):
         # Clean up symlink dir if it exists
         symlink_dir = '/tmp/selected_bags_symlinks'
@@ -981,3 +962,18 @@ class FoxgloveAppGUIManager:
     def focus_explorer_listbox_down(self, event=None):
         """Move focus to listbox and select next item."""
         return self._focus_explorer_listbox_move(1, event)
+
+    def on_tab_changed(self, event=None):
+        """Update file action button states when switching tabs."""
+        current_tab = self.main_notebook.index(self.main_notebook.select())
+        explorer_tab_index = self.main_notebook.tabs().index(str(self.explorer_frame))
+        foxglove_tab_index = self.main_notebook.tabs().index(str(self.foxglove_frame))
+        if current_tab == explorer_tab_index:
+            # File Explorer tab: update based on explorer selection
+            self.on_explorer_select(None)
+        elif current_tab == foxglove_tab_index:
+            # Foxglove MCAP tab: update based on MCAP list selection
+            self.on_file_select(None, suppress_log=True)
+        else:
+            # Other tabs: disable all file-specific action buttons
+            self.disable_file_specific_action_buttons()
