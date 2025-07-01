@@ -87,11 +87,11 @@ class FoxgloveAppGUIManager:
         file_actions_frame.pack(padx=5, pady=5, fill="x")
 
         # All file action buttons in one frame
-        self.open_file_button = self._create_button(file_actions_frame, "Open File", self.open_selected_file, state=tk.DISABLED)
-        self.launch_foxglove_button = self._create_button(file_actions_frame, "Open with Foxglove", self.open_with_foxglove, state=tk.DISABLED)
-        self.launch_bazel_gui_button = self._create_button(file_actions_frame, "Open with Bazel", self.launch_bazel_gui_selected, state=tk.DISABLED)
-        self.launch_bazel_viz_button = self._create_button(file_actions_frame, "Launch Bazel Tools Viz", self.launch_bazel_viz)
-        self.open_folder_button = self._create_button(file_actions_frame, "Open in File Manager", self.open_in_file_manager)
+        self.open_file_button = self._create_button(file_actions_frame, "Open w/ Default", self.open_selected_file, state=tk.DISABLED)
+        self.launch_foxglove_button = self._create_button(file_actions_frame, "Foxglove Playback", self.open_with_foxglove, state=tk.DISABLED)
+        self.launch_bazel_gui_button = self._create_button(file_actions_frame, "Bazel Playback", self.open_with_bazel, state=tk.DISABLED)
+        self.launch_bazel_viz_button = self._create_button(file_actions_frame, "Visualizer", self.launch_bazel_viz)
+        self.open_folder_button = self._create_button(file_actions_frame, "File Manager", self.open_in_file_manager)
         self.copy_path_button = self._create_button(file_actions_frame, "Copy Path", self.copy_selected_path, state=tk.DISABLED)
 
     def create_foxglove_widgets(self):
@@ -863,23 +863,57 @@ class FoxgloveAppGUIManager:
             self.log_message(error, is_error=True)
 
     def open_with_bazel(self):
-        """Open the selected MCAP file with Bazel Bag GUI"""
-        selection = self.explorer_listbox.curselection()
-        if selection:
-            idx = selection[0]
-            if idx < len(self.explorer_files_list):
-                selected_item = self.explorer_files_list[idx]
-                if selected_item != "..":
-                    item_path = os.path.join(self.current_explorer_path, selected_item)
-                    if os.path.isfile(item_path) and item_path.lower().endswith('.mcap'):
-                        self.log_message(f"Launching Bazel Bag GUI with {os.path.basename(item_path)}...")
-                        message, error = self.logic.launch_bazel_bag_gui(item_path)
-                        if message: 
-                            self.log_message(message)
-                        if error: 
-                            self.log_message(error, is_error=True)
-                    else:
-                        self.log_message("Selected file is not an MCAP file.", is_error=True)
+        """Open the selected MCAP file(s) with Bazel Bag GUI from either tab."""
+        current_tab = self.main_notebook.index(self.main_notebook.select())
+        explorer_tab_index = self.main_notebook.tabs().index(str(self.explorer_frame))
+        foxglove_tab_index = self.main_notebook.tabs().index(str(self.foxglove_frame))
+        
+        if current_tab == explorer_tab_index:
+            mcap_files = self.get_selected_explorer_mcap_paths()
+            if not mcap_files:
+                self.log_message("No MCAP file selected in File Explorer.", is_error=True)
+                return
+            
+            # Handle multiple file selection
+            if len(mcap_files) == 1:
+                self.log_message(f"Launching Bazel Bag GUI with {os.path.basename(mcap_files[0])}...")
+                message, error = self.logic.launch_bazel_bag_gui(mcap_files[0])
+                if message:
+                    self.log_message(message)
+                if error:
+                    self.log_message(error, is_error=True)
+            else:
+                self.log_message(f"Launching Bazel Bag GUI with {len(mcap_files)} selected MCAP files using symlinks...")
+                message, error, symlink_dir = self.logic.play_bazel_bag_gui_with_symlinks(mcap_files)
+                if message:
+                    self.log_message(message)
+                if error:
+                    self.log_message(error, is_error=True)
+                    
+        elif current_tab == foxglove_tab_index:
+            # For Foxglove tab, get all selected files (multiple selection supported)
+            selected_paths = self.get_selected_mcap_paths()
+            if not selected_paths:
+                self.log_message("No MCAP file selected in Foxglove MCAP tab.", is_error=True)
+                return
+            
+            if len(selected_paths) == 1:
+                self.log_message(f"Launching Bazel Bag GUI with {os.path.basename(selected_paths[0])}...")
+                message, error = self.logic.launch_bazel_bag_gui(selected_paths[0])
+                if message:
+                    self.log_message(message)
+                if error:
+                    self.log_message(error, is_error=True)
+            else:
+                self.log_message(f"Launching Bazel Bag GUI with {len(selected_paths)} selected MCAP files using symlinks...")
+                message, error, symlink_dir = self.logic.play_bazel_bag_gui_with_symlinks(selected_paths)
+                if message:
+                    self.log_message(message)
+                if error:
+                    self.log_message(error, is_error=True)
+        else:
+            self.log_message("Open with Bazel is only available in File Explorer or Foxglove MCAP tabs.", is_error=True)
+            return
 
     def open_multiple_with_bazel(self):
         """Open multiple selected MCAP files with Bazel Bag GUI using symlinks"""
@@ -915,6 +949,10 @@ class FoxgloveAppGUIManager:
         }
         is_parent_dir = False
         item_path = None
+        
+        # Get selected MCAP files for logging
+        mcap_files = self.get_selected_explorer_mcap_paths()
+        
         if not selection:
             # No selection: disable all file action buttons
             pass
@@ -929,6 +967,11 @@ class FoxgloveAppGUIManager:
                 else:
                     item_path = os.path.join(self.current_explorer_path, selected_item)
                 states = self.file_explorer_logic.get_file_action_states(item_path, is_parent_dir)
+        
+        # Log selection of MCAP files similar to Foxglove MCAP tab
+        if mcap_files:
+            self.log_message(f"Selected {len(mcap_files)} bag(s).", clear_first=False)
+        
         # Set button states
         self.open_file_button.config(state=tk.NORMAL if states["open_file"] else tk.DISABLED)
         self.copy_path_button.config(state=tk.NORMAL if states["copy_path"] else tk.DISABLED)
