@@ -74,6 +74,9 @@ class FoxgloveAppGUIManager:
         # Set up logging frame that's shared between tabs
         self.create_shared_log_frame(main_frame)
 
+        # Cache tab indices for performance
+        self._cache_tab_indices()
+
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.setup_signal_handlers()
         # Now that all widgets are created, refresh explorer
@@ -633,7 +636,7 @@ class FoxgloveAppGUIManager:
 
     # File Explorer Methods
     def refresh_explorer(self, event=None):
-        """Refresh the file explorer with current directory contents, filtered by search if set"""
+        """Refresh the file explorer with current directory contents, applying search filter if set"""
         try:
             self.explorer_listbox.delete(0, tk.END)
             self.explorer_files_list = []
@@ -643,28 +646,40 @@ class FoxgloveAppGUIManager:
             if not os.path.isdir(self.current_explorer_path):
                 self.log_message(f"Path is not a directory: {self.current_explorer_path}", is_error=True)
                 return
+            
             # Update path display
             self.explorer_path_var.set(self.current_explorer_path)
+            
             # Add parent directory option (unless we're at root)
             parent_dir = os.path.dirname(self.current_explorer_path)
             if parent_dir != self.current_explorer_path:  # Not at root
                 self.explorer_listbox.insert(tk.END, "⬆️ .. (Parent Directory)")
                 self.explorer_files_list.append("..")
+            
             # Use FileExplorerLogic to list directories and files
             dirs, files = self.file_explorer_logic.list_directory(self.current_explorer_path)
-            # Apply search filter if set
-            search_query = self.explorer_search_var.get().strip().lower() if hasattr(self, 'explorer_search_var') else ''
+            
+            # Apply search filter if set - optimize by checking once
+            search_query = getattr(self, 'explorer_search_var', None)
             if search_query:
-                dirs = [d for d in dirs if search_query in d.lower()]
-                files = [f for f in files if search_query in f.lower()]
+                search_text = search_query.get().strip().lower()
+                if search_text:
+                    dirs = [d for d in dirs if search_text in d.lower()]
+                    files = [f for f in files if search_text in f.lower()]
+            
+            # Batch process directories
             for d in dirs:
                 self.explorer_listbox.insert(tk.END, f"📁 {d}")
                 self.explorer_files_list.append(d)
+            
+            # Batch process files with file info lookup
             for f in files:
-                info = self.file_explorer_logic.get_file_info(os.path.join(self.current_explorer_path, f))
-                icon = info['icon'] if 'icon' in info else ''
+                item_path = os.path.join(self.current_explorer_path, f)
+                info = self.file_explorer_logic.get_file_info(item_path)
+                icon = info.get('icon', '')
                 self.explorer_listbox.insert(tk.END, f"{icon} {f}")
                 self.explorer_files_list.append(f)
+                
         except PermissionError:
             self.log_message(f"Permission denied accessing: {self.current_explorer_path}", is_error=True)
         except Exception as e:
@@ -679,16 +694,26 @@ class FoxgloveAppGUIManager:
         return filename
 
     def get_selected_explorer_mcap_paths(self):
-        """Get paths of all selected MCAP files in the explorer"""
+        """Get paths of all selected MCAP files in the explorer - optimized version"""
         selection = self.explorer_listbox.curselection()
+        if not selection:
+            return []
+        
         mcap_paths = []
+        files_list_len = len(self.explorer_files_list)
+        
         for idx in selection:
-            if idx < len(self.explorer_files_list):
-                selected_item = self.explorer_files_list[idx]
-                if selected_item != "..":
-                    item_path = os.path.join(self.current_explorer_path, selected_item)
-                    if os.path.isfile(item_path) and self.file_explorer_logic.is_mcap_file(item_path):
-                        mcap_paths.append(item_path)
+            if idx >= files_list_len:
+                continue
+                
+            selected_item = self.explorer_files_list[idx]
+            if selected_item == "..":
+                continue
+                
+            item_path = os.path.join(self.current_explorer_path, selected_item)
+            if os.path.isfile(item_path) and self.file_explorer_logic.is_mcap_file(item_path):
+                mcap_paths.append(item_path)
+        
         return mcap_paths
 
     def go_back(self):
@@ -835,18 +860,16 @@ class FoxgloveAppGUIManager:
 
     def open_with_foxglove(self):
         """Open the selected MCAP file with Foxglove from either tab."""
-        # Determine which tab is active
         current_tab = self.main_notebook.index(self.main_notebook.select())
-        explorer_tab_index = self.main_notebook.tabs().index(str(self.explorer_frame))
-        foxglove_tab_index = self.main_notebook.tabs().index(str(self.foxglove_frame))
-        if current_tab == explorer_tab_index:
+        
+        if current_tab == self._explorer_tab_index:
             # File Explorer tab: use explorer selection
             mcap_files = self.get_selected_explorer_mcap_paths()
             if not mcap_files:
                 self.log_message("No MCAP file selected in File Explorer.", is_error=True)
                 return
             file_path = mcap_files[-1]
-        elif current_tab == foxglove_tab_index:
+        elif current_tab == self._foxglove_tab_index:
             # Foxglove MCAP tab: use MCAP list selection
             file_path = self.get_selected_mcap_path()
             if not file_path:
@@ -865,10 +888,8 @@ class FoxgloveAppGUIManager:
     def open_with_bazel(self):
         """Open the selected MCAP file(s) with Bazel Bag GUI from either tab."""
         current_tab = self.main_notebook.index(self.main_notebook.select())
-        explorer_tab_index = self.main_notebook.tabs().index(str(self.explorer_frame))
-        foxglove_tab_index = self.main_notebook.tabs().index(str(self.foxglove_frame))
         
-        if current_tab == explorer_tab_index:
+        if current_tab == self._explorer_tab_index:
             mcap_files = self.get_selected_explorer_mcap_paths()
             if not mcap_files:
                 self.log_message("No MCAP file selected in File Explorer.", is_error=True)
@@ -890,7 +911,7 @@ class FoxgloveAppGUIManager:
                 if error:
                     self.log_message(error, is_error=True)
                     
-        elif current_tab == foxglove_tab_index:
+        elif current_tab == self._foxglove_tab_index:
             # For Foxglove tab, get all selected files (multiple selection supported)
             selected_paths = self.get_selected_mcap_paths()
             if not selected_paths:
@@ -937,9 +958,10 @@ class FoxgloveAppGUIManager:
         else:
             self.log_message("No MCAP files selected.", is_error=True)
 
-    def on_explorer_select(self, event):
+    def on_explorer_select(self, event, suppress_log=False):
         """Handle selection change in explorer listbox (enables/disables file action buttons)."""
         selection = self.explorer_listbox.curselection()
+        
         # Default: all actions disabled
         states = {
             "open_file": False,
@@ -947,36 +969,24 @@ class FoxgloveAppGUIManager:
             "open_with_foxglove": False,
             "open_with_bazel": False
         }
-        is_parent_dir = False
-        item_path = None
         
-        # Get selected MCAP files for logging
-        mcap_files = self.get_selected_explorer_mcap_paths()
-        
-        if not selection:
-            # No selection: disable all file action buttons
-            pass
-        else:
+        if selection:
             idx = selection[0]
-            if idx >= len(self.explorer_files_list):
-                pass  # Out of range selection
-            else:
+            if idx < len(self.explorer_files_list):
                 selected_item = self.explorer_files_list[idx]
-                if selected_item == "..":
-                    is_parent_dir = True
-                else:
+                if selected_item != "..":
                     item_path = os.path.join(self.current_explorer_path, selected_item)
-                states = self.file_explorer_logic.get_file_action_states(item_path, is_parent_dir)
+                    states = self.file_explorer_logic.get_file_action_states(item_path, False)
+                # For parent directory, keep all states as False (already set above)
         
-        # Log selection of MCAP files similar to Foxglove MCAP tab
-        if mcap_files:
-            self.log_message(f"Selected {len(mcap_files)} bag(s).", clear_first=False)
+        # Get selected MCAP files for logging (only if not suppressing log)
+        if not suppress_log:
+            mcap_files = self.get_selected_explorer_mcap_paths()
+            if mcap_files:
+                self.log_message(f"Selected {len(mcap_files)} bag(s).", clear_first=False)
         
-        # Set button states
-        self.open_file_button.config(state=tk.NORMAL if states["open_file"] else tk.DISABLED)
-        self.copy_path_button.config(state=tk.NORMAL if states["copy_path"] else tk.DISABLED)
-        self.launch_foxglove_button.config(state=tk.NORMAL if states["open_with_foxglove"] else tk.DISABLED)
-        self.launch_bazel_gui_button.config(state=tk.NORMAL if states["open_with_bazel"] else tk.DISABLED)
+        # Batch update button states
+        self._update_button_states(states)
 
     def clear_explorer_search(self):
         """Clear the explorer search bar."""
@@ -1009,14 +1019,31 @@ class FoxgloveAppGUIManager:
     def on_tab_changed(self, event=None):
         """Update file action button states when switching tabs."""
         current_tab = self.main_notebook.index(self.main_notebook.select())
-        explorer_tab_index = self.main_notebook.tabs().index(str(self.explorer_frame))
-        foxglove_tab_index = self.main_notebook.tabs().index(str(self.foxglove_frame))
-        if current_tab == explorer_tab_index:
-            # File Explorer tab: update based on explorer selection
-            self.on_explorer_select(None)
-        elif current_tab == foxglove_tab_index:
+        
+        if current_tab == self._explorer_tab_index:
+            # File Explorer tab: update based on explorer selection (suppress logging to avoid spam)
+            self.on_explorer_select(None, suppress_log=True)
+        elif current_tab == self._foxglove_tab_index:
             # Foxglove MCAP tab: update based on MCAP list selection
             self.on_file_select(None, suppress_log=True)
         else:
             # Other tabs: disable all file-specific action buttons
             self.disable_file_specific_action_buttons()
+
+    def _cache_tab_indices(self):
+        """Cache tab indices for performance optimization"""
+        self._explorer_tab_index = self.main_notebook.tabs().index(str(self.explorer_frame))
+        self._foxglove_tab_index = self.main_notebook.tabs().index(str(self.foxglove_frame))
+        self._settings_tab_index = self.main_notebook.tabs().index(str(self.settings_frame))
+
+    def _update_button_states(self, states):
+        """Efficiently update multiple button states at once"""
+        button_mappings = {
+            "open_file": self.open_file_button,
+            "copy_path": self.copy_path_button,
+            "open_with_foxglove": self.launch_foxglove_button,
+            "open_with_bazel": self.launch_bazel_gui_button
+        }
+        
+        for state_key, button in button_mappings.items():
+            button.config(state=tk.NORMAL if states.get(state_key, False) else tk.DISABLED)
