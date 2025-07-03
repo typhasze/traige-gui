@@ -26,8 +26,46 @@ class FoxgloveAppGUIManager:
         self.explorer_history = []  # Navigation history
 
         self.create_widgets()
-        # Set a minimum size for the window
-        self.root.minsize(800, 600)
+        # Auto-scale window to fit content
+        self.auto_scale_window()
+
+    def auto_scale_window(self):
+        """Automatically scale the window to fit the content at startup"""
+        # Force the window to update and calculate required size
+        self.root.update_idletasks()
+        
+        # Get the required width and height
+        required_width = self.root.winfo_reqwidth()
+        required_height = self.root.winfo_reqheight()
+        
+        # Set minimum size constraints (optional, for usability)
+        min_width = 800
+        min_height = 600
+        
+        # Use the larger of required size or minimum size
+        width = max(required_width, min_width)
+        height = max(required_height, min_height)
+        
+        # Get screen dimensions to ensure window fits on screen
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        # Ensure window doesn't exceed 90% of screen size
+        max_width = int(screen_width * 0.9)
+        max_height = int(screen_height * 0.9)
+        
+        width = min(width, max_width)
+        height = min(height, max_height)
+        
+        # Center the window on screen
+        x = (screen_width - width) // 2
+        y = (screen_height - height) // 2
+        
+        # Set the window geometry
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
+        
+        # Set minimum size for user resizing
+        self.root.minsize(min_width, min_height)
 
     def log_message(self, message, is_error=False, clear_first=False):
         self.status_text.config(state=tk.NORMAL)
