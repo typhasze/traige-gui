@@ -875,11 +875,21 @@ class FoxgloveAppGUIManager:
 
     def open_in_file_manager(self):
         """Open current directory in system file manager via FileExplorerLogic"""
-        success, msg = self.file_explorer_logic.open_in_file_manager(self.current_explorer_path)
-        if success:
-            self.log_message(msg)
+        current_tab = self.main_notebook.index(self.main_notebook.select())
+        if current_tab == self._foxglove_tab_index:
+            # Foxglove MCAP tab: open the current MCAP folder
+            folder_to_open = self.current_mcap_folder_absolute
         else:
-            self.log_message(msg, is_error=True)
+            # File Explorer tab or others: open the explorer path
+            folder_to_open = self.current_explorer_path
+        if folder_to_open and os.path.isdir(folder_to_open):
+            success, msg = self.file_explorer_logic.open_in_file_manager(folder_to_open)
+            if success:
+                self.log_message(msg)
+            else:
+                self.log_message(msg, is_error=True)
+        else:
+            self.log_message(f"Folder does not exist: {folder_to_open}", is_error=True)
 
     def copy_selected_path(self):
         """Copy the path of the selected item to clipboard via FileExplorerLogic"""
