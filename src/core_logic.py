@@ -25,6 +25,7 @@ class FoxgloveLogic:
             'bazel_tools_viz_cmd': ['bazel', 'run', '//tools/viz'],
             'bazel_bag_gui_cmd': ['bazel', 'run', '//tools/bag:gui'],
             'bazel_working_dir': os.path.expanduser('~/av-system/catkin_ws/src'),
+            'foxglove_open_in_browser': False,
         }
         if os.path.exists(self.settings_path):
             try:
@@ -63,6 +64,10 @@ class FoxgloveLogic:
         self.settings['bazel_working_dir'] = path
         return self.save_settings()
 
+    def set_foxglove_open_in_browser(self, value: bool):
+        self.settings['foxglove_open_in_browser'] = value
+        return self.save_settings()
+
     def get_bazel_tools_viz_cmd(self):
         return self.settings.get('bazel_tools_viz_cmd', ['bazel', 'run', '//tools/viz'])
 
@@ -71,6 +76,9 @@ class FoxgloveLogic:
 
     def get_bazel_working_dir(self):
         return self.settings.get('bazel_working_dir', os.path.expanduser('~/av-system/catkin_ws/src'))
+
+    def get_foxglove_open_in_browser(self):
+        return self.settings.get('foxglove_open_in_browser', False)
 
     def extract_mcap_details_from_foxglove_link(self, link):
         """
@@ -194,7 +202,10 @@ class FoxgloveLogic:
             return None, f"Failed to launch {name}: {e}"
 
     def launch_foxglove(self, mcap_filepath_absolute):
-        return self._launch_process(['foxglove-studio', '--file', mcap_filepath_absolute], 'Foxglove Studio', mcap_path=mcap_filepath_absolute)
+        if self.get_foxglove_open_in_browser():
+            return self._launch_process([], 'Foxglove Studio (Browser)', mcap_path=mcap_filepath_absolute)
+        else:
+            return self._launch_process(['foxglove-studio', '--file', mcap_filepath_absolute], 'Foxglove Studio', mcap_path=mcap_filepath_absolute)
     
     def launch_foxglove_browser(self, mcap_filepath_absolute):
         """

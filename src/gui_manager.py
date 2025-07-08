@@ -384,6 +384,16 @@ class FoxgloveAppGUIManager:
         btn_frame.grid(row=3, column=0, columnspan=2, pady=10)
         ttk.Button(btn_frame, text="Save", command=self.save_settings).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Reset", command=self.reset_settings).pack(side=tk.LEFT, padx=5)
+
+        # Foxglove Open in Browser Checkbox
+        self.foxglove_open_in_browser_var = tk.BooleanVar(value=self.logic.get_foxglove_open_in_browser())
+        self.foxglove_open_in_browser_checkbox = ttk.Checkbutton(
+            settings_frame,
+            text="Open Foxglove in browser",
+            variable=self.foxglove_open_in_browser_var
+        )
+        self.foxglove_open_in_browser_checkbox.grid(row=4, column=0, columnspan=2, sticky="w", padx=5, pady=5)
+
         settings_frame.columnconfigure(1, weight=1)
 
     def save_settings(self):
@@ -391,19 +401,22 @@ class FoxgloveAppGUIManager:
         viz_cmd = self.bazel_tools_viz_var.get().strip().split()
         bag_cmd = self.bazel_bag_gui_var.get().strip().split()
         working_dir = self.bazel_working_dir_var.get().strip()
+        foxglove_browser = self.foxglove_open_in_browser_var.get()
         ok1, err1 = self.logic.set_bazel_tools_viz_cmd(viz_cmd)
         ok2, err2 = self.logic.set_bazel_bag_gui_cmd(bag_cmd)
         ok3, err3 = self.logic.set_bazel_working_dir(working_dir)
-        if ok1 and ok2 and ok3:
+        ok4, err4 = self.logic.set_foxglove_open_in_browser(foxglove_browser)
+        if ok1 and ok2 and ok3 and ok4:
             self.log_message("Settings saved.")
         else:
-            self.log_message(f"Error saving settings: {err1 or ''} {err2 or ''} {err3 or ''}", is_error=True)
+            self.log_message(f"Error saving settings: {err1 or ''} {err2 or ''} {err3 or ''} {err4 or ''}", is_error=True)
 
     def reset_settings(self):
         self.logic.settings = self.logic.load_settings()
         self.bazel_tools_viz_var.set(' '.join(self.logic.get_bazel_tools_viz_cmd()))
         self.bazel_bag_gui_var.set(' '.join(self.logic.get_bazel_bag_gui_cmd()))
         self.bazel_working_dir_var.set(self.logic.get_bazel_working_dir())
+        self.foxglove_open_in_browser_var.set(self.logic.get_foxglove_open_in_browser())
         self.log_message("Settings reset to last saved.")
 
     def create_shared_log_frame(self, parent_frame):
