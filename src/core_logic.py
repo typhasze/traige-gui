@@ -173,6 +173,12 @@ class FoxgloveLogic:
         return False
 
     def _launch_process(self, command, name, cwd=None, mcap_path=None):
+        if name == 'Foxglove Studio (Browser)':
+            # Special case: launch in browser instead of as a process
+            if mcap_path:
+                return self.launch_foxglove_browser(mcap_path)
+            else:
+                return None, "No MCAP file path provided for browser launch."
         if name == 'Bazel Tools Viz':
             if self._is_process_running_by_name(name):
                 return f"{name} is already running.", None
@@ -189,6 +195,28 @@ class FoxgloveLogic:
 
     def launch_foxglove(self, mcap_filepath_absolute):
         return self._launch_process(['foxglove-studio', '--file', mcap_filepath_absolute], 'Foxglove Studio', mcap_path=mcap_filepath_absolute)
+    
+    def launch_foxglove_browser(self, mcap_filepath_absolute):
+        """
+        Launches Foxglove Studio in a web browser with the given .mcap file.
+        Returns a tuple: (message, error)
+        """
+        if not os.path.isfile(mcap_filepath_absolute):
+            return None, f"MCAP file not found: {mcap_filepath_absolute}"
+        
+        # Encode the file path for URL
+        prefix = os.path.expanduser('~/data')
+        relative_path = mcap_filepath_absolute.removeprefix(prefix)
+        first_url = 'https://foxglove.data.ventitechnologies.net/?ds=remote-file&ds.url=https://rosbag.data.ventitechnologies.net/'
+        url = f"{first_url}{relative_path}"
+        
+        # Open in default web browser
+        try:
+            subprocess.run(['xdg-open', url], check=True)
+            return f"Foxglove Studio launched in browser with {os.path.basename(mcap_filepath_absolute)}.", None
+        except Exception as e:
+            return None, f"Failed to launch Foxglove Studio in browser: {e}"
+
 
     def launch_bazel_tools_viz(self):
         self.bazel_working_dir = self.get_bazel_working_dir()

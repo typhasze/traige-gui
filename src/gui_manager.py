@@ -927,7 +927,8 @@ class FoxgloveAppGUIManager:
             self.log_message("Open with Foxglove is only available in File Explorer or Foxglove MCAP tabs.", is_error=True)
             return
         self.log_message(f"Launching Foxglove with {os.path.basename(file_path)}...")
-        message, error = self.logic.launch_foxglove(file_path)
+        # message, error = self.logic.launch_foxglove(file_path)
+        message, error = self.logic.launch_foxglove_browser(file_path)
         if message:
             self.log_message(message)
         if error:
