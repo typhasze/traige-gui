@@ -19,10 +19,12 @@ class FoxgloveAppGUIManager:
         self.mcap_filename_from_link = None
         self.mcap_files_list = []
         
-        # File explorer variables
+        # File explorer variables 
         self.current_explorer_path = os.path.expanduser("~/data")
+        self._data_root = self.current_explorer_path  # Cache data root path
+        self._abs_data_root = os.path.abspath(self._data_root)  # Cache absolute data root path
         self.explorer_files_list = []
-        self.explorer_view_mode = tk.StringVar(value="detailed")  # detailed, simple, icons
+        self.explorer_view_mode = tk.StringVar(value="detailed")
         self.explorer_history = []  # Navigation history
 
         self.create_widgets()
@@ -134,6 +136,14 @@ class FoxgloveAppGUIManager:
         self.launch_bazel_viz_button = self._create_button(file_actions_frame, "Visualizer", self.launch_bazel_viz)
         self.open_folder_button = self._create_button(file_actions_frame, "File Manager", self.open_in_file_manager)
         self.copy_path_button = self._create_button(file_actions_frame, "Copy Path", self.copy_selected_path, state=tk.DISABLED)
+
+        # Initialize button map for state management
+        self._button_map = {
+            "open_file": self.open_file_button,
+            "copy_path": self.copy_path_button,
+            "open_with_foxglove": self.launch_foxglove_button,
+            "open_with_bazel": self.launch_bazel_gui_button
+        }
 
     def create_foxglove_widgets(self):
         # --- Input Frame ---
@@ -305,41 +315,60 @@ class FoxgloveAppGUIManager:
         self.explorer_search_var.set("")
         return 'break'
 
-    def refresh_explorer(self):
+    def refresh_explorer(self, event=None):
         """Refresh the file explorer with current directory contents, applying search filter if set"""
         try:
+            # Clear existing content
             self.explorer_listbox.delete(0, tk.END)
             self.explorer_files_list = []
-            if not os.path.exists(self.current_explorer_path):
-                self.log_message(f"Path does not exist: {self.current_explorer_path}", is_error=True)
-                return
+            
+            # Early validation
             if not os.path.isdir(self.current_explorer_path):
-                self.log_message(f"Path is not a directory: {self.current_explorer_path}", is_error=True)
+                self.log_message(f"Invalid directory: {self.current_explorer_path}", is_error=True)
                 return
+            
             # Update path display
             self.explorer_path_var.set(self.current_explorer_path)
-            # Add parent directory option (unless we're at root)
+            
+            # Batch process parent directory
             parent_dir = os.path.dirname(self.current_explorer_path)
-            if parent_dir != self.current_explorer_path:  # Not at root
+            if parent_dir != self.current_explorer_path:
                 self.explorer_listbox.insert(tk.END, "⬆️ .. (Parent Directory)")
                 self.explorer_files_list.append("..")
-            # Use FileExplorerLogic to list directories and files
+            
+            # Get directory contents in one call
             dirs, files = self.file_explorer_logic.list_directory(self.current_explorer_path)
-            # Apply search filter if set
-            search_query = self.explorer_search_var.get().strip().lower() if hasattr(self, 'explorer_search_var') else ''
-            if search_query:
-                dirs = [d for d in dirs if search_query in d.lower()]
-                files = [f for f in files if search_query in f.lower()]
+            
+            # Apply search filter if needed - do it once
+            search_text = getattr(self, 'explorer_search_var', None)
+            if search_text and search_text.get().strip():
+                search_lower = search_text.get().strip().lower()
+                dirs = [d for d in dirs if search_lower in d.lower()]
+                files = [f for f in files if search_lower in f.lower()]
+            
+            # Prepare batch insertions
+            batch_items = []
+            
+            # Process directories
             for d in dirs:
-                self.explorer_listbox.insert(tk.END, f"📁 {d}")
-                self.explorer_files_list.append(d)
+                batch_items.append((f"📁 {d}", d))
+            
+            # Process files with cached file info
+            file_info_cache = {}
             for f in files:
-                info = self.file_explorer_logic.get_file_info(os.path.join(self.current_explorer_path, f))
-                icon = info['icon'] if 'icon' in info else ''
-                self.explorer_listbox.insert(tk.END, f"{icon} {f}")
-                self.explorer_files_list.append(f)
+                item_path = os.path.join(self.current_explorer_path, f)
+                info = self.file_explorer_logic.get_file_info(item_path)
+                file_info_cache[f] = info
+                icon = info.get('icon', '')
+                batch_items.append((f"{icon} {f}", f))
+            
+            # Perform batch insertion
+            for display_text, original_name in batch_items:
+                self.explorer_listbox.insert(tk.END, display_text)
+                self.explorer_files_list.append(original_name)
+                
         except PermissionError:
-            self.log_message(f"Permission denied accessing: {self.current_explorer_path}", is_error=True)
+            self.log_message(f"Permission denied: {self.current_explorer_path}", is_error=True)
         except Exception as e:
             self.log_message(f"Error refreshing explorer: {e}", is_error=True)
 
@@ -497,15 +526,39 @@ class FoxgloveAppGUIManager:
 
 
     def populate_file_list(self):
+        """Populate file list with optimized batch operations"""
+        if not hasattr(self, '_last_list_state'):
+            self._last_list_state = None
+            
+        # Create current state tuple for comparison
+        current_state = (
+            tuple(self.mcap_files_list),
+            self.mcap_filename_from_link
+        )
+        
+        # Only update if state changed
+        if current_state == self._last_list_state:
+            return
+            
         self.mcap_listbox.delete(0, tk.END)
         highlight_idx = -1
-        # Use normalized comparison for matching
+        
+        # Normalize target filename once
         target = self.mcap_filename_from_link.strip().lower() if self.mcap_filename_from_link else None
+        
+        # Prepare batch insertions
+        batch_items = []
         for i, filename in enumerate(self.mcap_files_list):
-            self.mcap_listbox.insert(tk.END, filename)
+            batch_items.append((filename, {}))
             if target and os.path.basename(filename).strip().lower() == target:
-                self.mcap_listbox.itemconfig(i, {'bg':'#FFFF99'}) # Light yellow
+                batch_items[-1] = (filename, {'bg': '#FFFF99'})
                 highlight_idx = i
+        
+        # Perform batch insertion
+        for filename, config in batch_items:
+            self.mcap_listbox.insert(tk.END, filename)
+            if config:
+                self.mcap_listbox.itemconfig(len(batch_items)-1, config)
         
         if highlight_idx != -1:
             self.mcap_listbox.selection_set(highlight_idx)
@@ -515,7 +568,8 @@ class FoxgloveAppGUIManager:
             if self.mcap_filename_from_link:
                 self.log_message(f"Note: File from link ('{self.mcap_filename_from_link}') not found in the listed files.")
             self.disable_file_specific_action_buttons()
-
+            
+        self._last_list_state = current_state
 
     def on_file_select(self, event, suppress_log=False): # event can be None
         selection = self.mcap_listbox.curselection()
@@ -612,23 +666,44 @@ class FoxgloveAppGUIManager:
         signal.signal(signal.SIGTERM, handler)
 
     def on_subfolder_tab_changed(self, event):
-        if self.subfolder_tabs:
-            idx = self.subfolder_tabs.index(self.subfolder_tabs.select())
-            self.current_mcap_folder_absolute = self.subfolder_tab_paths[idx]
-            display_folder_name = self.subfolder_tab_names[idx]
-            self.mcap_list_label.config(text=f"Files in: {display_folder_name} (Full path: {self.current_mcap_folder_absolute})")
-            # Update the current subfolder path entry to match the selected tab
-            self.current_subfolder_var.set(self.current_mcap_folder_absolute)
-            self.mcap_files_list, error = self.logic.list_mcap_files(self.current_mcap_folder_absolute)
-            if error:
-                self.log_message(error, is_error=True)
-                self.clear_file_list_and_disable_buttons()
-                return
-            if not self.mcap_files_list:
-                self.log_message("No .mcap files found in the directory.", is_error=True)
-                self.clear_file_list_and_disable_buttons()
-                return
-            self.populate_file_list()
+        """Handle tab changes with optimized file listing and updates"""
+        if not self.subfolder_tabs:
+            return
+            
+        idx = self.subfolder_tabs.index(self.subfolder_tabs.select())
+        new_folder = self.subfolder_tab_paths[idx]
+        
+        # Only update if folder actually changed
+        if new_folder == self.current_mcap_folder_absolute:
+            return
+            
+        self.current_mcap_folder_absolute = new_folder
+        display_folder_name = self.subfolder_tab_names[idx]
+        
+        # Batch UI updates
+        updates = [
+            (self.mcap_list_label, 'text', f"Files in: {display_folder_name} (Full path: {new_folder})"),
+            (self.current_subfolder_var, 'set', new_folder)
+        ]
+        
+        for widget, attr, value in updates:
+            if hasattr(widget, attr):
+                getattr(widget, attr)(value)
+        
+        # Get file list and handle errors
+        self.mcap_files_list, error = self.logic.list_mcap_files(new_folder)
+        
+        if error:
+            self.log_message(error, is_error=True)
+            self.clear_file_list_and_disable_buttons()
+            return
+            
+        if not self.mcap_files_list:
+            self.log_message("No .mcap files found in the directory.", is_error=True)
+            self.clear_file_list_and_disable_buttons()
+            return
+            
+        self.populate_file_list()
 
     def browse_default_folder(self):
         folder = filedialog.askdirectory(title="Select 'default' folder")
@@ -689,50 +764,57 @@ class FoxgloveAppGUIManager:
     def refresh_explorer(self, event=None):
         """Refresh the file explorer with current directory contents, applying search filter if set"""
         try:
+            # Clear existing content
             self.explorer_listbox.delete(0, tk.END)
             self.explorer_files_list = []
-            if not os.path.exists(self.current_explorer_path):
-                self.log_message(f"Path does not exist: {self.current_explorer_path}", is_error=True)
-                return
+            
+            # Early validation
             if not os.path.isdir(self.current_explorer_path):
-                self.log_message(f"Path is not a directory: {self.current_explorer_path}", is_error=True)
+                self.log_message(f"Invalid directory: {self.current_explorer_path}", is_error=True)
                 return
             
             # Update path display
             self.explorer_path_var.set(self.current_explorer_path)
             
-            # Add parent directory option (unless we're at root)
+            # Batch process parent directory
             parent_dir = os.path.dirname(self.current_explorer_path)
-            if parent_dir != self.current_explorer_path:  # Not at root
+            if parent_dir != self.current_explorer_path:
                 self.explorer_listbox.insert(tk.END, "⬆️ .. (Parent Directory)")
                 self.explorer_files_list.append("..")
             
-            # Use FileExplorerLogic to list directories and files
+            # Get directory contents in one call
             dirs, files = self.file_explorer_logic.list_directory(self.current_explorer_path)
             
-            # Apply search filter if set - optimize by checking once
-            search_query = getattr(self, 'explorer_search_var', None)
-            if search_query:
-                search_text = search_query.get().strip().lower()
-                if search_text:
-                    dirs = [d for d in dirs if search_text in d.lower()]
-                    files = [f for f in files if search_text in f.lower()]
+            # Apply search filter if needed - do it once
+            search_text = getattr(self, 'explorer_search_var', None)
+            if search_text and search_text.get().strip():
+                search_lower = search_text.get().strip().lower()
+                dirs = [d for d in dirs if search_lower in d.lower()]
+                files = [f for f in files if search_lower in f.lower()]
             
-            # Batch process directories
+            # Prepare batch insertions
+            batch_items = []
+            
+            # Process directories
             for d in dirs:
-                self.explorer_listbox.insert(tk.END, f"📁 {d}")
-                self.explorer_files_list.append(d)
+                batch_items.append((f"📁 {d}", d))
             
-            # Batch process files with file info lookup
+            # Process files with cached file info
+            file_info_cache = {}
             for f in files:
                 item_path = os.path.join(self.current_explorer_path, f)
                 info = self.file_explorer_logic.get_file_info(item_path)
+                file_info_cache[f] = info
                 icon = info.get('icon', '')
-                self.explorer_listbox.insert(tk.END, f"{icon} {f}")
-                self.explorer_files_list.append(f)
+                batch_items.append((f"{icon} {f}", f))
+            
+            # Perform batch insertion
+            for display_text, original_name in batch_items:
+                self.explorer_listbox.insert(tk.END, display_text)
+                self.explorer_files_list.append(original_name)
                 
         except PermissionError:
-            self.log_message(f"Permission denied accessing: {self.current_explorer_path}", is_error=True)
+            self.log_message(f"Permission denied: {self.current_explorer_path}", is_error=True)
         except Exception as e:
             self.log_message(f"Error refreshing explorer: {e}", is_error=True)
 
@@ -751,18 +833,22 @@ class FoxgloveAppGUIManager:
             return []
         
         mcap_paths = []
-        files_list_len = len(self.explorer_files_list)
+        current_path = self.current_explorer_path  # Cache current path
+        files_list = self.explorer_files_list  # Cache files list
+        
+        # Batch check for MCAP files
+        mcap_check = self.file_explorer_logic.is_mcap_file  # Cache function reference
         
         for idx in selection:
-            if idx >= files_list_len:
+            if idx >= len(files_list):
                 continue
                 
-            selected_item = self.explorer_files_list[idx]
+            selected_item = files_list[idx]
             if selected_item == "..":
                 continue
                 
-            item_path = os.path.join(self.current_explorer_path, selected_item)
-            if os.path.isfile(item_path) and self.file_explorer_logic.is_mcap_file(item_path):
+            item_path = os.path.join(current_path, selected_item)
+            if os.path.isfile(item_path) and mcap_check(item_path):
                 mcap_paths.append(item_path)
         
         return mcap_paths
@@ -775,36 +861,40 @@ class FoxgloveAppGUIManager:
             self.refresh_explorer()
 
     def _add_to_history(self, path):
-        """Add current path to navigation history"""
-        if path != self.current_explorer_path and path not in self.explorer_history[-5:]:
+        """Add current path to navigation history with optimized duplicate checking"""
+        if not hasattr(self, '_history_set'):
+            self._history_set = set()
+            
+        if path != self.current_explorer_path and path not in self._history_set:
             self.explorer_history.append(self.current_explorer_path)
-            # Keep only last 10 entries
-            self.explorer_history = self.explorer_history[-10:]
+            self._history_set.add(path)
+            
+            # Keep only last 10 entries and update set
+            if len(self.explorer_history) > 10:
+                removed = self.explorer_history.pop(0)
+                self._history_set.remove(removed)
 
     def go_up_directory(self):
-        """Navigate to parent directory, but do not go above ~/data"""
-        data_root = os.path.expanduser('~/data')
-        # Normalize paths for comparison
+        """Navigate to parent directory, optimized with cached paths"""
         current = os.path.abspath(self.current_explorer_path)
-        data_root = os.path.abspath(data_root)
+        
+        # Use cached data root path
+        if current == self._abs_data_root:
+            return
+            
         parent_dir = os.path.dirname(current)
-        # Prevent navigating above ~/data
-        if os.path.normpath(current) == os.path.normpath(data_root):
-            # Already at ~/data, do nothing
+        if os.path.commonpath([parent_dir, self._abs_data_root]) != self._abs_data_root:
             return
-        if os.path.commonpath([parent_dir, data_root]) != data_root:
-            # Parent is above ~/data, do nothing
-            return
+            
         self._add_to_history(self.current_explorer_path)
         self.current_explorer_path = parent_dir
         self.refresh_explorer()
 
     def go_home_directory(self):
-        """Navigate to data directory (~/data)"""
-        data_path = os.path.expanduser("~/data")
-        if self.current_explorer_path != data_path:
+        """Navigate to data directory using cached path"""
+        if self.current_explorer_path != self._data_root:
             self._add_to_history(self.current_explorer_path)
-            self.current_explorer_path = data_path
+            self.current_explorer_path = self._data_root
             self.refresh_explorer()
 
     def browse_directory(self):
@@ -1098,13 +1188,15 @@ class FoxgloveAppGUIManager:
         self._settings_tab_index = self.main_notebook.tabs().index(str(self.settings_frame))
 
     def _update_button_states(self, states):
-        """Efficiently update multiple button states at once"""
-        button_mappings = {
-            "open_file": self.open_file_button,
-            "copy_path": self.copy_path_button,
-            "open_with_foxglove": self.launch_foxglove_button,
-            "open_with_bazel": self.launch_bazel_gui_button
-        }
+        """Efficiently update multiple button states in one batch"""
+        state_map = {True: tk.NORMAL, False: tk.DISABLED}
+        updates = []
         
-        for state_key, button in button_mappings.items():
-            button.config(state=tk.NORMAL if states.get(state_key, False) else tk.DISABLED)
+        for state_key, button in self._button_map.items():
+            new_state = state_map[states.get(state_key, False)]
+            if button['state'] != new_state:
+                updates.append((button, new_state))
+        
+        # Batch update all buttons that need changing
+        for button, new_state in updates:
+            button.config(state=new_state)
