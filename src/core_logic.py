@@ -114,7 +114,8 @@ class FoxgloveAppLogic:
         backup_path = os.path.join(backup_base, relative_path)
         if os.path.isdir(backup_path):
             return backup_path
-        # If neither path exists, return the intended main path
+        # If neither path exists, return the intended main path, but log that it's not found
+        self.log_callback(f"Could not find local directory for '{relative_path}' at primary or backup locations.", is_error=True)
         return main_path
 
     def list_mcap_files(self, local_folder_path_absolute):

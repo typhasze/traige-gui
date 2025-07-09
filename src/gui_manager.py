@@ -88,6 +88,7 @@ class FoxgloveAppGUIManager:
         log_xscrollbar = ttk.Scrollbar(log_container, orient=tk.HORIZONTAL)
         
         self.log_text = tk.Text(log_container, height=6, wrap=tk.WORD, yscrollcommand=log_yscrollbar.set, state=tk.DISABLED)
+        self.log_text.tag_config("error", foreground="red")
         log_yscrollbar.config(command=self.log_text.yview)
         log_xscrollbar.config(command=self.log_text.xview)
         
@@ -161,11 +162,16 @@ class FoxgloveAppGUIManager:
     def open_in_file_manager(self):
         """Open current directory in system file manager via FileExplorerLogic"""
         current_tab = self.main_notebook.index(self.main_notebook.select())
+        
+        folder_to_open = None
         if current_tab == self._foxglove_tab_index:
-            folder_to_open = self.foxglove_tab.current_mcap_folder_absolute
+            # Get the path directly from the tab's state when the button is clicked
+            folder_to_open = self.foxglove_tab.get_current_folder()
         else:
             folder_to_open = self.file_explorer_tab.current_explorer_path
         
+        self.log_message(f"Attempting to open in file manager: {folder_to_open}")
+
         if folder_to_open and os.path.isdir(folder_to_open):
             success, msg = self.file_explorer_logic.open_in_file_manager(folder_to_open)
             if success:

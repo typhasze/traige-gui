@@ -30,19 +30,24 @@ class FileExplorerTab:
         path_frame = ttk.Frame(self.frame)
         path_frame.pack(fill="x", padx=5, pady=5)
 
+        path_label = ttk.Label(path_frame, text="File Path:")
+        path_label.pack(side=tk.LEFT, padx=(0, 5))
+
         self.explorer_path_var = tk.StringVar(value=self.current_explorer_path)
         self.explorer_path_entry = ttk.Entry(path_frame, textvariable=self.explorer_path_var)
         self.explorer_path_entry.pack(side=tk.LEFT, fill="x", expand=True)
 
         # Navigation buttons
-        self.go_home_button = self._create_button(path_frame, "🏠", self.go_home_directory, side=tk.LEFT)
-        self.go_up_button = self._create_button(path_frame, "⬆️", self.go_up_directory, side=tk.LEFT)
-        self.browse_button = self._create_button(path_frame, "...", self.browse_directory, side=tk.LEFT)
-        self.refresh_button = self._create_button(path_frame, "🔄", self.refresh_explorer, side=tk.LEFT)
+        self.go_home_button = self._create_button(path_frame, "⌂", self.go_home_directory, side=tk.LEFT)
+        self.go_back_button = self._create_button(path_frame, "⏎", self.go_back, side=tk.LEFT)
 
         # Search frame
         search_frame = ttk.Frame(self.frame)
         search_frame.pack(fill="x", padx=5, pady=5)
+
+        search_label = ttk.Label(search_frame, text="Search Filter:")
+        search_label.pack(side=tk.LEFT, padx=(0, 5))
+        
         self.explorer_search_var = tk.StringVar()
         self.explorer_search_entry = ttk.Entry(search_frame, textvariable=self.explorer_search_var)
         self.explorer_search_entry.pack(side=tk.LEFT, fill="x", expand=True)
@@ -88,11 +93,6 @@ class FileExplorerTab:
             
             self.explorer_path_var.set(self.current_explorer_path)
             
-            parent_dir = os.path.dirname(self.current_explorer_path)
-            if parent_dir != self.current_explorer_path:
-                self.explorer_listbox.insert(tk.END, "⬆️ .. (Parent Directory)")
-                self.explorer_files_list.append("..")
-            
             dirs, files = self.file_explorer_logic.list_directory(self.current_explorer_path)
             
             search_text = self.explorer_search_var.get().strip()
@@ -131,7 +131,6 @@ class FileExplorerTab:
         for idx in selection:
             if idx >= len(files_list): continue
             selected_item = files_list[idx]
-            if selected_item == "..": continue
             item_path = os.path.join(current_path, selected_item)
             if os.path.isfile(item_path) and mcap_check(item_path):
                 mcap_paths.append(item_path)
@@ -140,17 +139,21 @@ class FileExplorerTab:
 
     def go_back(self):
         if self.explorer_history:
+            # Pop from history and also from the set for consistency
             previous_path = self.explorer_history.pop()
+            if previous_path in self._history_set:
+                self._history_set.remove(previous_path)
+            
             self.current_explorer_path = previous_path
             self.refresh_explorer()
 
     def _add_to_history(self, path):
-        if not hasattr(self, '_history_set'):
-            self._history_set = set()
-        if path != self.current_explorer_path and path not in self._history_set:
-            self.explorer_history.append(self.current_explorer_path)
+        """Adds a path to the navigation history if it's not already the last one."""
+        if not self.explorer_history or self.explorer_history[-1] != path:
+            self.explorer_history.append(path)
             self._history_set.add(path)
-            if len(self.explorer_history) > 10:
+            # Limit history size
+            if len(self.explorer_history) > 20:
                 removed = self.explorer_history.pop(0)
                 self._history_set.remove(removed)
 
@@ -159,6 +162,7 @@ class FileExplorerTab:
         if current == self._abs_data_root: return
         parent_dir = os.path.dirname(current)
         if os.path.commonpath([parent_dir, self._abs_data_root]) != self._abs_data_root: return
+        
         self._add_to_history(self.current_explorer_path)
         self.current_explorer_path = parent_dir
         self.refresh_explorer()
@@ -172,12 +176,14 @@ class FileExplorerTab:
     def browse_directory(self):
         selected_dir = filedialog.askdirectory(initialdir=self.current_explorer_path)
         if selected_dir:
+            self._add_to_history(self.current_explorer_path)
             self.current_explorer_path = selected_dir
             self.refresh_explorer()
 
     def navigate_to_path(self, event=None):
         new_path = self.explorer_path_var.get().strip()
-        if new_path and os.path.isdir(new_path):
+        if new_path and os.path.isdir(new_path) and new_path != self.current_explorer_path:
+            self._add_to_history(self.current_explorer_path)
             self.current_explorer_path = new_path
             self.refresh_explorer()
         else:
@@ -190,18 +196,14 @@ class FileExplorerTab:
             idx = selection[0]
             if idx < len(self.explorer_files_list):
                 selected_item = self.explorer_files_list[idx]
-                if selected_item == "..":
-                    self.go_up_directory()
+                item_path = os.path.join(self.current_explorer_path, selected_item)
+                if os.path.isdir(item_path):
+                    self._add_to_history(self.current_explorer_path)
+                    self.current_explorer_path = item_path
+                    self.refresh_explorer()
                     self.clear_explorer_search()
                 else:
-                    item_path = os.path.join(self.current_explorer_path, selected_item)
-                    if os.path.isdir(item_path):
-                        self._add_to_history(self.current_explorer_path)
-                        self.current_explorer_path = item_path
-                        self.refresh_explorer()
-                        self.clear_explorer_search()
-                    else:
-                        self.open_file(item_path)
+                    self.open_file(item_path)
 
     def on_explorer_double_click(self, event):
         self.explorer_navigate_selected()
@@ -238,9 +240,8 @@ class FileExplorerTab:
             idx = selection[0]
             if idx < len(self.explorer_files_list):
                 selected_item = self.explorer_files_list[idx]
-                if selected_item != "..":
-                    item_path = os.path.join(self.current_explorer_path, selected_item)
-                    states = self.file_explorer_logic.get_file_action_states(item_path, len(selection) > 1)
+                item_path = os.path.join(self.current_explorer_path, selected_item)
+                states = self.file_explorer_logic.get_file_action_states(item_path, len(selection) > 1)
         
         if not suppress_log:
             mcap_files = self.get_selected_explorer_mcap_paths()

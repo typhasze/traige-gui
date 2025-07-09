@@ -24,7 +24,7 @@ class FoxgloveTab:
         self.create_widgets()
         self.bind_events()
 
-        self.refresh_subfolder_tabs()
+        self.refresh_subfolder_tabs(base_path=None)
 
     def create_widgets(self):
         # Link analysis frame
@@ -64,6 +64,47 @@ class FoxgloveTab:
         self.link_entry.bind("<Return>", lambda e: self.analyze_link())
         self.mcap_listbox.bind("<<ListboxSelect>>", self.on_file_select)
 
+    def on_file_select(self, event=None, suppress_log=False):
+        """Handle file selection in the listbox."""
+        selection_indices = self.mcap_listbox.curselection()
+        if selection_indices:
+            self.enable_file_specific_action_buttons()
+            if not suppress_log:
+                self.log_message(f"{len(selection_indices)} file(s) selected.")
+        else:
+            self.disable_file_specific_action_buttons()
+
+    def get_current_folder(self):
+        """
+        Returns the absolute path of the current folder being displayed.
+        If subfolder tabs are active, it returns the path of the selected subfolder tab.
+        Otherwise, it returns the path of the folder from the analyzed link.
+        """
+        if hasattr(self, 'subfolder_tabs') and self.subfolder_tabs and self.subfolder_tabs.winfo_exists():
+            try:
+                selected_tab_index = self.subfolder_tabs.index(self.subfolder_tabs.select())
+                if selected_tab_index < len(self.subfolder_tab_paths):
+                    return self.subfolder_tab_paths[selected_tab_index]
+            except tk.TclError:
+                # This can happen if no tab is selected.
+                pass
+        
+        return self.current_mcap_folder_absolute
+
+    def get_selected_mcap_path(self):
+        """Returns the full path for the first selected mcap file."""
+        paths = self.get_selected_mcap_paths()
+        return paths[0] if paths else None
+
+    def get_selected_mcap_paths(self):
+        """Returns a list of full paths for selected mcap files."""
+        current_folder = self.get_current_folder()
+        if not current_folder:
+            return []
+        
+        selected_indices = self.mcap_listbox.curselection()
+        return [os.path.join(current_folder, self.mcap_listbox.get(i)) for i in selected_indices]
+
     def _create_button(self, parent, text, command, state=tk.NORMAL, **pack_opts):
         btn = ttk.Button(parent, text=text, command=command, state=state)
         btn.pack(side=tk.LEFT, padx=5, pady=5, **pack_opts)
@@ -85,9 +126,15 @@ class FoxgloveTab:
         self.log_message(f"MCAP file from link: {self.mcap_filename_from_link}")
 
         self.current_mcap_folder_absolute = self.logic.get_local_folder_path(extracted_remote_folder)
+        
+        if not self.current_mcap_folder_absolute or not os.path.isdir(self.current_mcap_folder_absolute):
+            self.log_message(f"Error: Local folder does not exist or could not be mapped: {self.current_mcap_folder_absolute}", is_error=True)
+            self.clear_file_list_and_disable_buttons()
+            return
+
         self.log_message(f"Mapped local folder: {self.current_mcap_folder_absolute}")
         
-        display_folder_name = os.path.basename(self.current_mcap_folder_absolute) if self.current_mcap_folder_absolute else "N/A"
+        display_folder_name = os.path.basename(self.current_mcap_folder_absolute)
         self.mcap_list_label.config(text=f"Files in: {display_folder_name} (Full path: {self.current_mcap_folder_absolute})")
 
         self.mcap_files_list, error = self.logic.list_mcap_files(self.current_mcap_folder_absolute)
@@ -95,17 +142,18 @@ class FoxgloveTab:
             self.log_message(error, is_error=True)
         
         if not self.mcap_files_list:
-            self.log_message("No .mcap files found in the directory.", is_error=True)
+            self.log_message("No .mcap files found in the directory.", is_error=False)
 
         self.populate_file_list()
 
         resolved_folder = self.current_mcap_folder_absolute
         if resolved_folder:
-            self.refresh_subfolder_tabs(default_folder=resolved_folder)
+            self.refresh_subfolder_tabs(base_path=resolved_folder)
 
     def clear_link_and_list(self):
         self.link_var.set("")
         self.mcap_filename_from_link = None
+        self.current_mcap_folder_absolute = None # Reset folder context
         self.clear_file_list_and_disable_buttons()
         self.mcap_list_label.config(text="Files in: N/A")
 
@@ -142,103 +190,72 @@ class FoxgloveTab:
             self.enable_file_specific_action_buttons()
         else:
             self.disable_file_specific_action_buttons()
-            
-        self._last_list_state = current_state
 
-    def on_file_select(self, event=None, suppress_log=False):
-        if self.mcap_listbox.curselection():
-            self.enable_file_specific_action_buttons()
-        else:
-            self.disable_file_specific_action_buttons()
+        # Refresh subfolder tabs after populating the file list
+        # self.refresh_subfolder_tabs() # This is now called from analyze_link and on_subfolder_tab_changed
 
-    def get_selected_mcap_path(self):
-        selection_indices = self.mcap_listbox.curselection()
-        if not selection_indices:
-            return None
-        selected_filename = self.mcap_listbox.get(selection_indices[0])
-        if self.current_mcap_folder_absolute and os.path.isdir(self.current_mcap_folder_absolute):
-             return os.path.join(self.current_mcap_folder_absolute, selected_filename)
-        self.log_message("Error: Current MCAP folder path is not set or invalid.", is_error=True)
-        return None
-
-    def get_selected_mcap_paths(self):
-        selection_indices = self.mcap_listbox.curselection()
-        selected_paths = []
-        for idx in selection_indices:
-            selected_filename = self.mcap_listbox.get(idx)
-            if self.current_mcap_folder_absolute and os.path.isdir(self.current_mcap_folder_absolute):
-                selected_paths.append(os.path.join(self.current_mcap_folder_absolute, selected_filename))
-        return selected_paths
-
-    def on_subfolder_tab_changed(self, event):
-        if not self.subfolder_tabs: return
-        idx = self.subfolder_tabs.index(self.subfolder_tabs.select())
-        new_folder = self.subfolder_tab_paths[idx]
-        
-        if new_folder == self.current_mcap_folder_absolute: return
-            
-        self.current_mcap_folder_absolute = new_folder
-        display_folder_name = self.subfolder_tab_names[idx]
-        
-        self.mcap_list_label.config(text=f"Files in: {display_folder_name} (Full path: {new_folder})")
-        
-        self.mcap_files_list, error = self.logic.list_mcap_files(new_folder)
-        if error:
-            self.log_message(error, is_error=True)
-            self.clear_file_list_and_disable_buttons()
-            return
-            
-        if not self.mcap_files_list:
-            self.log_message("No .mcap files found in the directory.", is_error=True)
-            self.clear_file_list_and_disable_buttons()
-            return
-            
-        self.populate_file_list()
-
-    def browse_default_folder(self):
-        folder = filedialog.askdirectory(title="Select 'default' folder")
-        if folder:
-            self.refresh_subfolder_tabs(default_folder=folder)
-
-    def refresh_subfolder_tabs(self, default_folder=None):
-        if self.subfolder_tabs:
+    def refresh_subfolder_tabs(self, base_path):
+        """Create or update subfolder tabs based on the given base path."""
+        # Destroy existing notebook if it exists to prevent stacking them
+        if hasattr(self, 'subfolder_tabs') and self.subfolder_tabs:
             self.subfolder_tabs.destroy()
             self.subfolder_tabs = None
             self.subfolder_tab_names = []
             self.subfolder_tab_paths = []
 
-        if default_folder is None:
-            current_path = self.current_mcap_folder_absolute or os.path.expanduser('~/data/default')
-            default_folder = self.logic.get_effective_default_folder(current_path)
+        if not base_path or not os.path.isdir(base_path):
+            # Also destroy tabs if the base path becomes invalid
+            if hasattr(self, 'subfolder_tabs') and self.subfolder_tabs:
+                self.subfolder_tabs.destroy()
+            return
 
-        subfolders = self.logic.list_subfolders_in_path(default_folder)
-        file_list_frame = self.mcap_list_label.master
+        subfolders = sorted([d for d in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, d))])
 
-        if len(subfolders) > 1:
-            self.subfolder_tabs = ttk.Notebook(file_list_frame)
-            for folder in subfolders:
-                tab_name = os.path.basename(folder)
-                self.subfolder_tab_names.append(tab_name)
-                self.subfolder_tab_paths.append(folder)
-                tab_frame = ttk.Frame(self.subfolder_tabs)
-                self.subfolder_tabs.add(tab_frame, text=tab_name)
-            self.subfolder_tabs.pack(fill="x", pady=(0, 5))
-            self.subfolder_tabs.bind("<<NotebookTabChanged>>", self.on_subfolder_tab_changed)
-            self.current_mcap_folder_absolute = self.subfolder_tab_paths[0]
-        elif len(subfolders) == 1:
-            self.current_mcap_folder_absolute = subfolders[0]
-        else:
-            self.current_mcap_folder_absolute = None
+        if not subfolders:
+            # Destroy tabs if there are no subfolders to show
+            if hasattr(self, 'subfolder_tabs') and self.subfolder_tabs:
+                self.subfolder_tabs.destroy()
+            return
 
-        if self.subfolder_tabs:
-            self.on_subfolder_tab_changed(None)
-        elif self.current_mcap_folder_absolute:
-            display_folder_name = os.path.basename(self.current_mcap_folder_absolute)
-            self.mcap_list_label.config(text=f"Files in: {display_folder_name} (Full path: {self.current_mcap_folder_absolute})")
-            self.mcap_files_list, error = self.logic.list_mcap_files(self.current_mcap_folder_absolute)
-            if not error and self.mcap_files_list:
-                self.populate_file_list()
-            else:
-                self.clear_file_list_and_disable_buttons()
-        else:
-            self.clear_file_list_and_disable_buttons()
+        # Create a new notebook for subfolder tabs
+        self.subfolder_tabs = ttk.Notebook(self.frame)
+        self.subfolder_tabs.pack(fill="x", padx=5, pady=(5, 0))
+
+        for folder in subfolders:
+            folder_path = os.path.join(base_path, folder)
+            tab_frame = ttk.Frame(self.subfolder_tabs)
+            self.subfolder_tabs.add(tab_frame, text=folder)
+            
+            # Store paths for later use
+            self.subfolder_tab_names.append(folder)
+            self.subfolder_tab_paths.append(folder_path)
+
+            # You can add content to tab_frame here if needed, e.g., a label
+            # label = ttk.Label(tab_frame, text=f"Contents of {folder}")
+            # label.pack(padx=5, pady=5)
+
+        self.subfolder_tabs.bind("<<NotebookTabChanged>>", self.on_subfolder_tab_changed)
+
+    def on_subfolder_tab_changed(self, event):
+        """Handle switching between subfolder tabs."""
+        if not self.subfolder_tabs:
+            return
+            
+        selected_tab_index = self.subfolder_tabs.index(self.subfolder_tabs.select())
+        new_path = self.subfolder_tab_paths[selected_tab_index]
+
+        self.current_mcap_folder_absolute = new_path
+        
+        display_folder_name = os.path.basename(self.current_mcap_folder_absolute)
+        self.mcap_list_label.config(text=f"Files in: {display_folder_name} (Full path: {self.current_mcap_folder_absolute})")
+
+        self.mcap_files_list, error = self.logic.list_mcap_files(self.current_mcap_folder_absolute)
+        if error:
+            self.log_message(error, is_error=True)
+        
+        if not self.mcap_files_list:
+            self.log_message("No .mcap files found in this sub-directory.", is_error=False)
+
+        self.populate_file_list()
+        # Refresh the sub-sub-folders
+        self.refresh_subfolder_tabs(base_path=new_path)
