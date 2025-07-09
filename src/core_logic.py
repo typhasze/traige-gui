@@ -3,6 +3,8 @@ import os
 import subprocess
 import shutil
 import json
+import sys
+import signal
 
 def perform_operation(data):
     # Placeholder for core logic operation
@@ -150,20 +152,31 @@ class FoxgloveAppLogic:
 
     def _terminate_process_by_name(self, name):
         """
-        Terminates any running process with the given name.
+        Terminates any running process with the given name and its children.
         """
         for proc_info in list(self.running_processes):
             if proc_info['name'] == name:
                 proc = proc_info['process']
                 if proc.poll() is None:
                     try:
-                        proc.terminate()
+                        # Terminate the entire process group
+                        if sys.platform != "win32":
+                            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                        else:
+                            proc.terminate() # Fallback for windows
                         proc.wait(timeout=3)
+                    except (ProcessLookupError, PermissionError):
+                        # Process already died between poll() and killpg()
+                        pass
                     except Exception:
                         try:
-                            proc.kill()
+                            if sys.platform != "win32":
+                                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                            else:
+                                proc.kill()
                             proc.wait()
                         except Exception:
+                            # Ignore if it fails, process might be gone
                             pass
                 if proc_info in self.running_processes:
                     self.running_processes.remove(proc_info)
@@ -193,7 +206,9 @@ class FoxgloveAppLogic:
         elif name in ['Foxglove Studio', 'Bazel Bag GUI']:
             self._terminate_process_by_name(name)
         try:
-            proc = subprocess.Popen(command, cwd=cwd, shell=use_shell)
+            # On Unix, start the process in a new session to control its process group
+            preexec_fn = os.setsid if sys.platform != "win32" else None
+            proc = subprocess.Popen(command, cwd=cwd, shell=use_shell, preexec_fn=preexec_fn)
             self.running_processes.append({'name': name, 'process': proc, 'path': mcap_path, 'command': command, 'cwd': cwd})
             return f"{name} launched (PID: {proc.pid}).", None
         except FileNotFoundError:

@@ -42,8 +42,7 @@ class FoxgloveAppGUIManager:
 
         # --- Shared Components ---
         self.create_shared_log_frame(main_frame)
-        # self._create_action_buttons(main_frame) # This line is moved up
-
+        
         # --- Initial State ---
         self._cache_tab_indices()
         self.on_tab_changed() # Set initial button states
@@ -111,12 +110,16 @@ class FoxgloveAppGUIManager:
         self.log_text.see(tk.END)
         self.log_text.update_idletasks()
 
-    def enable_file_specific_action_buttons(self):
-        states = {"open_with_foxglove": True, "open_with_bazel": True}
+    def enable_file_specific_action_buttons(self, open_with_foxglove=True, open_with_bazel=True, copy_path=False):
+        states = {
+            "open_with_foxglove": open_with_foxglove, 
+            "open_with_bazel": open_with_bazel,
+            "copy_path": copy_path
+        }
         self._update_button_states(states)
 
     def disable_file_specific_action_buttons(self):
-        states = {"open_with_foxglove": False, "open_with_bazel": False}
+        states = {"open_with_foxglove": False, "open_with_bazel": False, "copy_path": False}
         self._update_button_states(states)
 
     def launch_bazel_viz(self):
@@ -182,20 +185,34 @@ class FoxgloveAppGUIManager:
             self.log_message(f"Folder does not exist: {folder_to_open}", is_error=True)
 
     def copy_selected_path(self):
-        """Copy the path of the selected item in the explorer tab to clipboard."""
-        if self.main_notebook.index(self.main_notebook.select()) == self._explorer_tab_index:
+        """Copy the path of the selected item from the active tab to the clipboard."""
+        current_tab = self.main_notebook.index(self.main_notebook.select())
+        item_path = None
+
+        if current_tab == self._explorer_tab_index:
             selection = self.file_explorer_tab.explorer_listbox.curselection()
             if selection:
+                # In File Explorer, we only allow copying a single item's path.
+                # The button state logic in file_explorer_tab already ensures this.
                 idx = selection[0]
                 if idx < len(self.file_explorer_tab.explorer_files_list):
                     selected_item = self.file_explorer_tab.explorer_files_list[idx]
-                    if selected_item != "..":
-                        item_path = os.path.join(self.file_explorer_tab.current_explorer_path, selected_item)
-                        success, msg = self.file_explorer_logic.copy_to_clipboard(self.root, item_path)
-                        if success:
-                            self.log_message(msg)
-                        else:
-                            self.log_message(msg, is_error=True)
+                    item_path = os.path.join(self.file_explorer_tab.current_explorer_path, selected_item)
+        
+        elif current_tab == self._foxglove_tab_index:
+            # In Foxglove tab, get the single selected MCAP path.
+            # The button state logic in foxglove_tab ensures this.
+            item_path = self.foxglove_tab.get_selected_mcap_path()
+
+        if item_path:
+            success, msg = self.file_explorer_logic.copy_to_clipboard(self.root, item_path)
+            if success:
+                self.log_message(msg)
+            else:
+                self.log_message(msg, is_error=True)
+        else:
+            self.log_message("No single item selected to copy path from.", is_error=True)
+
 
     def open_with_foxglove(self):
         """Open the selected MCAP file with Foxglove from either tab."""

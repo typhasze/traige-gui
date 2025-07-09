@@ -62,15 +62,29 @@ class FoxgloveTab:
 
     def bind_events(self):
         self.link_entry.bind("<Return>", lambda e: self.analyze_link())
+        self.link_entry.bind("<Control-a>", self.select_all_text)
+        self.link_entry.bind("<Control-A>", self.select_all_text)  # Handle Shift key
         self.mcap_listbox.bind("<<ListboxSelect>>", self.on_file_select)
+
+    def select_all_text(self, event=None):
+        """Select all text in the widget that triggered the event."""
+        # The widget that generated the event is in event.widget
+        if event and isinstance(event.widget, ttk.Entry):
+            event.widget.select_range(0, tk.END)
+            event.widget.icursor(tk.END)
+        return "break"  # Prevents other bindings from firing
 
     def on_file_select(self, event=None, suppress_log=False):
         """Handle file selection in the listbox."""
         selection_indices = self.mcap_listbox.curselection()
-        if selection_indices:
-            self.enable_file_specific_action_buttons()
+        num_selected = len(selection_indices)
+        
+        if num_selected > 0:
+            # Enable copy only for single selection
+            copy_enabled = num_selected == 1
+            self.enable_file_specific_action_buttons(copy_path=copy_enabled)
             if not suppress_log:
-                self.log_message(f"{len(selection_indices)} file(s) selected.")
+                self.log_message(f"{num_selected} file(s) selected.")
         else:
             self.disable_file_specific_action_buttons()
 

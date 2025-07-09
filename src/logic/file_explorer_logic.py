@@ -105,8 +105,9 @@ class FileExplorerLogic:
             item_path = selected_paths[0]
             states["copy_path"] = True
             if os.path.isfile(item_path):
-                states["open_file"] = True
-                if self.is_mcap_file(item_path):
+                is_mcap = self.is_mcap_file(item_path)
+                states["open_file"] = not is_mcap  # Only enable for non-mcap files
+                if is_mcap:
                     states["open_with_foxglove"] = True
                     states["open_with_bazel"] = True
         
