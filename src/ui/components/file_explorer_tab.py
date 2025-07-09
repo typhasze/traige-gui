@@ -255,12 +255,17 @@ class FileExplorerTab:
     def on_explorer_select(self, event=None, suppress_log=False):
         selection = self.explorer_listbox.curselection()
         states = {"open_file": False, "copy_path": False, "open_with_foxglove": False, "open_with_bazel": False}
+        
+        selected_paths = []
         if selection:
-            idx = selection[0]
-            if idx < len(self.explorer_files_list):
-                selected_item = self.explorer_files_list[idx]
-                item_path = os.path.join(self.current_explorer_path, selected_item)
-                states = self.file_explorer_logic.get_file_action_states(item_path, len(selection) > 1)
+            for idx in selection:
+                if idx < len(self.explorer_files_list):
+                    selected_item = self.explorer_files_list[idx]
+                    item_path = os.path.join(self.current_explorer_path, selected_item)
+                    selected_paths.append(item_path)
+            
+            is_multiple = len(selection) > 1
+            states = self.file_explorer_logic.get_file_action_states(selected_paths, is_multiple)
         
         if not suppress_log:
             mcap_files = self.get_selected_explorer_mcap_paths()

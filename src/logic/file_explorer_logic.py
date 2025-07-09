@@ -86,10 +86,9 @@ class FileExplorerLogic:
         except Exception as e:
             return False, f"Error copying to clipboard: {e}"
 
-    def get_file_action_states(self, item_path, is_parent_dir=False):
+    def get_file_action_states(self, selected_paths, is_multiple_selection):
         """
-        Given a path, return a dict of which file action buttons should be enabled.
-        If is_parent_dir is True, disables all actions.
+        Given a list of paths, return a dict of which file action buttons should be enabled.
         """
         states = {
             "open_file": False,
@@ -97,16 +96,23 @@ class FileExplorerLogic:
             "open_with_foxglove": False,
             "open_with_bazel": False
         }
-        if is_parent_dir:
+
+        if not selected_paths:
             return states
-        if not os.path.exists(item_path):
-            return states
-        if os.path.isfile(item_path):
-            states["open_file"] = True
+
+        # Logic for single selection
+        if not is_multiple_selection:
+            item_path = selected_paths[0]
             states["copy_path"] = True
-            if self.is_mcap_file(item_path):
-                states["open_with_foxglove"] = True
-                states["open_with_bazel"] = True
-        elif os.path.isdir(item_path):
-            states["copy_path"] = True
+            if os.path.isfile(item_path):
+                states["open_file"] = True
+                if self.is_mcap_file(item_path):
+                    states["open_with_foxglove"] = True
+                    states["open_with_bazel"] = True
+        
+        # Logic for multiple selections (or single)
+        are_all_mcap = all(self.is_mcap_file(p) and os.path.isfile(p) for p in selected_paths)
+        if are_all_mcap:
+            states["open_with_bazel"] = True
+
         return states
