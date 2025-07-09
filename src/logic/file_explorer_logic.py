@@ -1,5 +1,5 @@
 import os
-from utils.utils import format_file_size, get_file_icon
+from ..utils.utils import format_file_size, get_file_icon
 
 class FileExplorerLogic:
     def __init__(self, base_path=None):

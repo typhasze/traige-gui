@@ -9,78 +9,71 @@ def perform_operation(data):
     # Implement the main functionality of the application here
     return data
 
-class FoxgloveLogic:
-    def __init__(self):
+class FoxgloveAppLogic:
+    def __init__(self, log_callback=None):
         self.running_processes = []
         self.settings_path = os.path.expanduser('~/.foxglove_gui_settings.json')
         self.settings = self.load_settings()
         self.local_base_path_absolute = os.path.expanduser('~/data')
         self.bazel_working_dir = self.get_bazel_working_dir()
+        self.log_callback = log_callback or (lambda *args, **kwargs: None)
 
     def load_settings(self):
         """
         Loads settings from a JSON file, or returns defaults if not found.
         """
         default_settings = {
-            'bazel_tools_viz_cmd': ['bazel', 'run', '//tools/viz'],
-            'bazel_bag_gui_cmd': ['bazel', 'run', '//tools/bag:gui'],
+            'bazel_tools_viz_cmd': 'bazel run //tools/viz',
+            'bazel_bag_gui_cmd': 'bazel run //tools/bag:gui',
             'bazel_working_dir': os.path.expanduser('~/av-system/catkin_ws/src'),
-            'foxglove_open_in_browser': False,
         }
         if os.path.exists(self.settings_path):
             try:
                 with open(self.settings_path, 'r') as f:
                     user_settings = json.load(f)
-                # Merge defaults with user settings
-                for k, v in default_settings.items():
-                    if k not in user_settings:
-                        user_settings[k] = v
-                return user_settings
-            except Exception:
+                # Merge defaults with user settings, ensuring all keys are present
+                settings = default_settings.copy()
+                settings.update(user_settings)
+                return settings
+            except Exception as e:
+                self.log_callback(f"Error loading settings, using defaults: {e}", is_error=True)
                 return default_settings
         return default_settings
 
-    def save_settings(self):
+    def save_settings(self, settings_dict):
         """
-        Saves current settings to the JSON file.
+        Saves provided settings to the JSON file.
         """
         try:
+            # Update the current settings with the new values
+            self.settings.update(settings_dict)
             with open(self.settings_path, 'w') as f:
-                json.dump(self.settings, f, indent=2)
+                json.dump(self.settings, f, indent=4)
+            # After saving, update any properties that depend on settings
+            self.bazel_working_dir = self.get_bazel_working_dir()
             return True, None
         except Exception as e:
             return False, str(e)
 
-    def set_bazel_tools_viz_cmd(self, cmd_list):
-        self.settings['bazel_tools_viz_cmd'] = cmd_list
-        return self.save_settings()
+    def reset_settings(self):
+        """Resets settings to their default values and saves them."""
+        default_settings = {
+            'bazel_tools_viz_cmd': 'bazel run //tools/viz',
+            'bazel_bag_gui_cmd': 'bazel run //tools/bag:gui',
+            'bazel_working_dir': os.path.expanduser('~/av-system/catkin_ws/src'),
+        }
+        self.settings = default_settings.copy()
+        self.save_settings(self.settings)
 
-    def set_bazel_bag_gui_cmd(self, cmd_list):
-        self.settings['bazel_bag_gui_cmd'] = cmd_list
-        return self.save_settings()
 
-    def set_bazel_working_dir(self, path):
-        self.bazel_working_dir = path
-        self.settings['bazel_working_dir'] = path
-        return self.save_settings()
-
-    def set_foxglove_open_in_browser(self, value: bool):
-        self.settings['foxglove_open_in_browser'] = value
-        return self.save_settings()
-
-    def get_bazel_tools_viz_cmd(self):
-        return self.settings.get('bazel_tools_viz_cmd', ['bazel', 'run', '//tools/viz'])
-
-    def get_bazel_bag_gui_cmd(self):
-        return self.settings.get('bazel_bag_gui_cmd', ['bazel', 'run', '//tools/bag:gui'])
+    def get_setting(self, key):
+        """Gets a specific setting value by key."""
+        return self.settings.get(key)
 
     def get_bazel_working_dir(self):
-        return self.settings.get('bazel_working_dir', os.path.expanduser('~/av-system/catkin_ws/src'))
+        return self.settings.get('bazel_working_dir')
 
-    def get_foxglove_open_in_browser(self):
-        return self.settings.get('foxglove_open_in_browser', False)
-
-    def extract_mcap_details_from_foxglove_link(self, link):
+    def extract_info_from_link(self, link):
         """
         Extracts the folder path and filename of the .mcap file from a Foxglove link
         or a direct URL to an .mcap file.
@@ -121,7 +114,8 @@ class FoxgloveLogic:
         backup_path = os.path.join(backup_base, relative_path)
         if os.path.isdir(backup_path):
             return backup_path
-        return main_path  # Default to main path if neither exists
+        # If neither path exists, return the intended main path
+        return main_path
 
     def list_mcap_files(self, local_folder_path_absolute):
         """
@@ -170,7 +164,8 @@ class FoxgloveLogic:
                             proc.wait()
                         except Exception:
                             pass
-                self.running_processes.remove(proc_info)
+                if proc_info in self.running_processes:
+                    self.running_processes.remove(proc_info)
 
     def _is_process_running_by_name(self, name):
         for proc_info in self.running_processes:
@@ -187,26 +182,29 @@ class FoxgloveLogic:
                 return self.launch_foxglove_browser(mcap_path)
             else:
                 return None, "No MCAP file path provided for browser launch."
+        
+        # Use shell=True for commands that are strings, False for lists of args
+        use_shell = isinstance(command, str)
+
         if name == 'Bazel Tools Viz':
             if self._is_process_running_by_name(name):
                 return f"{name} is already running.", None
         elif name in ['Foxglove Studio', 'Bazel Bag GUI']:
             self._terminate_process_by_name(name)
         try:
-            proc = subprocess.Popen(command, cwd=cwd)
+            proc = subprocess.Popen(command, cwd=cwd, shell=use_shell)
             self.running_processes.append({'name': name, 'process': proc, 'path': mcap_path, 'command': command, 'cwd': cwd})
             return f"{name} launched (PID: {proc.pid}).", None
         except FileNotFoundError:
-            return None, f"Command for '{name}' ('{command[0]}') not found. Ensure it's installed and in PATH."
+            cmd_str = command if use_shell else command[0]
+            return None, f"Command for '{name}' ('{cmd_str}') not found. Ensure it's installed and in PATH."
         except Exception as e:
             return None, f"Failed to launch {name}: {e}"
 
     def launch_foxglove(self, mcap_filepath_absolute):
-        if self.get_foxglove_open_in_browser():
-            return self._launch_process([], 'Foxglove Studio (Browser)', mcap_path=mcap_filepath_absolute)
-        else:
-            return self._launch_process(['foxglove-studio', '--file', mcap_filepath_absolute], 'Foxglove Studio', mcap_path=mcap_filepath_absolute)
-    
+        # Foxglove Studio is typically a direct command, not run with shell
+        return self._launch_process(['foxglove-studio', '--file', mcap_filepath_absolute], 'Foxglove Studio', mcap_path=mcap_filepath_absolute)
+
     def launch_foxglove_browser(self, mcap_filepath_absolute):
         """
         Launches Foxglove Studio in a web browser with the given .mcap file.
@@ -233,47 +231,38 @@ class FoxgloveLogic:
         self.bazel_working_dir = self.get_bazel_working_dir()
         if not os.path.isdir(self.bazel_working_dir):
             return None, f"Bazel working directory not found: {self.bazel_working_dir}"
-        return self._launch_process(self.get_bazel_tools_viz_cmd(), 'Bazel Tools Viz', cwd=self.bazel_working_dir)
+        return self._launch_process(self.get_setting('bazel_tools_viz_cmd'), 'Bazel Tools Viz', cwd=self.bazel_working_dir)
 
-    def launch_bazel_bag_gui(self, mcap_dir_or_file):
+    def launch_bazel_bag_gui(self, mcap_path):
         self.bazel_working_dir = self.get_bazel_working_dir()
-        # If a directory is provided, launch with all .mcap files in it
-        if os.path.isdir(mcap_dir_or_file):
-            mcap_glob = os.path.join(mcap_dir_or_file, '*.mcap')
-            return self._launch_process(self.get_bazel_bag_gui_cmd() + ['--', mcap_glob], 'Bazel Bag GUI', cwd=self.bazel_working_dir, mcap_path=mcap_dir_or_file)
-        else:
-            return self._launch_process(self.get_bazel_bag_gui_cmd() + [mcap_dir_or_file], 'Bazel Bag GUI', cwd=self.bazel_working_dir, mcap_path=mcap_dir_or_file)
+        command = f"{self.get_setting('bazel_bag_gui_cmd')} -- {mcap_path}"
+        return self._launch_process(command, 'Bazel Bag GUI', cwd=self.bazel_working_dir, mcap_path=mcap_path)
 
     def play_bazel_bag_gui_with_symlinks(self, mcap_filepaths):
-        import threading
         self.bazel_working_dir = self.get_bazel_working_dir()
         symlink_dir = '/tmp/selected_bags_symlinks'
-        # Cleanup if exists
+        
         if os.path.exists(symlink_dir):
             shutil.rmtree(symlink_dir)
         os.makedirs(symlink_dir, exist_ok=True)
-        # Create symlinks
+
         for bag in mcap_filepaths:
             if os.path.isfile(bag):
                 link_name = os.path.join(symlink_dir, os.path.basename(bag))
                 try:
                     os.symlink(bag, link_name)
                 except FileExistsError:
-                    pass
-        # Find all .mcap files in the symlink dir
-        mcap_files = [os.path.join(symlink_dir, f) for f in os.listdir(symlink_dir) if f.lower().endswith('.mcap')]
-        if not mcap_files:
-            return None, "No .mcap files found in symlink directory.", symlink_dir
-        # Run bazel command with all .mcap files as arguments
-        proc = subprocess.Popen(['bazel', 'run', '//tools/bag:gui', '--'] + mcap_files, cwd=self.bazel_working_dir)
-        self.running_processes.append({'name': 'Bazel Bag GUI', 'process': proc, 'path': symlink_dir, 'command': ['bazel', 'run', '//tools/bag:gui', '--'] + mcap_files, 'cwd': self.bazel_working_dir})
-        # Cleanup symlink dir after a delay
-        def delayed_cleanup():
-            import time
-            time.sleep(10)
-            shutil.rmtree(symlink_dir, ignore_errors=True)
-        threading.Thread(target=delayed_cleanup, daemon=True).start()
-        return f"Bazel Bag GUI launched with {len(mcap_files)} bag(s).", None, symlink_dir
+                    pass # Symlink already exists, ignore.
+
+        mcap_files_str = " ".join([f'"{os.path.join(symlink_dir, f)}"' for f in os.listdir(symlink_dir) if f.lower().endswith('.mcap')])
+        if not mcap_files_str:
+            return None, "No .mcap files found to play.", symlink_dir
+
+        command = f"{self.get_setting('bazel_bag_gui_cmd')} -- {mcap_files_str}"
+        
+        message, error = self._launch_process(command, 'Bazel Bag GUI', cwd=self.bazel_working_dir)
+        
+        return message, error, symlink_dir
 
     def terminate_all_processes(self):
         log_messages = []
@@ -303,6 +292,15 @@ class FoxgloveLogic:
             if proc_info in self.running_processes:
                 self.running_processes.remove(proc_info)
                 
+        # Cleanup symlink dir if it exists from a multi-bag play
+        symlink_dir = '/tmp/selected_bags_symlinks'
+        if os.path.exists(symlink_dir):
+            try:
+                shutil.rmtree(symlink_dir, ignore_errors=True)
+                log_messages.append(f"Cleaned up symlink dir: {symlink_dir}")
+            except Exception as e:
+                log_messages.append(f"Error cleaning symlink dir: {e}")
+
         if not log_messages: # Should not happen if logic above is correct
              log_messages.append("Cleanup attempt complete. No active processes found or all terminated.")
         return "\n".join(log_messages)
