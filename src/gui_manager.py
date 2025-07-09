@@ -18,7 +18,7 @@ class FoxgloveAppGUIManager:
 
         # --- Main UI Frames ---
         self.root.title("Foxglove MCAP Launcher")
-        self.root.geometry("1200x800") # Set a default size
+        self.root.geometry("1000x800") # Set a default size
         self.root.minsize(800, 600) # Set minimum size
 
         main_frame = ttk.Frame(self.root, padding="10")

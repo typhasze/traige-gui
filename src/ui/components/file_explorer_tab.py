@@ -69,10 +69,25 @@ class FileExplorerTab:
         self.explorer_search_entry.bind("<Return>", lambda e: self.explorer_listbox.focus_set())
         self.explorer_search_entry.bind("<Down>", self.focus_explorer_listbox_down)
         self.explorer_search_entry.bind("<Up>", self.focus_explorer_listbox_up)
+        self.explorer_search_entry.bind("<Escape>", self.clear_explorer_search)
         self.explorer_listbox.bind("<<ListboxSelect>>", self.on_explorer_select)
         self.explorer_listbox.bind("<Double-1>", self.on_explorer_double_click)
         self.explorer_listbox.bind("<Return>", self.on_explorer_enter_key)
         self.explorer_listbox.bind("<BackSpace>", self.on_explorer_backspace_key)
+        self.explorer_listbox.bind("<Key>", self.on_listbox_keypress)
+
+    def on_listbox_keypress(self, event):
+        """Focus search bar on key press in the listbox."""
+        # Check if the key is a regular character (alphanumeric, punctuation, etc.)
+        if event.char and event.char.isprintable() and len(event.char) == 1:
+            self.explorer_search_entry.focus_set()
+            # The character from the event that triggered this is not automatically inserted,
+            # so we append it to the search variable.
+            current_search = self.explorer_search_var.get()
+            self.explorer_search_var.set(current_search + event.char)
+            # Move cursor to the end
+            self.explorer_search_entry.icursor(tk.END)
+            return "break"  # Prevents the default listbox behavior for the key press
 
     def _create_button(self, parent, text, command, state=tk.NORMAL, **pack_opts):
         btn = ttk.Button(parent, text=text, command=command, state=state)
@@ -151,11 +166,11 @@ class FileExplorerTab:
         """Adds a path to the navigation history if it's not already the last one."""
         if not self.explorer_history or self.explorer_history[-1] != path:
             self.explorer_history.append(path)
-            self._history_set.add(path)
             # Limit history size
             if len(self.explorer_history) > 20:
-                removed = self.explorer_history.pop(0)
-                self._history_set.remove(removed)
+                self.explorer_history.pop(0)
+            # Rebuild the set from the list to ensure they are always in sync
+            self._history_set = set(self.explorer_history)
 
     def go_up_directory(self):
         current = os.path.abspath(self.current_explorer_path)
@@ -168,10 +183,14 @@ class FileExplorerTab:
         self.refresh_explorer()
 
     def go_home_directory(self):
+        """Navigate to the home directory, adding the current path to history if it's different."""
+        # Add the current valid path to history if it's not the destination (home)
         if self.current_explorer_path != self._data_root:
             self._add_to_history(self.current_explorer_path)
-            self.current_explorer_path = self._data_root
-            self.refresh_explorer()
+        
+        # Set the current path to home and refresh the view
+        self.current_explorer_path = self._data_root
+        self.refresh_explorer()
 
     def browse_directory(self):
         selected_dir = filedialog.askdirectory(initialdir=self.current_explorer_path)
@@ -250,8 +269,10 @@ class FileExplorerTab:
         
         self._update_button_states(states)
 
-    def clear_explorer_search(self):
+    def clear_explorer_search(self, event=None):
         self.explorer_search_var.set("")
+        self.refresh_explorer()
+        self.explorer_listbox.focus_set()  # Move focus to the listbox
         return 'break'
 
     def _focus_explorer_listbox_move(self, direction, event=None):
