@@ -123,6 +123,8 @@ class FoxgloveAppGUIManager:
         self.refresh_explorer()
         # Bind tab change event to update button states
         self.main_notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+        # Add this line to clear selections on tab change
+        self.main_notebook.bind("<<NotebookTabChanged>>", lambda e: self.clear_all_selections(), add="+")
 
     def create_file_actions_frame(self, parent_frame):
         # --- File Actions Frame ---
@@ -216,15 +218,14 @@ class FoxgloveAppGUIManager:
         folder_select_frame.pack(padx=5, pady=(0,5), fill="x")
         ttk.Label(folder_select_frame, text="Current folder path:").pack(side=tk.LEFT)
         self.current_subfolder_var = tk.StringVar()
-        self.current_subfolder_entry = ttk.Entry(folder_select_frame, textvariable=self.current_subfolder_var, width=60, state="readonly")
+        self.current_subfolder_entry = ttk.Entry(folder_select_frame, 
+                                           textvariable=self.current_subfolder_var, 
+                                           width=60, 
+                                           state="readonly")
         self.current_subfolder_entry.pack(side=tk.LEFT, padx=5, fill="x", expand=True)
-        # Enable Ctrl+A to select all text in the current subfolder path entry (read-only, for copying)
-        def select_all(event):
-            event.widget.focus_set()
-            event.widget.select_range(0, 'end')
-            return 'break'
-        self.current_subfolder_entry.bind('<Control-a>', select_all)
-        self.current_subfolder_entry.bind('<Control-A>', select_all)
+        
+        # Clear selection when focus is lost or tab changes
+        self.current_subfolder_entry.bind('<FocusOut>', lambda e: self.clear_all_selections())
         self.current_subfolder_var.set("")
 
         # After widget creation, load tabs for the initial default folder
@@ -243,6 +244,9 @@ class FoxgloveAppGUIManager:
         self.explorer_path_entry = ttk.Entry(path_frame, textvariable=self.explorer_path_var, width=50)
         self.explorer_path_entry.pack(side=tk.LEFT, fill="x", expand=True, padx=(0,5))
         self.explorer_path_entry.bind('<Return>', self.navigate_to_path)
+        
+        # Clear selection when focus is lost or tab changes
+        self.explorer_path_entry.bind('<FocusOut>', lambda e: self.clear_all_selections())
         
         # Navigation buttons
         ttk.Button(path_frame, text="Go", command=self.navigate_to_path).pack(side=tk.LEFT)
@@ -425,6 +429,11 @@ class FoxgloveAppGUIManager:
 
         settings_frame.columnconfigure(1, weight=1)
 
+        # Bind focus out event to clear selections
+        self.bazel_working_dir_entry.bind('<FocusOut>', lambda e: self.clear_all_selections())
+        self.bazel_tools_viz_entry.bind('<FocusOut>', lambda e: self.clear_all_selections())
+        self.bazel_bag_gui_entry.bind('<FocusOut>', lambda e: self.clear_all_selections())
+
     def save_settings(self):
         # Split command string into list for each
         viz_cmd = self.bazel_tools_viz_var.get().strip().split()
@@ -551,16 +560,15 @@ class FoxgloveAppGUIManager:
         for i, filename in enumerate(self.mcap_files_list):
             batch_items.append((filename, {}))
             if target and os.path.basename(filename).strip().lower() == target:
-                batch_items[-1] = (filename, {'bg': '#FFFF99'})
                 highlight_idx = i
         
         # Perform batch insertion
-        for filename, config in batch_items:
+        for i, (filename, _) in enumerate(batch_items):
             self.mcap_listbox.insert(tk.END, filename)
-            if config:
-                self.mcap_listbox.itemconfig(len(batch_items)-1, config)
-        
+            
+        # Apply highlighting after all items are inserted
         if highlight_idx != -1:
+            self.mcap_listbox.itemconfig(highlight_idx, {'bg': '#FFFF99'})
             self.mcap_listbox.selection_set(highlight_idx)
             self.mcap_listbox.see(highlight_idx)
             self.on_file_select(None, suppress_log=True)
@@ -1200,3 +1208,18 @@ class FoxgloveAppGUIManager:
         # Batch update all buttons that need changing
         for button, new_state in updates:
             button.config(state=new_state)
+
+    def clear_all_selections(self, event=None):
+        """Clear text selections from all entry widgets"""
+        entry_widgets = (
+            self.current_subfolder_entry,
+            self.explorer_path_entry, 
+            self.link_entry,
+            self.bazel_working_dir_entry,
+            self.bazel_tools_viz_entry,
+            self.bazel_bag_gui_entry
+        )
+        
+        for widget in entry_widgets:
+            if hasattr(widget, 'selection_clear'):
+                widget.selection_clear()
