@@ -15,16 +15,11 @@ class FoxgloveTab:
         self.current_mcap_folder_absolute = None
         self.mcap_filename_from_link = None
         self.mcap_files_list = []
-        self.subfolder_tabs = None
-        self.subfolder_tab_names = []
-        self.subfolder_tab_paths = []
         self._last_list_state = None
 
         # UI Widgets
         self.create_widgets()
         self.bind_events()
-
-        self.refresh_subfolder_tabs(base_path=None)
 
     def create_widgets(self):
         # Link analysis frame
@@ -47,8 +42,6 @@ class FoxgloveTab:
         
         self.mcap_list_label = ttk.Label(file_list_frame, text="Files in: N/A")
         self.mcap_list_label.pack(fill="x")
-
-        # Subfolder tabs will be created here if needed by refresh_subfolder_tabs
 
         listbox_frame = ttk.Frame(file_list_frame)
         listbox_frame.pack(fill="both", expand=True)
@@ -91,18 +84,7 @@ class FoxgloveTab:
     def get_current_folder(self):
         """
         Returns the absolute path of the current folder being displayed.
-        If subfolder tabs are active, it returns the path of the selected subfolder tab.
-        Otherwise, it returns the path of the folder from the analyzed link.
         """
-        if hasattr(self, 'subfolder_tabs') and self.subfolder_tabs and self.subfolder_tabs.winfo_exists():
-            try:
-                selected_tab_index = self.subfolder_tabs.index(self.subfolder_tabs.select())
-                if selected_tab_index < len(self.subfolder_tab_paths):
-                    return self.subfolder_tab_paths[selected_tab_index]
-            except tk.TclError:
-                # This can happen if no tab is selected.
-                pass
-        
         return self.current_mcap_folder_absolute
 
     def get_selected_mcap_path(self):
@@ -160,10 +142,6 @@ class FoxgloveTab:
 
         self.populate_file_list()
 
-        resolved_folder = self.current_mcap_folder_absolute
-        if resolved_folder:
-            self.refresh_subfolder_tabs(base_path=resolved_folder)
-
     def clear_link_and_list(self):
         self.link_var.set("")
         self.mcap_filename_from_link = None
@@ -204,72 +182,3 @@ class FoxgloveTab:
             self.enable_file_specific_action_buttons()
         else:
             self.disable_file_specific_action_buttons()
-
-        # Refresh subfolder tabs after populating the file list
-        # self.refresh_subfolder_tabs() # This is now called from analyze_link and on_subfolder_tab_changed
-
-    def refresh_subfolder_tabs(self, base_path):
-        """Create or update subfolder tabs based on the given base path."""
-        # Destroy existing notebook if it exists to prevent stacking them
-        if hasattr(self, 'subfolder_tabs') and self.subfolder_tabs:
-            self.subfolder_tabs.destroy()
-            self.subfolder_tabs = None
-            self.subfolder_tab_names = []
-            self.subfolder_tab_paths = []
-
-        if not base_path or not os.path.isdir(base_path):
-            # Also destroy tabs if the base path becomes invalid
-            if hasattr(self, 'subfolder_tabs') and self.subfolder_tabs:
-                self.subfolder_tabs.destroy()
-            return
-
-        subfolders = sorted([d for d in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, d))])
-
-        if not subfolders:
-            # Destroy tabs if there are no subfolders to show
-            if hasattr(self, 'subfolder_tabs') and self.subfolder_tabs:
-                self.subfolder_tabs.destroy()
-            return
-
-        # Create a new notebook for subfolder tabs
-        self.subfolder_tabs = ttk.Notebook(self.frame)
-        self.subfolder_tabs.pack(fill="x", padx=5, pady=(5, 0))
-
-        for folder in subfolders:
-            folder_path = os.path.join(base_path, folder)
-            tab_frame = ttk.Frame(self.subfolder_tabs)
-            self.subfolder_tabs.add(tab_frame, text=folder)
-            
-            # Store paths for later use
-            self.subfolder_tab_names.append(folder)
-            self.subfolder_tab_paths.append(folder_path)
-
-            # You can add content to tab_frame here if needed, e.g., a label
-            # label = ttk.Label(tab_frame, text=f"Contents of {folder}")
-            # label.pack(padx=5, pady=5)
-
-        self.subfolder_tabs.bind("<<NotebookTabChanged>>", self.on_subfolder_tab_changed)
-
-    def on_subfolder_tab_changed(self, event):
-        """Handle switching between subfolder tabs."""
-        if not self.subfolder_tabs:
-            return
-            
-        selected_tab_index = self.subfolder_tabs.index(self.subfolder_tabs.select())
-        new_path = self.subfolder_tab_paths[selected_tab_index]
-
-        self.current_mcap_folder_absolute = new_path
-        
-        display_folder_name = os.path.basename(self.current_mcap_folder_absolute)
-        self.mcap_list_label.config(text=f"Files in: {display_folder_name} (Full path: {self.current_mcap_folder_absolute})")
-
-        self.mcap_files_list, error = self.logic.list_mcap_files(self.current_mcap_folder_absolute)
-        if error:
-            self.log_message(error, is_error=True)
-        
-        if not self.mcap_files_list:
-            self.log_message("No .mcap files found in this sub-directory.", is_error=False)
-
-        self.populate_file_list()
-        # Refresh the sub-sub-folders
-        self.refresh_subfolder_tabs(base_path=new_path)
