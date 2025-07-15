@@ -222,7 +222,12 @@ class FoxgloveAppLogic:
         Launches Foxglove Studio in a web browser with the given .mcap file.
         Returns a tuple: (message, error)
         """
-        return self.launch_foxglove_browser(mcap_filepath_absolute)
+        open_in_browser = self.get_setting('open_foxglove_in_browser')
+        
+        if open_in_browser:
+            return self.launch_foxglove_browser(mcap_filepath_absolute)
+        else:
+            return self.launch_foxglove_desktop(mcap_filepath_absolute)
 
     def launch_foxglove_desktop(self, mcap_filepath_absolute):
         # Foxglove Studio is typically a direct command, not run with shell
