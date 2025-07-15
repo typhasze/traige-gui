@@ -17,9 +17,9 @@ class FoxgloveAppGUIManager:
         self.file_explorer_logic = FileExplorerLogic()
 
         # --- Main UI Frames ---
-        self.root.title("Foxglove MCAP Launcher")
-        self.root.geometry("1000x800") # Set a default size
-        self.root.minsize(800, 600) # Set minimum size
+        self.root.title("triage-testing-stuff-idk")
+        # self.root.geometry("1000x800") # Set a default size
+        # self.root.minsize(800, 600) # Set minimum size
 
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.pack(fill="both", expand=True)
@@ -109,6 +109,7 @@ class FoxgloveAppGUIManager:
             
         self.log_text.see(tk.END)
         self.log_text.update_idletasks()
+        self.log_text.config(state=tk.DISABLED)
 
     def enable_file_specific_action_buttons(self, open_with_foxglove=True, open_with_bazel=True, copy_path=False):
         states = {
