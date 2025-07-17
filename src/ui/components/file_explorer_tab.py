@@ -19,6 +19,10 @@ class FileExplorerTab:
         self._history_set = set()
         self.explorer_files_list = []
 
+        # Analyze Link State
+        self.analyze_link_filename = None
+        self.analyze_link_folder = None
+
         # UI Widgets
         self.create_widgets()
         self.bind_events()
@@ -38,8 +42,22 @@ class FileExplorerTab:
         self.explorer_path_entry.pack(side=tk.LEFT, fill="x", expand=True)
 
         # Navigation buttons
-        self.go_home_button = self._create_button(path_frame, "⌂", self.go_home_directory, side=tk.LEFT)
-        self.go_back_button = self._create_button(path_frame, "⏎", self.go_back, side=tk.LEFT)
+        self.go_home_button = self._create_button(path_frame, "Home", self.go_home_directory, side=tk.LEFT)
+        self.go_back_button = self._create_button(path_frame, "Back", self.go_back, side=tk.LEFT)
+
+        # Analyze Link frame
+        link_frame = ttk.Frame(self.frame)
+        link_frame.pack(fill="x", padx=5, pady=5)
+        
+        link_label = ttk.Label(link_frame, text="Analyze Link:")
+        link_label.pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.link_var = tk.StringVar()
+        self.link_entry = ttk.Entry(link_frame, textvariable=self.link_var)
+        self.link_entry.pack(side=tk.LEFT, fill="x", expand=True)
+        
+        self.analyze_button = self._create_button(link_frame, "Analyze", self.analyze_link, side=tk.LEFT)
+        self.clear_button = self._create_button(link_frame, "Clear", self.clear_link_and_list, side=tk.LEFT)
 
         # Search frame
         search_frame = ttk.Frame(self.frame)
@@ -51,7 +69,7 @@ class FileExplorerTab:
         self.explorer_search_var = tk.StringVar()
         self.explorer_search_entry = ttk.Entry(search_frame, textvariable=self.explorer_search_var)
         self.explorer_search_entry.pack(side=tk.LEFT, fill="x", expand=True)
-        self.clear_search_button = self._create_button(search_frame, "❌", self.clear_explorer_search, side=tk.LEFT)
+        self.clear_search_button = self._create_button(search_frame, "Clear", self.clear_explorer_search, side=tk.LEFT)
 
         # Explorer listbox
         list_frame = ttk.Frame(self.frame)
@@ -64,6 +82,9 @@ class FileExplorerTab:
         self.explorer_listbox.config(yscrollcommand=scrollbar.set)
 
     def bind_events(self):
+        self.link_entry.bind("<Return>", lambda e: self.analyze_link())
+        self.link_entry.bind("<Control-a>", self.select_all_text)
+        self.link_entry.bind("<Control-A>", self.select_all_text)
         self.explorer_path_entry.bind("<Return>", self.navigate_to_path)
         self.explorer_search_var.trace_add("write", self.on_explorer_search)
         self.explorer_search_entry.bind("<Return>", lambda e: self.explorer_listbox.focus_set())
@@ -299,3 +320,55 @@ class FileExplorerTab:
 
     def focus_explorer_listbox_down(self, event=None):
         return self._focus_explorer_listbox_move(1, event)
+
+    def select_all_text(self, event=None):
+        if event and isinstance(event.widget, ttk.Entry):
+            event.widget.select_range(0, tk.END)
+            event.widget.icursor(tk.END)
+        return "break"
+
+    def analyze_link(self):
+        link = self.link_var.get()
+        if not link:
+            self.log_message("Please enter a link to analyze.", is_error=True)
+            return
+
+        extracted_remote_folder, mcap_filename = self.logic.extract_info_from_link(link)
+        self.analyze_link_folder = extracted_remote_folder
+        self.analyze_link_filename = mcap_filename
+        
+        if not extracted_remote_folder or not mcap_filename:
+            self.log_message("Could not extract information from link.", is_error=True)
+            return
+
+        self.log_message(f"Extracted remote folder: {extracted_remote_folder}")
+        self.log_message(f"MCAP file from link: {mcap_filename}")
+
+        local_folder = self.logic.get_local_folder_path(extracted_remote_folder)
+        if not local_folder or not os.path.isdir(local_folder):
+            self.log_message(f"Error: Local folder does not exist or could not be mapped: {local_folder}", is_error=True)
+            return
+
+        self.log_message(f"Mapped local folder: {local_folder}")
+        self.current_explorer_path = local_folder
+        self.refresh_explorer()
+        # Highlight the file if present
+        self.highlight_file_in_explorer(mcap_filename)
+
+    def clear_link_and_list(self):
+        self.link_var.set("")
+        self.analyze_link_filename = None
+        self.analyze_link_folder = None
+        self.current_explorer_path = self._data_root
+        self.refresh_explorer()
+
+    def highlight_file_in_explorer(self, filename):
+        if not filename:
+            return
+        # Try to find and select the file in the explorer listbox
+        for idx, fname in enumerate(self.explorer_files_list):
+            if fname.lower() == filename.strip().lower():
+                self.explorer_listbox.selection_clear(0, tk.END)
+                self.explorer_listbox.selection_set(idx)
+                self.explorer_listbox.see(idx)
+                break
