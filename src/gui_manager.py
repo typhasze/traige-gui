@@ -4,6 +4,7 @@ import os
 import signal
 import sys
 import shutil
+import json
 from .core_logic import FoxgloveAppLogic
 from .logic.file_explorer_logic import FileExplorerLogic
 from .ui.components.file_explorer_tab import FileExplorerTab
@@ -34,11 +35,31 @@ class FoxgloveAppGUIManager:
         # Now, create the tabs that might use the buttons during initialization
         self.file_explorer_tab = FileExplorerTab(self.main_notebook, self.root, self.logic, self.file_explorer_logic, self.log_message, self._update_button_states)
         self.foxglove_tab = FoxgloveTab(self.main_notebook, self.root, self.logic, self.log_message, self.disable_file_specific_action_buttons, self.enable_file_specific_action_buttons)
+
+        # Link NAS directory to file explorer path at start if not set
+        # Create a temporary settings object to check and set nas_dir before creating SettingsTab
+        temp_settings_path = os.path.expanduser('~/.foxglove_gui_settings.json')
+        if os.path.exists(temp_settings_path):
+            with open(temp_settings_path, 'r') as f:
+                temp_settings = json.load(f)
+        else:
+            temp_settings = {}
+        if not temp_settings.get('nas_dir'):
+            initial_path = self.file_explorer_tab.current_explorer_path
+            temp_settings['nas_dir'] = initial_path
+            with open(temp_settings_path, 'w') as f:
+                json.dump(temp_settings, f, indent=4)
+
         self.settings_tab = SettingsTab(self.main_notebook, self.logic, self.log_message)
 
         self.main_notebook.add(self.file_explorer_tab.frame, text="File Explorer")
         self.main_notebook.add(self.foxglove_tab.frame, text="Foxglove MCAP")
         self.main_notebook.add(self.settings_tab.frame, text="Settings")
+
+        # Register callback for NAS directory changes
+        def nas_dir_callback(new_nas_dir):
+            self.update_file_explorer_nas_dir(new_nas_dir)
+        self.settings_tab.on_nas_dir_changed = nas_dir_callback
 
         # --- Shared Components ---
         self.create_shared_log_frame(main_frame)
@@ -125,7 +146,7 @@ class FoxgloveAppGUIManager:
 
     def launch_bazel_viz(self):
         self.log_message(f"Launching Bazel Tools Viz...")
-        message, error = self.logic.launch_bazel_tools_viz()
+        message, error = self.logic.launch_bazel_tools_viz(self.settings_tab.settings)
         if message: self.log_message(message)
         if error: self.log_message(error, is_error=True)
             
@@ -234,7 +255,7 @@ class FoxgloveAppGUIManager:
         
         if file_path:
             self.log_message(f"Launching Foxglove with {os.path.basename(file_path)}...")
-            message, error = self.logic.launch_foxglove(file_path)
+            message, error = self.logic.launch_foxglove(file_path, self.settings_tab.settings)
             if message:
                 self.log_message(message)
             if error:
@@ -266,12 +287,12 @@ class FoxgloveAppGUIManager:
 
         if len(mcap_files) == 1:
             self.log_message(f"Launching Bazel Bag GUI with {os.path.basename(mcap_files[0])}...")
-            message, error = self.logic.launch_bazel_bag_gui(mcap_files[0])
+            message, error = self.logic.launch_bazel_bag_gui(mcap_files[0], self.settings_tab.settings)
             if message: self.log_message(message)
             if error: self.log_message(error, is_error=True)
         else:
             self.log_message(f"Launching Bazel Bag GUI with {len(mcap_files)} selected MCAP files using symlinks...")
-            message, error, symlink_dir = self.logic.play_bazel_bag_gui_with_symlinks(mcap_files)
+            message, error, symlink_dir = self.logic.play_bazel_bag_gui_with_symlinks(mcap_files, self.settings_tab.settings)
             if message: self.log_message(message)
             if error: self.log_message(error, is_error=True)
 
@@ -328,3 +349,8 @@ class FoxgloveAppGUIManager:
         for widget in self.settings_tab.get_entry_widgets():
             if hasattr(widget, 'selection_clear'):
                 widget.selection_clear()
+
+    def update_file_explorer_nas_dir(self, new_nas_dir):
+        """Update the file explorer's path to match the new NAS directory."""
+        self.file_explorer_tab.current_explorer_path = new_nas_dir
+        self.file_explorer_tab.refresh_explorer()

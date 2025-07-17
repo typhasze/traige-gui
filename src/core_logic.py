@@ -14,10 +14,8 @@ def perform_operation(data):
 class FoxgloveAppLogic:
     def __init__(self, log_callback=None):
         self.running_processes = []
-        self.settings_path = os.path.expanduser('~/.foxglove_gui_settings.json')
-        self.settings = self.load_settings()
         self.local_base_path_absolute = os.path.expanduser('~/data')
-        self.bazel_working_dir = self.get_bazel_working_dir()
+        self.bazel_working_dir = None
         self.log_callback = log_callback or (lambda *args, **kwargs: None)
 
     def load_settings(self):
@@ -29,17 +27,7 @@ class FoxgloveAppLogic:
             'bazel_bag_gui_cmd': 'bazel run //tools/bag:gui',
             'bazel_working_dir': os.path.expanduser('~/av-system/catkin_ws/src'),
         }
-        if os.path.exists(self.settings_path):
-            try:
-                with open(self.settings_path, 'r') as f:
-                    user_settings = json.load(f)
-                # Merge defaults with user settings, ensuring all keys are present
-                settings = default_settings.copy()
-                settings.update(user_settings)
-                return settings
-            except Exception as e:
-                self.log_callback(f"Error loading settings, using defaults: {e}", is_error=True)
-                return default_settings
+        # Remove any code that references self.settings_path, as settings are now managed in SettingsTab.
         return default_settings
 
     def save_settings(self, settings_dict):
@@ -48,9 +36,9 @@ class FoxgloveAppLogic:
         """
         try:
             # Update the current settings with the new values
-            self.settings.update(settings_dict)
-            with open(self.settings_path, 'w') as f:
-                json.dump(self.settings, f, indent=4)
+            # self.settings.update(settings_dict) # self.settings is no longer present
+            # with open(self.settings_path, 'w') as f: # self.settings_path is no longer present
+            #     json.dump(self.settings, f, indent=4)
             # After saving, update any properties that depend on settings
             self.bazel_working_dir = self.get_bazel_working_dir()
             return True, None
@@ -64,16 +52,19 @@ class FoxgloveAppLogic:
             'bazel_bag_gui_cmd': 'bazel run //tools/bag:gui',
             'bazel_working_dir': os.path.expanduser('~/av-system/catkin_ws/src'),
         }
-        self.settings = default_settings.copy()
-        self.save_settings(self.settings)
+        # self.settings = default_settings.copy() # self.settings is no longer present
+        self.save_settings(default_settings)
 
 
     def get_setting(self, key):
         """Gets a specific setting value by key."""
-        return self.settings.get(key)
+        # self.settings.get(key) # self.settings is no longer present
+        return None # Placeholder as settings are not managed here
 
-    def get_bazel_working_dir(self):
-        return self.settings.get('bazel_working_dir')
+    def get_bazel_working_dir(self, settings=None):
+        if settings is not None:
+            return settings.get('bazel_working_dir')
+        return None
 
     def extract_info_from_link(self, link):
         """
@@ -217,12 +208,12 @@ class FoxgloveAppLogic:
         except Exception as e:
             return None, f"Failed to launch {name}: {e}"
 
-    def launch_foxglove(self, mcap_filepath_absolute):
+    def launch_foxglove(self, mcap_filepath_absolute, settings):
         """
         Launches Foxglove Studio in a web browser with the given .mcap file.
         Returns a tuple: (message, error)
         """
-        open_in_browser = self.get_setting('open_foxglove_in_browser')
+        open_in_browser = settings.get('open_foxglove_in_browser')
         
         if open_in_browser:
             return self.launch_foxglove_browser(mcap_filepath_absolute)
@@ -255,19 +246,19 @@ class FoxgloveAppLogic:
             return None, f"Failed to launch Foxglove Studio in browser: {e}"
 
 
-    def launch_bazel_tools_viz(self):
-        self.bazel_working_dir = self.get_bazel_working_dir()
-        if not os.path.isdir(self.bazel_working_dir):
+    def launch_bazel_tools_viz(self, settings):
+        self.bazel_working_dir = self.get_bazel_working_dir(settings)
+        if not self.bazel_working_dir or not os.path.isdir(self.bazel_working_dir):
             return None, f"Bazel working directory not found: {self.bazel_working_dir}"
-        return self._launch_process(self.get_setting('bazel_tools_viz_cmd'), 'Bazel Tools Viz', cwd=self.bazel_working_dir)
+        return self._launch_process(settings.get('bazel_tools_viz_cmd'), 'Bazel Tools Viz', cwd=self.bazel_working_dir)
 
-    def launch_bazel_bag_gui(self, mcap_path):
-        self.bazel_working_dir = self.get_bazel_working_dir()
-        command = f"{self.get_setting('bazel_bag_gui_cmd')} -- {mcap_path}"
+    def launch_bazel_bag_gui(self, mcap_path, settings):
+        self.bazel_working_dir = self.get_bazel_working_dir(settings)
+        command = f"{settings.get('bazel_bag_gui_cmd')} -- {mcap_path}"
         return self._launch_process(command, 'Bazel Bag GUI', cwd=self.bazel_working_dir, mcap_path=mcap_path)
 
-    def play_bazel_bag_gui_with_symlinks(self, mcap_filepaths):
-        self.bazel_working_dir = self.get_bazel_working_dir()
+    def play_bazel_bag_gui_with_symlinks(self, mcap_filepaths, settings):
+        self.bazel_working_dir = self.get_bazel_working_dir(settings)
         symlink_dir = '/tmp/selected_bags_symlinks'
         
         if os.path.exists(symlink_dir):
@@ -286,7 +277,7 @@ class FoxgloveAppLogic:
         if not mcap_files_str:
             return None, "No .mcap files found to play.", symlink_dir
 
-        command = f"{self.get_setting('bazel_bag_gui_cmd')} -- {mcap_files_str}"
+        command = f"{settings.get('bazel_bag_gui_cmd')} -- {mcap_files_str}"
         
         message, error = self._launch_process(command, 'Bazel Bag GUI', cwd=self.bazel_working_dir)
         
