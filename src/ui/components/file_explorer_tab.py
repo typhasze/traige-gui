@@ -365,10 +365,14 @@ class FileExplorerTab:
     def highlight_file_in_explorer(self, filename):
         if not filename:
             return
+        # Clear previous highlights
+        for idx in range(self.explorer_listbox.size()):
+            self.explorer_listbox.itemconfig(idx, {'bg': 'white'})
         # Try to find and select the file in the explorer listbox
         for idx, fname in enumerate(self.explorer_files_list):
             if fname.lower() == filename.strip().lower():
                 self.explorer_listbox.selection_clear(0, tk.END)
                 self.explorer_listbox.selection_set(idx)
                 self.explorer_listbox.see(idx)
+                self.explorer_listbox.itemconfig(idx, {'bg': 'yellow'})
                 break
