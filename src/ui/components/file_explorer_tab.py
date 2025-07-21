@@ -275,7 +275,7 @@ class FileExplorerTab:
 
     def on_explorer_select(self, event=None, suppress_log=False):
         selection = self.explorer_listbox.curselection()
-        states = {"open_file": False, "copy_path": False, "open_with_foxglove": False, "open_with_bazel": False}
+        states = {"open_file": False, "copy_path": False, "open_with_foxglove": False, "open_with_bazel": False, "merge_play": False}
         
         selected_paths = []
         if selection:
@@ -292,6 +292,9 @@ class FileExplorerTab:
             mcap_files = self.get_selected_explorer_mcap_paths()
             if mcap_files:
                 self.log_message(f"Selected {len(mcap_files)} bag(s).", clear_first=False)
+            states["merge_play"] = len(mcap_files) >= 2
+        else:
+            states["merge_play"] = False
         
         self._update_button_states(states)
 

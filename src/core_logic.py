@@ -5,6 +5,7 @@ import shutil
 import json
 import sys
 import signal
+from .logic.symlink_playback_logic import SymlinkPlaybackLogic
 
 def perform_operation(data):
     # Placeholder for core logic operation
@@ -259,29 +260,33 @@ class FoxgloveAppLogic:
 
     def play_bazel_bag_gui_with_symlinks(self, mcap_filepaths, settings):
         self.bazel_working_dir = self.get_bazel_working_dir(settings)
-        symlink_dir = '/tmp/selected_bags_symlinks'
-        
-        if os.path.exists(symlink_dir):
-            shutil.rmtree(symlink_dir)
-        os.makedirs(symlink_dir, exist_ok=True)
+        symlink_logic = SymlinkPlaybackLogic()
+        symlink_dir, error = symlink_logic.prepare_symlinks(mcap_filepaths)
+        if error:
+            return None, error, symlink_dir
 
-        for bag in mcap_filepaths:
-            if os.path.isfile(bag):
-                link_name = os.path.join(symlink_dir, os.path.basename(bag))
-                try:
-                    os.symlink(bag, link_name)
-                except FileExistsError:
-                    pass # Symlink already exists, ignore.
-
-        mcap_files_str = " ".join([f'"{os.path.join(symlink_dir, f)}"' for f in os.listdir(symlink_dir) if f.lower().endswith('.mcap')])
-        if not mcap_files_str:
+        mcap_files = symlink_logic.get_symlinked_mcap_files()
+        if not mcap_files:
             return None, "No .mcap files found to play.", symlink_dir
 
+        mcap_files_str = " ".join([f'"{f}"' for f in mcap_files])
         command = f"{settings.get('bazel_bag_gui_cmd')} -- {mcap_files_str}"
-        
         message, error = self._launch_process(command, 'Bazel Bag GUI', cwd=self.bazel_working_dir)
-        
         return message, error, symlink_dir
+
+    def play_bazel_bag_gui_with_merged_mcap(self, mcap_filepaths, settings):
+        """
+        Merges the given MCAP files and launches Bazel Bag GUI with the merged file.
+        Returns (message, error, merged_file_path)
+        """
+        symlink_logic = SymlinkPlaybackLogic()
+        merged_file, error = symlink_logic.merge_mcap_files(mcap_filepaths)
+        if error:
+            return None, error, None
+        self.bazel_working_dir = self.get_bazel_working_dir(settings)
+        command = f"{settings.get('bazel_bag_gui_cmd')} -- '{merged_file}'"
+        message, error = self._launch_process(command, 'Bazel Bag GUI', cwd=self.bazel_working_dir, mcap_path=merged_file)
+        return message, error, merged_file
 
     def terminate_all_processes(self):
         log_messages = []
