@@ -38,7 +38,7 @@ class FileExplorerTab:
         path_label.pack(side=tk.LEFT, padx=(0, 5))
 
         self.explorer_path_var = tk.StringVar(value=self.current_explorer_path)
-        self.explorer_path_entry = ttk.Entry(path_frame, textvariable=self.explorer_path_var)
+        self.explorer_path_entry = ttk.Entry(path_frame, textvariable=self.explorer_path_var, state="readonly")
         self.explorer_path_entry.pack(side=tk.LEFT, fill="x", expand=True)
 
         # Navigation buttons
