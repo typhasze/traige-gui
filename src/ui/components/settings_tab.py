@@ -35,6 +35,13 @@ class SettingsTab:
             'width': 60
         },
         {
+            'label': 'Backup NAS Directory:',
+            'key': 'backup_nas_dir',
+            'type': 'str',
+            'widget': 'entry',
+            'width': 60
+        },
+        {
             'label': 'Open Foxglove in browser',
             'key': 'open_foxglove_in_browser',
             'type': 'bool',
@@ -52,6 +59,8 @@ class SettingsTab:
         self.settings = self.load_settings()
         self.on_nas_dir_changed: Optional[Callable[[str], None]] = None
         self.create_widgets()
+        # Initialize logic with settings after loading them
+        self.logic.update_search_paths(self.settings.get('nas_dir'), self.settings.get('backup_nas_dir'))
 
     def load_settings(self):
         """
@@ -61,7 +70,8 @@ class SettingsTab:
             'bazel_tools_viz_cmd': 'bazel run //tools/viz',
             'bazel_bag_gui_cmd': 'bazel run //tools/bag:gui',
             'bazel_working_dir': os.path.expanduser('~/av-system/catkin_ws/src'),
-            'nas_dir': '',
+            'nas_dir': os.path.expanduser('~/data'),
+            'backup_nas_dir': os.path.expanduser('~/data/psa_logs_backup_nas3'),
             'open_foxglove_in_browser': True,
         }
         if os.path.exists(self.settings_path):
@@ -86,6 +96,8 @@ class SettingsTab:
                 self.settings.update(settings_dict)
             with open(self.settings_path, 'w') as f:
                 json.dump(self.settings, f, indent=4)
+            # After saving, update the logic instance
+            self.logic.update_search_paths(self.settings.get('nas_dir'), self.settings.get('backup_nas_dir'))
             return True, None
         except Exception as e:
             return False, str(e)
@@ -96,7 +108,8 @@ class SettingsTab:
             'bazel_tools_viz_cmd': 'bazel run //tools/viz',
             'bazel_bag_gui_cmd': 'bazel run //tools/bag:gui',
             'bazel_working_dir': os.path.expanduser('~/av-system/catkin_ws/src'),
-            'nas_dir': '',
+            'nas_dir': os.path.expanduser('~/data'),
+            'backup_nas_dir': os.path.expanduser('~/data/psa_logs_backup_nas3'),
             'open_foxglove_in_browser': True,
         }
         self.settings = default_settings.copy()
@@ -139,19 +152,28 @@ class SettingsTab:
         self.reset_button.pack(side=tk.LEFT, padx=5)
 
     def save_settings_button(self):
-        settings = {}
+        old_nas_dir = self.settings.get('nas_dir')
+        
+        new_settings = {}
         for config in self.settings_config:
             key = config['key']
             var = self.vars[key]
             if config['type'] == 'bool':
-                settings[key] = var.get()
+                new_settings[key] = var.get()
             else:
-                settings[key] = var.get()
-        old_nas_dir = self.settings.get('nas_dir')
-        new_nas_dir = settings.get('nas_dir')
-        self.save_settings(settings)
-        if self.on_nas_dir_changed and new_nas_dir != old_nas_dir and isinstance(new_nas_dir, str) and new_nas_dir:
-            self.on_nas_dir_changed(new_nas_dir)
+                new_settings[key] = var.get()
+
+        # Save the new settings
+        self.save_settings(new_settings)
+        
+        # Now that self.settings is updated, get the new_nas_dir
+        new_nas_dir = self.settings.get('nas_dir')
+
+        # Check if the nas_dir has changed and trigger the callback
+        if self.on_nas_dir_changed and new_nas_dir != old_nas_dir:
+            if isinstance(new_nas_dir, str) and new_nas_dir:
+                self.on_nas_dir_changed(new_nas_dir)
+                
         self.log_message("Settings saved successfully.")
 
     def reset_settings_button(self):

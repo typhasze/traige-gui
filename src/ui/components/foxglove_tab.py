@@ -115,12 +115,13 @@ class FoxgloveTab:
 
         extracted_remote_folder, self.mcap_filename_from_link = self.logic.extract_info_from_link(link)
         
-        if not extracted_remote_folder or not self.mcap_filename_from_link:
+        if not extracted_remote_folder:
             self.log_message("Could not extract information from link.", is_error=True)
             return
 
         self.log_message(f"Extracted remote folder: {extracted_remote_folder}")
-        self.log_message(f"MCAP file from link: {self.mcap_filename_from_link}")
+        if self.mcap_filename_from_link:
+            self.log_message(f"File from link: {self.mcap_filename_from_link}")
 
         self.current_mcap_folder_absolute = self.logic.get_local_folder_path(extracted_remote_folder)
         
@@ -134,12 +135,12 @@ class FoxgloveTab:
         display_folder_name = os.path.basename(self.current_mcap_folder_absolute)
         self.mcap_list_label.config(text=f"Files in: {display_folder_name} (Full path: {self.current_mcap_folder_absolute})")
 
-        self.mcap_files_list, error = self.logic.list_mcap_files(self.current_mcap_folder_absolute)
+        self.mcap_files_list, error = self.logic.list_files_in_directory(self.current_mcap_folder_absolute)
         if error:
             self.log_message(error, is_error=True)
         
         if not self.mcap_files_list:
-            self.log_message("No .mcap files found in the directory.", is_error=False)
+            self.log_message("No files found in the directory.", is_error=False)
 
         self.populate_file_list()
 

@@ -16,8 +16,16 @@ class FoxgloveAppLogic:
     def __init__(self, log_callback=None):
         self.running_processes = []
         self.local_base_path_absolute = os.path.expanduser('~/data')
+        self.backup_base_path_absolute = os.path.expanduser('~/data/psa_logs_backup_nas3')
         self.bazel_working_dir = None
         self.log_callback = log_callback or (lambda *args, **kwargs: None)
+
+    def update_search_paths(self, primary_path, backup_path):
+        """Updates the primary and backup search paths."""
+        if primary_path:
+            self.local_base_path_absolute = primary_path
+        if backup_path:
+            self.backup_base_path_absolute = backup_path
 
     def load_settings(self):
         """
@@ -81,86 +89,74 @@ class FoxgloveAppLogic:
         # Case 1: Foxglove link with ds.url parameter
         if 'ds.url' in query_params and query_params['ds.url']:
             mcap_url_str = query_params['ds.url'][0]
-            parsed_mcap_url = urllib.parse.urlparse(mcap_url_str)
-            path_to_check = parsed_mcap_url.path
+            # The relevant path is the part after the domain.
+            path_to_check = urllib.parse.urlparse(mcap_url_str).path
         # Case 2: Direct link
         else:
             path_to_check = parsed_url.path
 
         if path_to_check:
+            # Normalize path
+            path_to_check = path_to_check.strip()
+            if path_to_check.endswith('/'):
+                path_to_check = path_to_check[:-1]
+
             # Case 2a: Link to a file (.mcap or .mp4)
             if path_to_check.lower().endswith(('.mcap', '.mp4')):
                 folder_path = os.path.dirname(path_to_check)
                 filename = os.path.basename(path_to_check)
                 return folder_path, filename
             
-            # Case 2b: Link to a directory (e.g., ending in /logs)
-            # For now, we assume any path that doesn't end with a known file extension is a directory path.
-            # A more robust solution might check for path components like 'logs' or 'cut_videos'.
-            folder_path = path_to_check
-            filename = None # No specific file, just the directory
-            
-            # If the path ends with a slash, remove it for consistency
-            if folder_path.endswith('/'):
-                folder_path = folder_path[:-1]
-
-            # Let's check if the last part of the path is a directory we care about
-            basename = os.path.basename(folder_path)
-            if basename == 'logs' or basename == 'default' or basename == 'cut_videos':
-                 return folder_path, filename
-
-            # If it's not a recognized directory, maybe it's a file without an extension.
-            # Let's treat it as a directory for now, and the caller can decide what to do.
-            # A better approach would be to have more specific logic.
-            # For now, we will assume if it's not a file, it's a directory.
-            # Let's refine this. If it's not a file, let's return the directory and no file.
-            # The calling code will have to handle this.
-            
-            # Let's check if the path looks like a file path even without extension
-            # A simple heuristic: if it contains a dot in the last component, it might be a file.
-            if '.' in basename:
-                 return os.path.dirname(folder_path), basename
-
-            return folder_path, None
-
+            # Case 2b: Link to a directory (e.g., /logs, /default, /cut_videos)
+            # The path itself is the folder path, and there's no specific file.
+            return path_to_check, None
 
         return None, None
 
     def get_local_folder_path(self, extracted_remote_folder):
         """
         Constructs the absolute local folder path from the extracted remote folder.
+        It handles paths from URLs that map to a local base directory.
         Tries the main data path, then a backup path if not found.
         """
+        # The extracted_remote_folder is already the path segment (e.g., /20250718/PROD/...)
         if extracted_remote_folder.startswith('/'):
             relative_path = extracted_remote_folder[1:]
         else:
             relative_path = extracted_remote_folder
+            
         main_path = os.path.join(self.local_base_path_absolute, relative_path)
         if os.path.isdir(main_path):
             return main_path
+            
         # Try backup path
-        backup_base = os.path.expanduser('~/data/psa_logs_backup_nas3')
-        backup_path = os.path.join(backup_base, relative_path)
+        backup_path = os.path.join(self.backup_base_path_absolute, relative_path)
         if os.path.isdir(backup_path):
             return backup_path
+            
         # If neither path exists, return the intended main path, but log that it's not found
         self.log_callback(f"Could not find local directory for '{relative_path}' at primary or backup locations.", is_error=True)
         return main_path
 
-    def list_mcap_files(self, local_folder_path_absolute):
+    def list_files_in_directory(self, local_folder_path_absolute, file_extension=None):
         """
-        Lists .mcap files in the specified local directory.
-        Returns a tuple: (list_of_files, error_message_or_None)
+        Lists files in the specified local directory, optionally filtering by a file extension.
+        If file_extension is None, it lists all files and directories.
+        Returns a tuple: (list_of_items, error_message_or_None)
         """
-        mcap_files = []
+        items = []
         if not os.path.isdir(local_folder_path_absolute):
             return [], f"Local folder not found or is not a directory: {local_folder_path_absolute}"
         try:
             for item in os.listdir(local_folder_path_absolute):
-                if item.lower().endswith('.mcap'):
-                    mcap_files.append(item)
-            mcap_files.sort()
-            return mcap_files, None
+                if file_extension:
+                    if item.lower().endswith(file_extension):
+                        items.append(item)
+                else:
+                    # If no extension filter, add all items (files and folders)
+                    items.append(item)
+            items.sort()
+            return items, None
         except PermissionError:
             return [], f"Permission denied to access folder: {local_folder_path_absolute}"
         except Exception as e:
