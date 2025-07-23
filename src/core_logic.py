@@ -69,26 +69,61 @@ class FoxgloveAppLogic:
 
     def extract_info_from_link(self, link):
         """
-        Extracts the folder path and filename of the .mcap file from a Foxglove link
-        or a direct URL to an .mcap file.
+        Extracts the folder path and filename from a Foxglove link
+        or a direct URL to a file or folder.
+        Handles .mcap, .mp4, and /logs directories.
         """
         parsed_url = urllib.parse.urlparse(link)
         query_params = urllib.parse.parse_qs(parsed_url.query)
 
+        path_to_check = None
+
+        # Case 1: Foxglove link with ds.url parameter
         if 'ds.url' in query_params and query_params['ds.url']:
             mcap_url_str = query_params['ds.url'][0]
             parsed_mcap_url = urllib.parse.urlparse(mcap_url_str)
-            if parsed_mcap_url.path and os.path.basename(parsed_mcap_url.path):
-                folder_path = os.path.dirname(parsed_mcap_url.path)
-                filename = os.path.basename(parsed_mcap_url.path)
-                if filename.lower().endswith('.mcap'):
-                    return folder_path, filename
-        
-        if parsed_url.path and parsed_url.path.lower().endswith('.mcap'):
-            folder_path = os.path.dirname(parsed_url.path)
-            filename = os.path.basename(parsed_url.path)
-            return folder_path, filename
+            path_to_check = parsed_mcap_url.path
+        # Case 2: Direct link
+        else:
+            path_to_check = parsed_url.path
+
+        if path_to_check:
+            # Case 2a: Link to a file (.mcap or .mp4)
+            if path_to_check.lower().endswith(('.mcap', '.mp4')):
+                folder_path = os.path.dirname(path_to_check)
+                filename = os.path.basename(path_to_check)
+                return folder_path, filename
             
+            # Case 2b: Link to a directory (e.g., ending in /logs)
+            # For now, we assume any path that doesn't end with a known file extension is a directory path.
+            # A more robust solution might check for path components like 'logs' or 'cut_videos'.
+            folder_path = path_to_check
+            filename = None # No specific file, just the directory
+            
+            # If the path ends with a slash, remove it for consistency
+            if folder_path.endswith('/'):
+                folder_path = folder_path[:-1]
+
+            # Let's check if the last part of the path is a directory we care about
+            basename = os.path.basename(folder_path)
+            if basename == 'logs' or basename == 'default' or basename == 'cut_videos':
+                 return folder_path, filename
+
+            # If it's not a recognized directory, maybe it's a file without an extension.
+            # Let's treat it as a directory for now, and the caller can decide what to do.
+            # A better approach would be to have more specific logic.
+            # For now, we will assume if it's not a file, it's a directory.
+            # Let's refine this. If it's not a file, let's return the directory and no file.
+            # The calling code will have to handle this.
+            
+            # Let's check if the path looks like a file path even without extension
+            # A simple heuristic: if it contains a dot in the last component, it might be a file.
+            if '.' in basename:
+                 return os.path.dirname(folder_path), basename
+
+            return folder_path, None
+
+
         return None, None
 
     def get_local_folder_path(self, extracted_remote_folder):
