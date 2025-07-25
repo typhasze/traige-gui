@@ -1,9 +1,8 @@
 import os
 import shutil
-from typing import List, Tuple, Optional
 import subprocess
 import tempfile
-import mcap
+from typing import List, Tuple, Optional
 
 class SymlinkPlaybackLogic:
     def __init__(self, symlink_dir: str = '/tmp/selected_bags_symlinks'):

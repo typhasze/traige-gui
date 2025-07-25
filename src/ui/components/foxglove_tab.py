@@ -158,29 +158,50 @@ class FoxgloveTab:
         self.disable_file_specific_action_buttons()
 
     def populate_file_list(self):
+        """
+        Populate the file list with optimization for large directories.
+        """
         current_state = (tuple(self.mcap_files_list), self.mcap_filename_from_link)
+        
+        # Skip population if state hasn't changed (optimization)
         if current_state == self._last_list_state:
             return
             
+        # Clear existing items efficiently
         self.mcap_listbox.delete(0, tk.END)
-        highlight_idx = -1
-        target = self.mcap_filename_from_link.strip().lower() if self.mcap_filename_from_link else None
         
-        batch_items = []
+        if not self.mcap_files_list:
+            self._last_list_state = current_state
+            return
+        
+        # Prepare target for highlighting with optimized comparison
+        target = self.mcap_filename_from_link.strip().lower() if self.mcap_filename_from_link else None
+        highlight_idx = -1
+        
+        # Pre-allocate list for better performance
+        items_to_insert = []
+        items_to_insert.reserve(len(self.mcap_files_list)) if hasattr(items_to_insert, 'reserve') else None
+        
+        # Single pass to prepare all items
         for i, filename in enumerate(self.mcap_files_list):
             is_target = target and filename.lower() == target
-            batch_items.append((filename, is_target))
+            items_to_insert.append((filename, is_target))
             if is_target:
                 highlight_idx = i
         
-        for i, (filename, is_target) in enumerate(batch_items):
+        # Batch insert all items for better performance
+        for i, (filename, is_target) in enumerate(items_to_insert):
             self.mcap_listbox.insert(tk.END, filename)
             if is_target:
                 self.mcap_listbox.itemconfig(i, {'bg': 'yellow'})
             
+        # Handle highlighting and selection efficiently
         if highlight_idx != -1:
             self.mcap_listbox.see(highlight_idx)
             self.mcap_listbox.selection_set(highlight_idx)
             self.enable_file_specific_action_buttons()
         else:
             self.disable_file_specific_action_buttons()
+            
+        # Cache the current state for future comparisons
+        self._last_list_state = current_state

@@ -345,18 +345,17 @@ class FoxgloveAppGUIManager:
         self._settings_tab_index = 2
 
     def _update_button_states(self, states):
-        """Efficiently update multiple button states in one batch"""
+        """
+        Efficiently update multiple button states in one batch.
+        Only updates buttons that actually need to change state.
+        """
         state_map = {True: tk.NORMAL, False: tk.DISABLED}
-        updates = []
         
         for state_key, button in self._button_map.items():
             new_state = state_map[states.get(state_key, False)]
-            if button['state'] != new_state:
-                updates.append((button, new_state))
-        
-        # Batch update all buttons that need changing
-        for button, new_state in updates:
-            button.config(state=new_state)
+            # Only update if state actually changed to reduce UI flicker
+            if str(button['state']) != new_state:
+                button.config(state=new_state)
 
     def clear_all_selections(self, event=None):
         """Clear text selections from all entry widgets"""

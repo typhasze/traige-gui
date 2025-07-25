@@ -7,6 +7,27 @@ import sys
 import signal
 from .logic.symlink_playback_logic import SymlinkPlaybackLogic
 
+# Constants for better maintainability
+DEFAULT_DATA_PATH = os.path.expanduser('~/data')
+DEFAULT_BACKUP_PATH = os.path.expanduser('~/data/psa_logs_backup_nas3')
+DEFAULT_BAZEL_WORKING_DIR = os.path.expanduser('~/av-system/catkin_ws/src')
+SYMLINK_DIR = '/tmp/selected_bags_symlinks'
+
+# Default settings
+DEFAULT_SETTINGS = {
+    'bazel_tools_viz_cmd': 'bazel run //tools/viz',
+    'bazel_bag_gui_cmd': 'bazel run //tools/bag:gui',
+    'bazel_working_dir': DEFAULT_BAZEL_WORKING_DIR,
+}
+
+# Process names for better consistency
+PROCESS_NAMES = {
+    'FOXGLOVE_STUDIO': 'Foxglove Studio',
+    'FOXGLOVE_BROWSER': 'Foxglove Studio (Browser)',
+    'BAZEL_TOOLS_VIZ': 'Bazel Tools Viz',
+    'BAZEL_BAG_GUI': 'Bazel Bag GUI'
+}
+
 def perform_operation(data):
     # Placeholder for core logic operation
     # Implement the main functionality of the application here
@@ -15,8 +36,8 @@ def perform_operation(data):
 class FoxgloveAppLogic:
     def __init__(self, log_callback=None):
         self.running_processes = []
-        self.local_base_path_absolute = os.path.expanduser('~/data')
-        self.backup_base_path_absolute = os.path.expanduser('~/data/psa_logs_backup_nas3')
+        self.local_base_path_absolute = DEFAULT_DATA_PATH
+        self.backup_base_path_absolute = DEFAULT_BACKUP_PATH
         self.bazel_working_dir = None
         self.log_callback = log_callback or (lambda *args, **kwargs: None)
 
@@ -31,13 +52,8 @@ class FoxgloveAppLogic:
         """
         Loads settings from a JSON file, or returns defaults if not found.
         """
-        default_settings = {
-            'bazel_tools_viz_cmd': 'bazel run //tools/viz',
-            'bazel_bag_gui_cmd': 'bazel run //tools/bag:gui',
-            'bazel_working_dir': os.path.expanduser('~/av-system/catkin_ws/src'),
-        }
         # Remove any code that references self.settings_path, as settings are now managed in SettingsTab.
-        return default_settings
+        return DEFAULT_SETTINGS.copy()
 
     def save_settings(self, settings_dict):
         """
@@ -80,38 +96,42 @@ class FoxgloveAppLogic:
         Extracts the folder path and filename from a Foxglove link
         or a direct URL to a file or folder.
         Handles .mcap, .mp4, and /logs directories.
+        Optimized for better performance and readability.
         """
-        parsed_url = urllib.parse.urlparse(link)
-        query_params = urllib.parse.parse_qs(parsed_url.query)
+        if not link.strip():
+            return None, None
+            
+        try:
+            parsed_url = urllib.parse.urlparse(link)
+            query_params = urllib.parse.parse_qs(parsed_url.query)
 
-        path_to_check = None
+            # Case 1: Foxglove link with ds.url parameter
+            if 'ds.url' in query_params and query_params['ds.url']:
+                mcap_url_str = query_params['ds.url'][0]
+                path_to_check = urllib.parse.urlparse(mcap_url_str).path
+            # Case 2: Direct link
+            else:
+                path_to_check = parsed_url.path
 
-        # Case 1: Foxglove link with ds.url parameter
-        if 'ds.url' in query_params and query_params['ds.url']:
-            mcap_url_str = query_params['ds.url'][0]
-            # The relevant path is the part after the domain.
-            path_to_check = urllib.parse.urlparse(mcap_url_str).path
-        # Case 2: Direct link
-        else:
-            path_to_check = parsed_url.path
+            if not path_to_check:
+                return None, None
 
-        if path_to_check:
-            # Normalize path
-            path_to_check = path_to_check.strip()
-            if path_to_check.endswith('/'):
-                path_to_check = path_to_check[:-1]
+            # Normalize path - remove trailing slash and whitespace
+            path_to_check = path_to_check.strip().rstrip('/')
 
-            # Case 2a: Link to a file (.mcap or .mp4)
-            if path_to_check.lower().endswith(('.mcap', '.mp4')):
+            # Check if it's a file (.mcap or .mp4)
+            lower_path = path_to_check.lower()
+            if lower_path.endswith(('.mcap', '.mp4')):
                 folder_path = os.path.dirname(path_to_check)
                 filename = os.path.basename(path_to_check)
                 return folder_path, filename
             
-            # Case 2b: Link to a directory (e.g., /logs, /default, /cut_videos)
-            # The path itself is the folder path, and there's no specific file.
+            # It's a directory path
             return path_to_check, None
-
-        return None, None
+            
+        except Exception as e:
+            self.log_callback(f"Error parsing link: {e}", is_error=True)
+            return None, None
 
     def get_local_folder_path(self, extracted_remote_folder):
         """
@@ -143,20 +163,24 @@ class FoxgloveAppLogic:
         Lists files in the specified local directory, optionally filtering by a file extension.
         If file_extension is None, it lists all files and directories.
         Returns a tuple: (list_of_items, error_message_or_None)
+        Optimized for better performance.
         """
-        items = []
         if not os.path.isdir(local_folder_path_absolute):
             return [], f"Local folder not found or is not a directory: {local_folder_path_absolute}"
+        
         try:
-            for item in os.listdir(local_folder_path_absolute):
-                if file_extension:
-                    if item.lower().endswith(file_extension):
-                        items.append(item)
-                else:
-                    # If no extension filter, add all items (files and folders)
-                    items.append(item)
-            items.sort()
+            # Use list comprehension for better performance
+            if file_extension:
+                # Pre-compile the extension check for better performance
+                ext_lower = file_extension.lower()
+                items = [item for item in os.listdir(local_folder_path_absolute) 
+                        if item.lower().endswith(ext_lower)]
+            else:
+                items = list(os.listdir(local_folder_path_absolute))
+            
+            items.sort(key=str.lower)  # Case-insensitive sort for better UX
             return items, None
+            
         except PermissionError:
             return [], f"Permission denied to access folder: {local_folder_path_absolute}"
         except Exception as e:
@@ -166,41 +190,49 @@ class FoxgloveAppLogic:
         """
         Returns True if any viz process (Foxglove, Bazel Tools Viz, Bazel Bag GUI) is running.
         """
+        viz_processes = {PROCESS_NAMES['FOXGLOVE_STUDIO'], PROCESS_NAMES['BAZEL_TOOLS_VIZ'], PROCESS_NAMES['BAZEL_BAG_GUI']}
+        
         for proc_info in self.running_processes:
             proc = proc_info['process']
-            if proc.poll() is None and proc_info['name'] in [
-                'Foxglove Studio', 'Bazel Tools Viz', 'Bazel Bag GUI']:
+            if proc.poll() is None and proc_info['name'] in viz_processes:
                 return True
         return False
 
     def _terminate_process_by_name(self, name):
         """
         Terminates any running process with the given name and its children.
+        Improved error handling and cross-platform compatibility.
         """
         for proc_info in list(self.running_processes):
             if proc_info['name'] == name:
                 proc = proc_info['process']
-                if proc.poll() is None:
+                if proc.poll() is None:  # Process is still running
                     try:
                         # Terminate the entire process group
                         if sys.platform != "win32":
                             os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
                         else:
-                            proc.terminate() # Fallback for windows
+                            proc.terminate()
+                        
+                        # Wait for graceful termination
                         proc.wait(timeout=3)
-                    except (ProcessLookupError, PermissionError):
-                        # Process already died between poll() and killpg()
-                        pass
-                    except Exception:
+                        
+                    except subprocess.TimeoutExpired:
+                        # Force kill if graceful termination failed
                         try:
                             if sys.platform != "win32":
                                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
                             else:
                                 proc.kill()
                             proc.wait()
-                        except Exception:
-                            # Ignore if it fails, process might be gone
+                        except (ProcessLookupError, PermissionError, OSError):
+                            # Process might have already died
                             pass
+                    except (ProcessLookupError, PermissionError, OSError):
+                        # Process already died between poll() and killpg()
+                        pass
+                        
+                # Remove from tracking list
                 if proc_info in self.running_processes:
                     self.running_processes.remove(proc_info)
 

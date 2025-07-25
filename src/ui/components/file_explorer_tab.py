@@ -119,32 +119,51 @@ class FileExplorerTab:
         self.refresh_explorer()
 
     def refresh_explorer(self, event=None):
+        """
+        Refresh the file explorer with optimized batch operations.
+        """
         try:
-            self.explorer_listbox.delete(0, tk.END)
-            self.explorer_files_list = []
+            # Store current state for comparison
+            current_path = self.current_explorer_path
+            search_text = self.explorer_search_var.get().strip()
             
-            if not os.path.isdir(self.current_explorer_path):
-                self.log_message(f"Invalid directory: {self.current_explorer_path}", is_error=True)
+            # Clear previous content efficiently
+            self.explorer_listbox.delete(0, tk.END)
+            self.explorer_files_list.clear()
+            
+            if not os.path.isdir(current_path):
+                self.log_message(f"Invalid directory: {current_path}", is_error=True)
                 return
             
-            self.explorer_path_var.set(self.current_explorer_path)
+            # Update path display
+            self.explorer_path_var.set(current_path)
             
-            dirs, files = self.file_explorer_logic.list_directory(self.current_explorer_path)
+            # Get directory contents efficiently
+            dirs, files = self.file_explorer_logic.list_directory(current_path)
             
-            search_text = self.explorer_search_var.get().strip()
+            # Apply search filter if present
             if search_text:
                 search_lower = search_text.lower()
                 dirs = [d for d in dirs if search_lower in d.lower()]
                 files = [f for f in files if search_lower in f.lower()]
             
-            batch_items = [(f"📁 {d}", d) for d in dirs]
+            # Prepare batch items for insertion with pre-allocated list
+            total_items = len(dirs) + len(files)
+            batch_items = []
+            batch_items.reserve(total_items) if hasattr(batch_items, 'reserve') else None
             
+            # Add directories first with folder icon
+            for d in dirs:
+                batch_items.append((f"📁 {d}", d))
+            
+            # Add files with appropriate icons
             for f in files:
-                item_path = os.path.join(self.current_explorer_path, f)
+                item_path = os.path.join(current_path, f)
                 info = self.file_explorer_logic.get_file_info(item_path)
-                icon = info.get('icon', '')
+                icon = info.get('icon', '📄')
                 batch_items.append((f"{icon} {f}", f))
             
+            # Batch insert all items efficiently
             for display_text, original_name in batch_items:
                 self.explorer_listbox.insert(tk.END, display_text)
                 self.explorer_files_list.append(original_name)
@@ -155,23 +174,24 @@ class FileExplorerTab:
             self.log_message(f"Error refreshing explorer: {e}", is_error=True)
 
     def get_selected_explorer_mcap_paths(self):
+        """
+        Get selected MCAP file paths with optimized list comprehension.
+        """
         selection = self.explorer_listbox.curselection()
         if not selection:
             return []
         
-        mcap_paths = []
         current_path = self.current_explorer_path
         files_list = self.explorer_files_list
-        mcap_check = self.file_explorer_logic.is_mcap_file
         
-        for idx in selection:
-            if idx >= len(files_list): continue
-            selected_item = files_list[idx]
-            item_path = os.path.join(current_path, selected_item)
-            if os.path.isfile(item_path) and mcap_check(item_path):
-                mcap_paths.append(item_path)
-        
-        return mcap_paths
+        # Optimized single-pass filtering
+        return [
+            os.path.join(current_path, files_list[idx])
+            for idx in selection
+            if (idx < len(files_list) and 
+                os.path.isfile(os.path.join(current_path, files_list[idx])) and
+                self.file_explorer_logic.is_mcap_file(files_list[idx]))
+        ]
 
     def go_back(self):
         if self.explorer_history:

@@ -1,39 +1,86 @@
 import os
+import platform
+import subprocess
+from functools import lru_cache
+from typing import Tuple, List, Dict, Optional, Any
 from ..utils.utils import format_file_size, get_file_icon
 
 class FileExplorerLogic:
-    def __init__(self, base_path=None):
+    def __init__(self, base_path: Optional[str] = None):
         self.base_path = base_path or os.path.expanduser('~/data')
+        # Cache for file info to improve performance
+        self._file_info_cache: Dict[str, Dict[str, Any]] = {}
+        self._cache_size_limit = 1000
 
-    def list_directory(self, path, show_hidden=False):
-        """Return (dirs, files) in the given path."""
-        if not os.path.isdir(path):
+    def _clear_cache_if_needed(self) -> None:
+        """Clear cache if it gets too large to prevent memory issues."""
+        if len(self._file_info_cache) > self._cache_size_limit:
+            self._file_info_cache.clear()
+
+    def list_directory(self, path: str, show_hidden: bool = False) -> Tuple[List[str], List[str]]:
+        """
+        Return (dirs, files) in the given path.
+        Optimized for performance with better error handling.
+        """
+        from ..utils.utils import efficient_directory_scan
+        
+        # Use the optimized directory scan utility
+        files, directories, error = efficient_directory_scan(path)
+        
+        if error:
             return [], []
-        items = os.listdir(path)
-        dirs, files = [], []
-        for item in items:
-            if not show_hidden and item.startswith('.'):
-                continue
-            item_path = os.path.join(path, item)
-            if os.path.isdir(item_path):
-                dirs.append(item)
-            else:
-                files.append(item)
-        return sorted(dirs, key=str.lower), sorted(files, key=str.lower)
+        
+        # Apply hidden file filter if needed
+        if not show_hidden:
+            files = [f for f in files if not f.startswith('.')]
+            directories = [d for d in directories if not d.startswith('.')]
+        
+        return directories, files
 
     def is_mcap_file(self, filename):
+        """Check if filename is an MCAP file - optimized for performance."""
         return filename.lower().endswith('.mcap')
 
     def get_file_info(self, path):
-        """Return dict with size, mtime, icon, etc."""
+        """
+        Return dict with size, mtime, icon, etc.
+        Uses caching for better performance on repeated calls.
+        """
+        # Check cache first
+        if path in self._file_info_cache:
+            stat_result = os.stat(path)
+            cached_info = self._file_info_cache[path]
+            # Check if file has been modified since caching
+            if cached_info.get('mtime') == stat_result.st_mtime:
+                return cached_info
+        
         try:
-            size = os.path.getsize(path)
-            mtime = os.path.getmtime(path)
+            stat_result = os.stat(path)
+            size = stat_result.st_size
+            mtime = stat_result.st_mtime
             icon = get_file_icon(path)
             size_str = format_file_size(size)
-            return {'size': size, 'mtime': mtime, 'icon': icon, 'size_str': size_str}
-        except Exception:
-            return {'size': None, 'mtime': None, 'icon': get_file_icon(path), 'size_str': 'N/A'}
+            
+            info = {
+                'size': size,
+                'mtime': mtime,
+                'icon': icon,
+                'size_str': size_str
+            }
+            
+            # Cache the result
+            self._clear_cache_if_needed()
+            self._file_info_cache[path] = info
+            return info
+            
+        except (OSError, IOError):
+            # Return default info for inaccessible files
+            return {
+                'size': None,
+                'mtime': None,
+                'icon': get_file_icon(path),
+                'size_str': 'N/A'
+            }
 
     def open_file(self, file_path):
         """Open a file using the system default application. Returns (success, message)."""

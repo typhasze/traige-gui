@@ -65,6 +65,7 @@ class SettingsTab:
     def load_settings(self):
         """
         Loads settings from a JSON file, or returns defaults if not found.
+        Improved error handling and structure validation.
         """
         default_settings = {
             'bazel_tools_viz_cmd': 'bazel run //tools/viz',
@@ -74,33 +75,61 @@ class SettingsTab:
             'backup_nas_dir': os.path.expanduser('~/data/psa_logs_backup_nas3'),
             'open_foxglove_in_browser': True,
         }
-        if os.path.exists(self.settings_path):
-            try:
-                with open(self.settings_path, 'r') as f:
-                    user_settings = json.load(f)
-                # Merge defaults with user settings, ensuring all keys are present
-                settings = default_settings.copy()
-                settings.update(user_settings)
-                return settings
-            except Exception as e:
-                self.log_message(f"Error loading settings, using defaults: {e}", is_error=True)
+        
+        if not os.path.exists(self.settings_path):
+            return default_settings
+            
+        try:
+            with open(self.settings_path, 'r', encoding='utf-8') as f:
+                user_settings = json.load(f)
+                
+            # Validate that user_settings is a dictionary
+            if not isinstance(user_settings, dict):
+                self.log_message("Settings file corrupted, using defaults", is_error=True)
                 return default_settings
-        return default_settings
+                
+            # Merge defaults with user settings, ensuring all keys are present
+            settings = default_settings.copy()
+            settings.update(user_settings)
+            return settings
+            
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            self.log_message(f"Error parsing settings file, using defaults: {e}", is_error=True)
+            return default_settings
+        except (IOError, OSError) as e:
+            self.log_message(f"Error reading settings file, using defaults: {e}", is_error=True)
+            return default_settings
 
     def save_settings(self, settings_dict=None):
         """
         Saves provided settings to the JSON file.
+        Improved error handling and atomic writes.
         """
         try:
             if settings_dict is not None:
                 self.settings.update(settings_dict)
-            with open(self.settings_path, 'w') as f:
-                json.dump(self.settings, f, indent=4)
+                
+            # Use atomic write to prevent corruption
+            temp_path = self.settings_path + '.tmp'
+            with open(temp_path, 'w', encoding='utf-8') as f:
+                json.dump(self.settings, f, indent=4, ensure_ascii=False)
+            
+            # Atomic rename on Unix systems
+            os.replace(temp_path, self.settings_path)
+            
             # After saving, update the logic instance
-            self.logic.update_search_paths(self.settings.get('nas_dir'), self.settings.get('backup_nas_dir'))
+            self.logic.update_search_paths(
+                self.settings.get('nas_dir'), 
+                self.settings.get('backup_nas_dir')
+            )
             return True, None
+            
+        except (IOError, OSError) as e:
+            return False, f"File error: {e}"
+        except (TypeError, ValueError) as e:
+            return False, f"Data error: {e}"
         except Exception as e:
-            return False, str(e)
+            return False, f"Unexpected error: {e}"
 
     def reset_settings(self):
         """Resets settings to their default values and saves them."""

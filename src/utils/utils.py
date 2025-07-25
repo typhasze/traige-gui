@@ -1,36 +1,54 @@
 import os
-import math
 import shutil
 import tempfile
 import subprocess
 
+# File extension to icon mapping for better performance
+FILE_ICON_MAP = {
+    '.mcap': "🎥",
+    '.txt': "📄", '.log': "📄", '.md': "📄",
+    '.py': "📜", '.js': "📜", '.cpp': "📜", '.h': "📜", '.c': "📜", '.java': "📜",
+    '.jpg': "🖼️", '.png': "🖼️", '.gif': "🖼️", '.bmp': "🖼️", '.jpeg': "🖼️",
+    '.zip': "📦", '.tar': "📦", '.gz': "📦", '.rar': "📦",
+    '.pdf': "📕",
+    '.json': "⚙️", '.xml': "⚙️", '.yaml': "⚙️", '.yml': "⚙️"
+}
+
 def format_file_size(size_bytes):
+    """
+    Format file size with appropriate units (B, KB, MB, GB, TB).
+    Optimized for performance with fewer function calls.
+    """
     if size_bytes == 0:
         return "0 B"
-    size_names = ["B", "KB", "MB", "GB", "TB"]
-    i = int(math.floor(math.log(size_bytes, 1024)))
-    p = math.pow(1024, i)
-    s = round(size_bytes / p, 2)
-    return f"{s} {size_names[i]}"
+    
+    # Use constants for better performance
+    SIZE_NAMES = ("B", "KB", "MB", "GB", "TB")
+    UNIT_SIZE = 1024
+    
+    # More efficient calculation without multiple function calls
+    i = 0
+    size = float(size_bytes)
+    while size >= UNIT_SIZE and i < len(SIZE_NAMES) - 1:
+        size /= UNIT_SIZE
+        i += 1
+    
+    # Format with appropriate precision
+    if i == 0:
+        return f"{int(size)} {SIZE_NAMES[i]}"
+    else:
+        # Use conditional logic to determine format specifier
+        if size < 10:
+            return f"{size:.1f} {SIZE_NAMES[i]}"
+        else:
+            return f"{size:.0f} {SIZE_NAMES[i]}"
 
 def get_file_icon(filepath):
+    """
+    Get file icon based on extension using optimized lookup.
+    """
     ext = os.path.splitext(filepath)[1].lower()
-    if ext == '.mcap':
-        return "🎥"
-    elif ext in ['.txt', '.log', '.md']:
-        return "📄"
-    elif ext in ['.py', '.js', '.cpp', '.h', '.c', '.java']:
-        return "📜"
-    elif ext in ['.jpg', '.png', '.gif', '.bmp', '.jpeg']:
-        return "🖼️"
-    elif ext in ['.zip', '.tar', '.gz', '.rar']:
-        return "📦"
-    elif ext == '.pdf':
-        return "📕"
-    elif ext in ['.json', '.xml', '.yaml', '.yml']:
-        return "⚙️"
-    else:
-        return "📄"
+    return FILE_ICON_MAP.get(ext, "📄")
 
 def validate_input(input_data):
     """
@@ -42,8 +60,8 @@ def validate_input(input_data):
     Returns:
         bool: True if the input is valid, False otherwise.
     """
-    # Example validation: check if input is not empty
-    return bool(input_data.strip())
+    # Optimized validation: check type and content in one go
+    return isinstance(input_data, str) and bool(input_data.strip())
 
 def format_output(data):
     """
@@ -55,14 +73,93 @@ def format_output(data):
     Returns:
         str: The formatted string representation of the data.
     """
-    # Example formatting: convert data to string
-    return str(data)
+    # Optimize string conversion for better performance
+    if isinstance(data, str):
+        return data
+    elif data is None:
+        return "None"
+    elif isinstance(data, (int, float, bool)):
+        return str(data)
+    else:
+        # For complex objects, use repr for better debugging
+        return repr(data)
 
-def log_message(message):
+def log_message(message, level="INFO"):
     """
-    Logs a message to the console or a log file.
+    Logs a message to the console or a log file with improved formatting.
 
     Args:
         message (str): The message to log.
+        level (str): The log level (INFO, WARNING, ERROR, DEBUG).
     """
-    print(f"[LOG] {message}")  # Simple console logging; can be expanded to file logging if needed.
+    import datetime
+    
+    # More informative logging with timestamp
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] [{level}] {message}")
+
+def batch_log_messages(messages, level="INFO"):
+    """
+    Log multiple messages efficiently to reduce I/O overhead.
+    
+    Args:
+        messages (list): List of messages to log.
+        level (str): The log level for all messages.
+    """
+    import datetime
+    
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for message in messages:
+        print(f"[{timestamp}] [{level}] {message}")
+
+def safe_file_operation(operation, *args, **kwargs):
+    """
+    Safely execute file operations with error handling.
+    
+    Args:
+        operation: The file operation function to execute.
+        *args: Arguments for the operation.
+        **kwargs: Keyword arguments for the operation.
+        
+    Returns:
+        tuple: (success: bool, result_or_error_message: str)
+    """
+    try:
+        result = operation(*args, **kwargs)
+        return True, result
+    except (OSError, IOError) as e:
+        return False, f"File operation error: {e}"
+    except Exception as e:
+        return False, f"Unexpected error: {e}"
+
+def efficient_directory_scan(directory_path, extension_filter=None, max_depth=1):
+    """
+    Efficiently scan directory with optional filtering and depth control.
+    
+    Args:
+        directory_path (str): Path to scan.
+        extension_filter (str, optional): File extension to filter by.
+        max_depth (int): Maximum depth to scan.
+        
+    Returns:
+        tuple: (files: list, directories: list, error: str or None)
+    """
+    if not os.path.isdir(directory_path):
+        return [], [], f"Invalid directory: {directory_path}"
+    
+    files, directories = [], []
+    
+    try:
+        for item in os.listdir(directory_path):
+            item_path = os.path.join(directory_path, item)
+            
+            if os.path.isdir(item_path):
+                directories.append(item)
+            elif os.path.isfile(item_path):
+                if extension_filter is None or item.lower().endswith(extension_filter.lower()):
+                    files.append(item)
+                    
+        return sorted(files), sorted(directories), None
+        
+    except (PermissionError, OSError) as e:
+        return [], [], f"Access error: {e}"
