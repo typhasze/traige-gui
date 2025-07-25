@@ -1,7 +1,5 @@
 import os
 import shutil
-import subprocess
-import tempfile
 from typing import List, Tuple, Optional
 
 class SymlinkPlaybackLogic:
@@ -57,35 +55,4 @@ class SymlinkPlaybackLogic:
                 shutil.rmtree(self.symlink_dir)
             except Exception as e:
                 return f"Failed to clean symlink dir: {e}"
-        return None
-
-    def merge_mcap_files(self, mcap_filepaths: List[str]) -> Tuple[Optional[str], Optional[str]]:
-        """
-        Merges multiple MCAP files into a single MCAP file using the mcap CLI tool.
-        Returns (merged_file_path, error_message_or_None)
-        """
-        if not mcap_filepaths or len(mcap_filepaths) < 2:
-            return None, "Need at least two MCAP files to merge."
-        for f in mcap_filepaths:
-            if not os.path.isfile(f):
-                return None, f"File not found: {f}"
-        try:
-            temp_dir = tempfile.mkdtemp(prefix="merged_mcap_")
-            merged_file = os.path.join(temp_dir, "merged.mcap")
-            # Use the mcap CLI tool to merge
-            cmd = ["mcap", "merge", "-o", merged_file] + mcap_filepaths
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                return None, f"MCAP merge failed: {result.stderr.strip()}"
-            if not os.path.isfile(merged_file):
-                return None, "Merged MCAP file was not created."
-            return merged_file, None
-        except Exception as e:
-            return None, f"Error during MCAP merge: {e}"
-
-    def play_merged_mcap(self, mcap_filepaths: List[str]) -> Tuple[Optional[str], Optional[str]]:
-        """
-        Merges the given MCAP files and returns the merged file path for playback.
-        Returns (merged_file_path, error_message_or_None)
-        """
-        return self.merge_mcap_files(mcap_filepaths) 
+        return None 

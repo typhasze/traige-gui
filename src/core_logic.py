@@ -337,20 +337,6 @@ class FoxgloveAppLogic:
         message, error = self._launch_process(command, 'Bazel Bag GUI', cwd=self.bazel_working_dir)
         return message, error, symlink_dir
 
-    def play_bazel_bag_gui_with_merged_mcap(self, mcap_filepaths, settings):
-        """
-        Merges the given MCAP files and launches Bazel Bag GUI with the merged file.
-        Returns (message, error, merged_file_path)
-        """
-        symlink_logic = SymlinkPlaybackLogic()
-        merged_file, error = symlink_logic.merge_mcap_files(mcap_filepaths)
-        if error:
-            return None, error, None
-        self.bazel_working_dir = self.get_bazel_working_dir(settings)
-        command = f"{settings.get('bazel_bag_gui_cmd')} -- '{merged_file}'"
-        message, error = self._launch_process(command, 'Bazel Bag GUI', cwd=self.bazel_working_dir, mcap_path=merged_file)
-        return message, error, merged_file
-
     def terminate_all_processes(self):
         log_messages = []
         if not self.running_processes:

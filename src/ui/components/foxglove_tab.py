@@ -75,8 +75,7 @@ class FoxgloveTab:
         if num_selected > 0:
             # Enable copy only for single selection
             copy_enabled = num_selected == 1
-            merge_enabled = num_selected >= 2
-            self.enable_file_specific_action_buttons(copy_path=copy_enabled, merge_play=merge_enabled)
+            self.enable_file_specific_action_buttons(copy_path=copy_enabled)
             if not suppress_log:
                 self.log_message(f"{num_selected} file(s) selected.")
         else:

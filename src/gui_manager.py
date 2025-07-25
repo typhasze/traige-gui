@@ -86,7 +86,6 @@ class FoxgloveAppGUIManager:
         self.open_in_manager_button = self._create_button(button_frame, "Open in File Manager", self.open_in_file_manager)
         self.open_foxglove_button = self._create_button(button_frame, "Open with Foxglove", self.open_with_foxglove)
         self.open_bazel_button = self._create_button(button_frame, "Open with Bazel GUI", self.open_with_bazel)
-        self.merge_play_button = self._create_button(button_frame, "Merge & Play MCAPs", self.merge_and_play_mcaps)
         self.launch_bazel_viz_button = self._create_button(button_frame, "Launch Bazel Tools Viz", self.launch_bazel_viz)
 
         # --- Button Map for State Management ---
@@ -95,7 +94,6 @@ class FoxgloveAppGUIManager:
             "copy_path": self.copy_path_button,
             "open_with_foxglove": self.open_foxglove_button,
             "open_with_bazel": self.open_bazel_button,
-            "merge_play": self.merge_play_button,
         }
 
     def create_shared_log_frame(self, parent_frame):
@@ -134,39 +132,18 @@ class FoxgloveAppGUIManager:
         self.log_text.update_idletasks()
         self.log_text.config(state=tk.DISABLED)
 
-    def enable_file_specific_action_buttons(self, open_with_foxglove=True, open_with_bazel=True, copy_path=False, merge_play=False):
+    def enable_file_specific_action_buttons(self, open_with_foxglove=True, open_with_bazel=True, copy_path=False):
         states = {
             "open_with_foxglove": open_with_foxglove, 
             "open_with_bazel": open_with_bazel,
             "copy_path": copy_path,
-            "merge_play": merge_play
         }
         self._update_button_states(states)
 
     def disable_file_specific_action_buttons(self):
-        states = {"open_with_foxglove": False, "open_with_bazel": False, "copy_path": False, "merge_play": False}
+        states = {"open_with_foxglove": False, "open_with_bazel": False, "copy_path": False}
         self._update_button_states(states)
 
-    def merge_and_play_mcaps(self):
-        """Merge selected MCAP files and play the merged file with Bazel Bag GUI."""
-        current_tab = self.main_notebook.index(self.main_notebook.select())
-        mcap_files = []
-        if current_tab == self._explorer_tab_index:
-            mcap_files = self.file_explorer_tab.get_selected_explorer_mcap_paths()
-        elif current_tab == self._foxglove_tab_index:
-            mcap_files = self.foxglove_tab.get_selected_mcap_paths()
-        if len(mcap_files) < 2:
-            self.log_message("Select at least two MCAP files to merge and play.", is_error=True)
-            return
-        self.log_message(f"Merging and launching Bazel Bag GUI with {len(mcap_files)} MCAP files...")
-        message, error, merged_file = self.logic.play_bazel_bag_gui_with_merged_mcap(mcap_files, self.settings_tab.settings)
-        if message:
-            self.log_message(message)
-        if error:
-            self.log_message(error, is_error=True)
-        if merged_file:
-            self.log_message(f"Merged MCAP file: {merged_file}")
-            
     def launch_bazel_viz(self):
         self.log_message(f"Launching Bazel Tools Viz...")
         message, error = self.logic.launch_bazel_tools_viz(self.settings_tab.settings)
