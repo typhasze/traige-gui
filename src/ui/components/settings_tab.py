@@ -27,7 +27,7 @@ class SettingsTab:
             'widget': 'entry',
             'width': 60
         },
-                {
+        {
             'label': 'NAS Directory:',
             'key': 'nas_dir',
             'type': 'str',
@@ -40,6 +40,13 @@ class SettingsTab:
             'type': 'str',
             'widget': 'entry',
             'width': 60
+        },
+        {
+            'label': 'Max MCAP Files for Foxglove:',
+            'key': 'max_foxglove_files',
+            'type': 'int',
+            'widget': 'entry',
+            'width': 20
         },
         {
             'label': 'Open Foxglove in browser',
@@ -73,6 +80,7 @@ class SettingsTab:
             'bazel_working_dir': os.path.expanduser('~/av-system/catkin_ws/src'),
             'nas_dir': os.path.expanduser('~/data'),
             'backup_nas_dir': os.path.expanduser('~/data/psa_logs_backup_nas3'),
+            'max_foxglove_files': 50,  # Reasonable default limit for performance
             'open_foxglove_in_browser': True,
         }
         
@@ -139,6 +147,7 @@ class SettingsTab:
             'bazel_working_dir': os.path.expanduser('~/av-system/catkin_ws/src'),
             'nas_dir': os.path.expanduser('~/data'),
             'backup_nas_dir': os.path.expanduser('~/data/psa_logs_backup_nas3'),
+            'max_foxglove_files': 50,  # Reasonable default limit for performance
             'open_foxglove_in_browser': True,
         }
         self.settings = default_settings.copy()
@@ -162,7 +171,11 @@ class SettingsTab:
                 widget.grid(row=row, column=0, columnspan=2, sticky="w", padx=5, pady=5)
                 self.entries[key] = widget
             else:
-                var = tk.StringVar(value=value)
+                # Handle both string and integer types
+                if config['type'] == 'int':
+                    var = tk.StringVar(value=str(value) if value is not None else "")
+                else:
+                    var = tk.StringVar(value=value if value is not None else "")
                 ttk.Label(settings_frame, text=config['label']).grid(row=row, column=0, sticky="w", padx=5, pady=2)
                 entry = ttk.Entry(settings_frame, textvariable=var, width=config.get('width', 40))
                 entry.grid(row=row, column=1, sticky="we", padx=5, pady=2)
@@ -189,6 +202,13 @@ class SettingsTab:
             var = self.vars[key]
             if config['type'] == 'bool':
                 new_settings[key] = var.get()
+            elif config['type'] == 'int':
+                try:
+                    new_settings[key] = int(var.get())
+                except ValueError:
+                    # Use default value if invalid integer
+                    new_settings[key] = 50 if key == 'max_foxglove_files' else 0
+                    self.log_message(f"Invalid integer for {config['label']}, using default.", is_error=True)
             else:
                 new_settings[key] = var.get()
 

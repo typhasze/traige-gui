@@ -245,6 +245,9 @@ class FoxgloveAppLogic:
         return False
 
     def _launch_process(self, command, name, cwd=None, mcap_path=None):
+        """
+        Enhanced process launcher with better error handling and performance monitoring.
+        """
         if name == 'Foxglove Studio (Browser)':
             # Special case: launch in browser instead of as a process
             if mcap_path:
@@ -255,38 +258,223 @@ class FoxgloveAppLogic:
         # Use shell=True for commands that are strings, False for lists of args
         use_shell = isinstance(command, str)
 
+        # Process management optimization
         if name == 'Bazel Tools Viz':
             if self._is_process_running_by_name(name):
                 return f"{name} is already running.", None
         elif name in ['Foxglove Studio', 'Bazel Bag GUI']:
             self._terminate_process_by_name(name)
+        
         try:
+            # Performance monitoring for large commands
+            if isinstance(command, list) and len(command) > 10:
+                self.log_callback(f"Launching {name} with {len(command)-2} files...")
+            
             # On Unix, start the process in a new session to control its process group
             preexec_fn = os.setsid if sys.platform != "win32" else None
-            proc = subprocess.Popen(command, cwd=cwd, shell=use_shell, preexec_fn=preexec_fn)
-            self.running_processes.append({'name': name, 'process': proc, 'path': mcap_path, 'command': command, 'cwd': cwd})
+            
+            # Use optimized subprocess settings for better performance
+            proc = subprocess.Popen(
+                command, 
+                cwd=cwd, 
+                shell=use_shell, 
+                preexec_fn=preexec_fn,
+                stdin=subprocess.DEVNULL,  # Prevent blocking on stdin
+                stdout=subprocess.PIPE,    # Capture output for error handling
+                stderr=subprocess.PIPE     # Capture errors
+            )
+            
+            self.running_processes.append({
+                'name': name, 
+                'process': proc, 
+                'path': mcap_path, 
+                'command': command, 
+                'cwd': cwd
+            })
+            
             return f"{name} launched (PID: {proc.pid}).", None
+            
         except FileNotFoundError:
             cmd_str = command if use_shell else command[0]
             return None, f"Command for '{name}' ('{cmd_str}') not found. Ensure it's installed and in PATH."
+        except OSError as e:
+            # Handle system-level errors (e.g., command too long)
+            if "Argument list too long" in str(e):
+                return None, f"Command too long for {name}. Try selecting fewer files."
+            else:
+                return None, f"System error launching {name}: {e}"
         except Exception as e:
             return None, f"Failed to launch {name}: {e}"
 
     def launch_foxglove(self, mcap_filepath_absolute, settings):
         """
-        Launches Foxglove Studio in a web browser with the given .mcap file.
+        Launches Foxglove Studio with the given .mcap file(s).
+        Can handle single file or multiple files (desktop only for multiple).
         Returns a tuple: (message, error)
+        Optimized for performance with batch validation and smart routing.
         """
-        open_in_browser = settings.get('open_foxglove_in_browser')
+        # Store max files setting for use in other methods
+        self._max_foxglove_files = settings.get('max_foxglove_files', 50)
         
-        if open_in_browser:
-            return self.launch_foxglove_browser(mcap_filepath_absolute)
+        # Normalize input to list format for consistent processing
+        if isinstance(mcap_filepath_absolute, list):
+            mcap_filepaths = mcap_filepath_absolute
         else:
-            return self.launch_foxglove_desktop(mcap_filepath_absolute)
+            mcap_filepaths = [mcap_filepath_absolute]
+        
+        # Early validation: empty list check
+        if not mcap_filepaths:
+            return None, "No MCAP files provided"
+        
+        open_in_browser = settings.get('open_foxglove_in_browser', False)
+        
+        # Optimized routing based on file count and user preference
+        if len(mcap_filepaths) == 1:
+            # Single file - use user's preference
+            single_file = mcap_filepaths[0]
+            if open_in_browser:
+                return self.launch_foxglove_browser(single_file)
+            else:
+                return self.launch_foxglove_desktop(single_file)
+        else:
+            # Multiple files - force desktop version with notification
+            if open_in_browser:
+                self.log_callback("Multiple MCAP files selected. Browser version doesn't support multiple files, using desktop version instead.")
+            return self.launch_foxglove_desktop_multiple(mcap_filepaths)
 
     def launch_foxglove_desktop(self, mcap_filepath_absolute):
-        # Foxglove Studio is typically a direct command, not run with shell
-        return self._launch_process(['foxglove-studio', '--file', mcap_filepath_absolute], 'Foxglove Studio', mcap_path=mcap_filepath_absolute)
+        """
+        Launches Foxglove Studio desktop with a single MCAP file.
+        Optimized with validation and better error handling.
+        """
+        # Early validation for better performance
+        if not mcap_filepath_absolute:
+            return None, "No MCAP file path provided"
+        
+        if not os.path.isfile(mcap_filepath_absolute):
+            return None, f"MCAP file not found: {os.path.basename(mcap_filepath_absolute)}"
+        
+        # Use optimized command format
+        command = ['foxglove-studio', '--file', mcap_filepath_absolute]
+        return self._launch_process(command, 'Foxglove Studio', mcap_path=mcap_filepath_absolute)
+
+    def launch_foxglove_desktop_multiple(self, mcap_filepaths):
+        """
+        Launches Foxglove Studio desktop with multiple MCAP files.
+        Uses the 'foxglove-studio open file1.mcap file2.mcap ...' command format.
+        Returns a tuple: (message, error)
+        Optimized for performance with batch validation and command size limits.
+        """
+        if not mcap_filepaths:
+            return None, "No MCAP files provided"
+        
+        # Performance optimization: batch validate all files at once
+        validation_results = self._batch_validate_files(mcap_filepaths)
+        if validation_results['missing_files']:
+            missing_count = len(validation_results['missing_files'])
+            if missing_count <= 3:
+                # Show specific files if few are missing
+                missing_names = [os.path.basename(f) for f in validation_results['missing_files']]
+                return None, f"MCAP files not found: {', '.join(missing_names)}"
+            else:
+                # Show count if many are missing
+                return None, f"{missing_count} MCAP files not found"
+        
+        valid_files = validation_results['valid_files']
+        if not valid_files:
+            return None, "No valid MCAP files found"
+        
+        # Apply user-configured file limit for performance
+        max_files = getattr(self, '_max_foxglove_files', 50)  # Default fallback
+        if len(valid_files) > max_files:
+            self.log_callback(f"Too many files selected ({len(valid_files)}). Limiting to {max_files} files for performance.")
+            valid_files = valid_files[:max_files]
+        
+        # Check command line length limits to prevent system errors
+        max_cmd_length = self._get_max_command_length()
+        command_base = ['foxglove-studio', 'open']
+        
+        # Estimate command length (conservative approach)
+        base_length = sum(len(arg) + 1 for arg in command_base)  # +1 for spaces
+        files_length = sum(len(f) + 3 for f in valid_files)  # +3 for quotes and space
+        
+        if base_length + files_length > max_cmd_length:
+            # Fallback: use file list approach or limit files
+            limited_files = self._limit_files_by_command_length(valid_files, max_cmd_length - base_length)
+            if len(limited_files) < len(valid_files):
+                self.log_callback(f"Command too long, limiting to {len(limited_files)} files (system limit)")
+            valid_files = limited_files
+        
+        # Build optimized command
+        command = command_base + valid_files
+        
+        # Use the first file path for tracking purposes
+        primary_mcap_path = valid_files[0]
+        
+        return self._launch_process(command, 'Foxglove Studio', mcap_path=primary_mcap_path)
+    
+    def _batch_validate_files(self, filepaths):
+        """
+        Efficiently validate multiple files in batch.
+        Returns dict with 'valid_files' and 'missing_files' lists.
+        """
+        valid_files = []
+        missing_files = []
+        
+        # Use os.path.isfile directly for better performance than try/catch
+        for filepath in filepaths:
+            if os.path.isfile(filepath):
+                valid_files.append(filepath)
+            else:
+                missing_files.append(filepath)
+                
+        return {
+            'valid_files': valid_files,
+            'missing_files': missing_files
+        }
+    
+    def _get_max_command_length(self):
+        """
+        Get maximum command line length for the current system.
+        Returns conservative default if unable to determine.
+        """
+        try:
+            # Try to get system limit
+            import subprocess
+            result = subprocess.run(['getconf', 'ARG_MAX'], 
+                                  capture_output=True, text=True, timeout=1)
+            if result.returncode == 0:
+                # Use 80% of system limit as safety margin
+                return int(int(result.stdout.strip()) * 0.8)
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, ValueError, OSError):
+            pass
+        
+        # Conservative fallback (works on most systems)
+        return 32768  # 32KB - safe for most Unix systems
+    
+    def _limit_files_by_command_length(self, filepaths, max_length):
+        """
+        Limit file list to fit within command length constraints.
+        Prioritizes shorter paths and warns user about limitation.
+        """
+        if not filepaths:
+            return []
+        
+        # Sort by path length (shorter paths first for efficiency)
+        sorted_files = sorted(filepaths, key=len)
+        
+        selected_files = []
+        current_length = 0
+        
+        for filepath in sorted_files:
+            file_length = len(filepath) + 3  # +3 for quotes and space
+            if current_length + file_length <= max_length:
+                selected_files.append(filepath)
+                current_length += file_length
+            else:
+                break
+        
+        return selected_files
 
     def launch_foxglove_browser(self, mcap_filepath_absolute):
         """

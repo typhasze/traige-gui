@@ -161,6 +161,7 @@ class FileExplorerLogic:
         # Logic for multiple selections (or single)
         are_all_mcap = all(self.is_mcap_file(p) and os.path.isfile(p) for p in selected_paths)
         if are_all_mcap:
+            states["open_with_foxglove"] = True  # Now support multiple files for Foxglove
             states["open_with_bazel"] = True
 
         return states

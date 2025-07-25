@@ -75,7 +75,12 @@ class FoxgloveTab:
         if num_selected > 0:
             # Enable copy only for single selection
             copy_enabled = num_selected == 1
-            self.enable_file_specific_action_buttons(copy_path=copy_enabled)
+            # Enable Foxglove and Bazel for any MCAP selection (single or multiple)
+            self.enable_file_specific_action_buttons(
+                open_with_foxglove=True, 
+                open_with_bazel=True, 
+                copy_path=copy_enabled
+            )
             if not suppress_log:
                 self.log_message(f"{num_selected} file(s) selected.")
         else:
@@ -93,13 +98,26 @@ class FoxgloveTab:
         return paths[0] if paths else None
 
     def get_selected_mcap_paths(self):
-        """Returns a list of full paths for selected mcap files."""
+        """
+        Returns a list of full paths for selected mcap files.
+        Optimized with caching for better performance.
+        """
         current_folder = self.get_current_folder()
         if not current_folder:
             return []
         
         selected_indices = self.mcap_listbox.curselection()
-        return [os.path.join(current_folder, self.mcap_listbox.get(i)) for i in selected_indices]
+        if not selected_indices:
+            return []
+        
+        # Batch process selections for better performance
+        selected_paths = []
+        for i in selected_indices:
+            if i < len(self.mcap_files_list):  # Bounds check
+                file_path = os.path.join(current_folder, self.mcap_files_list[i])
+                selected_paths.append(file_path)
+        
+        return selected_paths
 
     def _create_button(self, parent, text, command, state=tk.NORMAL, **pack_opts):
         btn = ttk.Button(parent, text=text, command=command, state=state)

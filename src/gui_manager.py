@@ -237,32 +237,49 @@ class FoxgloveAppGUIManager:
 
 
     def open_with_foxglove(self):
-        """Open the selected MCAP file with Foxglove from either tab."""
+        """
+        Open the selected MCAP file(s) with Foxglove from either tab.
+        Optimized for better performance and user feedback.
+        """
         current_tab = self.main_notebook.index(self.main_notebook.select())
         
-        file_path = None
+        mcap_files = []
         if current_tab == self._explorer_tab_index:
             mcap_files = self.file_explorer_tab.get_selected_explorer_mcap_paths()
             if not mcap_files:
                 self.log_message("No MCAP file selected in File Explorer.", is_error=True)
                 return
-            file_path = mcap_files[-1]
         elif current_tab == self._foxglove_tab_index:
-            file_path = self.foxglove_tab.get_selected_mcap_path()
-            if not file_path:
+            mcap_files = self.foxglove_tab.get_selected_mcap_paths()
+            if not mcap_files:
                 self.log_message("No MCAP file selected in Foxglove MCAP tab.", is_error=True)
                 return
         
-        if file_path:
-            self.log_message(f"Launching Foxglove with {os.path.basename(file_path)}...")
-            message, error = self.logic.launch_foxglove(file_path, self.settings_tab.settings)
-            if message:
-                self.log_message(message)
-            if error:
-                self.log_message(error, is_error=True)
-        else:
-            # This case handles if the button is visible on a tab where it shouldn't be.
+        if not mcap_files:
             self.log_message("Open with Foxglove is not available for the current selection.", is_error=True)
+            return
+        
+        # Optimized logging for better user experience
+        file_count = len(mcap_files)
+        if file_count == 1:
+            file_name = os.path.basename(mcap_files[0])
+            self.log_message(f"Launching Foxglove with {file_name}...")
+            message, error = self.logic.launch_foxglove(mcap_files[0], self.settings_tab.settings)
+        else:
+            # Show progress for multiple files
+            if file_count <= 5:
+                file_names = [os.path.basename(f) for f in mcap_files]
+                self.log_message(f"Launching Foxglove with {file_count} files: {', '.join(file_names)}")
+            else:
+                self.log_message(f"Launching Foxglove with {file_count} files (showing first 3): {', '.join([os.path.basename(f) for f in mcap_files[:3]])}...")
+            
+            message, error = self.logic.launch_foxglove(mcap_files, self.settings_tab.settings)
+        
+        # Provide feedback
+        if message:
+            self.log_message(message)
+        if error:
+            self.log_message(error, is_error=True)
 
 
     def open_with_bazel(self):
