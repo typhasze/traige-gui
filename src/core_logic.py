@@ -18,6 +18,7 @@ DEFAULT_SETTINGS = {
     'bazel_tools_viz_cmd': 'bazel run //tools/viz',
     'bazel_bag_gui_cmd': 'bazel run //tools/bag:gui',
     'bazel_working_dir': DEFAULT_BAZEL_WORKING_DIR,
+    'bazel_bag_gui_rate': 1.0,
 }
 
 # Process names for better consistency
@@ -76,6 +77,7 @@ class FoxgloveAppLogic:
             'bazel_tools_viz_cmd': 'bazel run //tools/viz',
             'bazel_bag_gui_cmd': 'bazel run //tools/bag:gui',
             'bazel_working_dir': os.path.expanduser('~/av-system/catkin_ws/src'),
+            'bazel_bag_gui_rate': 1.0,
         }
         # self.settings = default_settings.copy() # self.settings is no longer present
         self.save_settings(default_settings)
@@ -506,7 +508,9 @@ class FoxgloveAppLogic:
 
     def launch_bazel_bag_gui(self, mcap_path, settings):
         self.bazel_working_dir = self.get_bazel_working_dir(settings)
-        command = f"{settings.get('bazel_bag_gui_cmd')} -- {mcap_path}"
+        base_command = settings.get('bazel_bag_gui_cmd')
+        rate = settings.get('bazel_bag_gui_rate', 1.0)
+        command = f"{base_command} -- --rate={rate} {mcap_path}"
         return self._launch_process(command, 'Bazel Bag GUI', cwd=self.bazel_working_dir, mcap_path=mcap_path)
 
     def play_bazel_bag_gui_with_symlinks(self, mcap_filepaths, settings):
@@ -521,7 +525,9 @@ class FoxgloveAppLogic:
             return None, "No .mcap files found to play.", symlink_dir
 
         mcap_files_str = " ".join([f'"{f}"' for f in mcap_files])
-        command = f"{settings.get('bazel_bag_gui_cmd')} -- {mcap_files_str}"
+        base_command = settings.get('bazel_bag_gui_cmd')
+        rate = settings.get('bazel_bag_gui_rate', 1.0)
+        command = f"{base_command} -- --rate={rate} {mcap_files_str}"
         message, error = self._launch_process(command, 'Bazel Bag GUI', cwd=self.bazel_working_dir)
         return message, error, symlink_dir
 

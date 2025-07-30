@@ -49,6 +49,13 @@ class SettingsTab:
             'width': 20
         },
         {
+            'label': 'Bazel Bag GUI Rate:',
+            'key': 'bazel_bag_gui_rate',
+            'type': 'float',
+            'widget': 'entry',
+            'width': 20
+        },
+        {
             'label': 'Open Foxglove in browser',
             'key': 'open_foxglove_in_browser',
             'type': 'bool',
@@ -81,6 +88,7 @@ class SettingsTab:
             'nas_dir': os.path.expanduser('~/data'),
             'backup_nas_dir': os.path.expanduser('~/data/psa_logs_backup_nas3'),
             'max_foxglove_files': 50,  # Reasonable default limit for performance
+            'bazel_bag_gui_rate': 1.0,  # Default playback rate for Bazel Bag GUI
             'open_foxglove_in_browser': True,
         }
         
@@ -171,8 +179,8 @@ class SettingsTab:
                 widget.grid(row=row, column=0, columnspan=2, sticky="w", padx=5, pady=5)
                 self.entries[key] = widget
             else:
-                # Handle both string and integer types
-                if config['type'] == 'int':
+                # Handle string, integer, and float types
+                if config['type'] in ['int', 'float']:
                     var = tk.StringVar(value=str(value) if value is not None else "")
                 else:
                     var = tk.StringVar(value=value if value is not None else "")
@@ -209,6 +217,13 @@ class SettingsTab:
                     # Use default value if invalid integer
                     new_settings[key] = 50 if key == 'max_foxglove_files' else 0
                     self.log_message(f"Invalid integer for {config['label']}, using default.", is_error=True)
+            elif config['type'] == 'float':
+                try:
+                    new_settings[key] = float(var.get())
+                except ValueError:
+                    # Use default value if invalid float
+                    new_settings[key] = 1.0 if key == 'bazel_bag_gui_rate' else 0.0
+                    self.log_message(f"Invalid number for {config['label']}, using default.", is_error=True)
             else:
                 new_settings[key] = var.get()
 
