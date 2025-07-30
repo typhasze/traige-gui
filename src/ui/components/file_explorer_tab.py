@@ -131,6 +131,9 @@ class FileExplorerTab:
             self.explorer_listbox.delete(0, tk.END)
             self.explorer_files_list.clear()
             
+            # Clear selection state to ensure proper button state management
+            self.explorer_listbox.selection_clear(0, tk.END)
+            
             if not os.path.isdir(current_path):
                 self.log_message(f"Invalid directory: {current_path}", is_error=True)
                 return
@@ -167,6 +170,9 @@ class FileExplorerTab:
             for display_text, original_name in batch_items:
                 self.explorer_listbox.insert(tk.END, display_text)
                 self.explorer_files_list.append(original_name)
+            
+            # Update button states after refreshing content
+            self.on_explorer_select(suppress_log=True)
                 
         except PermissionError:
             self.log_message(f"Permission denied: {self.current_explorer_path}", is_error=True)
@@ -200,8 +206,13 @@ class FileExplorerTab:
             if previous_path in self._history_set:
                 self._history_set.remove(previous_path)
             
+            # Remember the directory we're coming from to highlight it
+            current_dir_name = os.path.basename(self.current_explorer_path)
             self.current_explorer_path = previous_path
             self.refresh_explorer()
+            
+            # Highlight the directory we came from
+            self.highlight_directory_in_explorer(current_dir_name)
 
     def _add_to_history(self, path):
         """Adds a path to the navigation history if it's not already the last one."""
@@ -219,9 +230,14 @@ class FileExplorerTab:
         parent_dir = os.path.dirname(current)
         if os.path.commonpath([parent_dir, self._abs_data_root]) != self._abs_data_root: return
         
+        # Remember the directory we're coming from to highlight it
+        current_dir_name = os.path.basename(current)
         self._add_to_history(self.current_explorer_path)
         self.current_explorer_path = parent_dir
         self.refresh_explorer()
+        
+        # Highlight the directory we came from
+        self.highlight_directory_in_explorer(current_dir_name)
 
     def go_home_directory(self):
         """Navigate to the home directory, adding the current path to history if it's different."""
@@ -395,4 +411,34 @@ class FileExplorerTab:
                 self.explorer_listbox.selection_set(idx)
                 self.explorer_listbox.see(idx)
                 self.explorer_listbox.itemconfig(idx, {'bg': 'yellow'})
+                # Trigger selection handler to update button states
+                self.on_explorer_select(suppress_log=True)
+                # Set focus to listbox for arrow key navigation
+                self.explorer_listbox.focus_set()
                 break
+
+    def highlight_directory_in_explorer(self, dirname):
+        """Highlight and select a directory by name in the explorer listbox."""
+        if not dirname:
+            return
+        
+        # Clear previous highlights
+        for idx in range(self.explorer_listbox.size()):
+            self.explorer_listbox.itemconfig(idx, {'bg': 'white'})
+        
+        # Try to find and select the directory in the explorer listbox
+        dirname_lower = dirname.strip().lower()
+        for idx, fname in enumerate(self.explorer_files_list):
+            if fname.lower() == dirname_lower:
+                # Check if this is actually a directory (should be among the first items)
+                item_path = os.path.join(self.current_explorer_path, fname)
+                if os.path.isdir(item_path):
+                    self.explorer_listbox.selection_clear(0, tk.END)
+                    self.explorer_listbox.selection_set(idx)
+                    self.explorer_listbox.see(idx)
+                    self.explorer_listbox.itemconfig(idx, {'bg': 'lightblue'})
+                    # Trigger selection handler to update button states
+                    self.on_explorer_select(suppress_log=True)
+                    # Set focus to listbox for arrow key navigation
+                    self.explorer_listbox.focus_set()
+                    break

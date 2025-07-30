@@ -172,6 +172,8 @@ class FoxgloveTab:
     def clear_file_list_and_disable_buttons(self):
         self.mcap_listbox.delete(0, tk.END)
         self.mcap_files_list = []
+        # Clear selection state properly
+        self.mcap_listbox.selection_clear(0, tk.END)
         self.disable_file_specific_action_buttons()
 
     def populate_file_list(self):
@@ -216,7 +218,8 @@ class FoxgloveTab:
         if highlight_idx != -1:
             self.mcap_listbox.see(highlight_idx)
             self.mcap_listbox.selection_set(highlight_idx)
-            self.enable_file_specific_action_buttons()
+            # Trigger the selection handler to update button states properly
+            self.on_file_select(suppress_log=True)
         else:
             self.disable_file_specific_action_buttons()
             
