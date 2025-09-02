@@ -156,6 +156,7 @@ class SettingsTab:
             'nas_dir': os.path.expanduser('~/data'),
             'backup_nas_dir': os.path.expanduser('~/data/psa_logs_backup_nas3'),
             'max_foxglove_files': 50,  # Reasonable default limit for performance
+            'bazel_bag_gui_rate': 1.0,  # Default playback rate for Bazel Bag GUI
             'open_foxglove_in_browser': True,
         }
         self.settings = default_settings.copy()
