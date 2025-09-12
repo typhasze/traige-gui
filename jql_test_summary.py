@@ -9,12 +9,13 @@ import re
 import csv
 from datetime import datetime
 import sys
+import urllib.parse
 
 # Configuration
 JIRA_CONFIG = {
     'server': 'https://ventitechnologies.atlassian.net',
     'email': 'hafiz.kosno@ventitechnologies.com',
-    'token': 'ATATT3xFfGF005MxBsDiUy_n1xFNieow4P23_bXCfja48PnG_oTVQFnqwzzgy7QGMk3w6_cJvpKpB7kmVSJCv3cIn-JECczjjINrnH4emaNuy49B7AJjJjsYvzwi-9AuA_LoQ8ATnBiwuEPeHv6WPN9F0lxZbQf9VEgPq-HwVTcMOe4gPOFwcOQ=07779DD8'
+    'token': 'ATATT3xFfGF0NH9UwB1voANOi6euu8tpV3zfH-CM9S2wzQjF7LJO0HHG4z1qmaNCUKRz9Vt4DuBROnhp2vgwfux4Fjl9Dj0ADwd6HDxLvZUYS_EB1dtDroUC2zQaWBcVxzOxp8kUlrCvr9iododlYnu999OA8n9OSR6XTLexiC4bkdenRqA2QDc=CFD797F7'
 }
 
 QUERY_TYPES = {
@@ -46,10 +47,18 @@ def build_jql_queries(start_date, end_date):
                AND "date and time[time stamp]" >= "{start_date} 07:30" 
                AND "date and time[time stamp]" < "{end_date} 07:30"'''
     
-    order = 'ORDER BY cf[10312] ASC, summary ASC, cf[10084] ASC, cf[10052] ASC, created DESC'
+    order = 'ORDER BY cf[10052] ASC, cf[10312] ASC, summary ASC, cf[10084] ASC, created DESC'
     
-    return {name: f"{base} AND {condition} {order}" 
-            for name, condition in QUERY_TYPES.items()}
+    queries = {}
+    for name, condition in QUERY_TYPES.items():
+        jql_query = f"{base} AND {condition} {order}"
+        query_url = f"https://ventitechnologies.atlassian.net/issues/?jql={urllib.parse.quote(jql_query)}"
+        queries[name] = {
+            'jql': jql_query,
+            'url': query_url
+        }
+    
+    return queries
 
 def connect_to_jira():
     """Connect to JIRA and return client."""
@@ -106,7 +115,7 @@ def process_issues(issues):
     return {pattern: {
         'issues': issues_list,
         'vehicle_count': dict(vehicle_counts[pattern]),
-        'total_vehicles': len(vehicle_counts[pattern]),
+        'total_vehicles': sum(vehicle_counts[pattern].values()),  # Total number of issues, not unique vehicles
         'total_issues': len(issues_list)
     } for pattern, issues_list in grouped.items()}
 
@@ -131,10 +140,14 @@ def export_all_to_csv(all_results, start_date, end_date):
         writer.writeheader()
         
         for query_type, data in all_results.items():
-            # Section header
+            # Section header with query URL
             writer.writerow({
                 'Query_Type': f" {query_type.upper()} ISSUES ",
                 'Pattern': f"Total: {data['total_count']} issues"
+            })
+            writer.writerow({
+                'Query_Type': 'Query Link:',
+                'Pattern': data.get('query_url', '')
             })
             writer.writerow({})
             
@@ -195,26 +208,36 @@ def main():
     all_results = {}
     
     # Execute all queries
-    for query_name, jql in queries.items():
+    for query_name, query_data in queries.items():
         print(f"\n🔍 Executing {query_name} query...")
+        print(f"🔗 Query URL: {query_data['url']}")
         try:
-            issues = jira_client.search_issues(jql, maxResults=False)
+            issues = jira_client.search_issues(query_data['jql'], maxResults=False)
             print(f"✅ Found {len(issues)} {query_name.lower()} issues")
             
             if issues:
                 grouped_issues = process_issues(issues)
                 all_results[query_name] = {
                     'grouped_issues': grouped_issues,
-                    'total_count': len(issues)
+                    'total_count': len(issues),
+                    'query_url': query_data['url']
                 }
                 display_results(grouped_issues, query_name)
             else:
                 print(f"No {query_name.lower()} issues found.")
-                all_results[query_name] = {'grouped_issues': {}, 'total_count': 0}
+                all_results[query_name] = {
+                    'grouped_issues': {}, 
+                    'total_count': 0,
+                    'query_url': query_data['url']
+                }
         
         except Exception as e:
             print(f"❌ {query_name} query failed: {e}")
-            all_results[query_name] = {'grouped_issues': {}, 'total_count': 0}
+            all_results[query_name] = {
+                'grouped_issues': {}, 
+                'total_count': 0,
+                'query_url': query_data['url']
+            }
     
     # Export and summarize
     if any(result['total_count'] > 0 for result in all_results.values()):
