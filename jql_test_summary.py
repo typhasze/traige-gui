@@ -10,11 +10,15 @@ import csv
 from datetime import datetime
 import sys
 import urllib.parse
+import os
 
 # Configuration
 CONFIG = {
     'server': 'https://ventitechnologies.atlassian.net',
-    'auth': ('hafiz.kosno@ventitechnologies.com', 'ATATT3xFfGF0NH9UwB1voANOi6euu8tpV3zfH-CM9S2wzQjF7LJO0HHG4z1qmaNCUKRz9Vt4DuBROnhp2vgwfux4Fjl9Dj0ADwd6HDxLvZUYS_EB1dtDroUC2zQaWBcVxzOxp8kUlrCvr9iododlYnu999OA8n9OSR6XTLexiC4bkdenRqA2QDc=CFD797F7'),
+    'auth': (
+        os.environ.get('JIRA_EMAIL', ''),
+        os.environ.get('JIRA_API_TOKEN', '')
+    ),
     'base_jql': 'project = BUG AND type = Bug AND labels = psa_driverless',
     'order': 'ORDER BY cf[10052] ASC, cf[10312] ASC, summary ASC, cf[10084] ASC, created DESC'
 }
@@ -45,6 +49,7 @@ def get_date_range():
         except KeyboardInterrupt:
             print("\n❌ Cancelled.")
             sys.exit(0)
+
 def build_queries(start_date, end_date):
     """Build all JQL queries with URLs."""
     queries = {}
@@ -68,7 +73,7 @@ def connect_jira():
 
 def extract_info(summary):
     """Extract pattern and vehicle from summary - optimized version."""
-    # Try PSA pattern first
+    # Try PSA pattern first (most common)
     if match := re.match(r'^(.*?)\s+PSA(\d+)', summary):
         return match.group(1).strip(), f"PSA{match.group(2)}"
     
@@ -114,36 +119,25 @@ def format_vehicle_stats(vehicle_counts):
                 for v, c in sorted(vehicle_counts.items())]
     return f"{total} vehicles: {', '.join(vehicles)}"
 
-def export_all_to_csv(all_results, start_date, end_date):
-    """Export all query results to a single CSV file."""
+def export_to_csv(all_results, start_date, end_date):
+    """Export results to CSV efficiently."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    date_range = f"{start_date}_to_{end_date}".replace("-", "")
-    filename = f"jira_all_issues_{date_range}_{timestamp}.csv"
+    filename = f"jira_issues_{start_date}_{end_date}_{timestamp}.csv"
     
-    fieldnames = ['Query_Type', 'Pattern', 'Vehicle_Stats', 'Issue_Key', 'Vehicle', 'Summary', 'Status', 'Assignee']
-    
-    with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames)
+    with open(filename, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, ['Query_Type', 'Pattern', 'Vehicle_Stats', 'Issue_Key', 'Vehicle', 'Summary', 'Status', 'Assignee'])
         writer.writeheader()
         
         for query_type, data in all_results.items():
-            # Section header with query URL
-            writer.writerow({
-                'Query_Type': f" {query_type.upper()} ISSUES ",
-                'Pattern': f"Total: {data['total_count']} issues"
-            })
-            writer.writerow({
-                'Query_Type': 'Query Link:',
-                'Pattern': data.get('query_url', '')
-            })
+            # Header
+            writer.writerow({'Query_Type': f"{query_type.upper()} ISSUES", 'Pattern': f"Total: {data['total_count']} issues"})
+            writer.writerow({'Query_Type': 'Query Link:', 'Pattern': data.get('query_url', '')})
             writer.writerow({})
             
-            # Write grouped issues
+            # Data
             for pattern, pattern_data in data['grouped_issues'].items():
-                issues = pattern_data['issues']
                 vehicle_stats = format_vehicle_stats(pattern_data['vehicle_count'])
-                
-                for i, issue in enumerate(issues):
+                for i, issue in enumerate(pattern_data['issues']):
                     writer.writerow({
                         'Query_Type': query_type if i == 0 else '',
                         'Pattern': pattern if i == 0 else '',
@@ -159,81 +153,72 @@ def export_all_to_csv(all_results, start_date, end_date):
     return filename
 
 def display_results(grouped_issues, query_type=""):
-    """Display grouped results to console."""
+    """Display results to console."""
     if query_type:
         print(f"\n📋 {query_type} Results:")
     
-    for pattern, pattern_data in grouped_issues.items():
-        issues = pattern_data['issues']
-        vehicle_stats = format_vehicle_stats(
-            pattern_data['vehicle_count'], 
-            pattern_data['total_vehicles']
-        )
+    for pattern, data in grouped_issues.items():
+        issues = data['issues']
+        vehicle_stats = format_vehicle_stats(data['vehicle_count'])
         
-        print(f"\n📊 {pattern} ({len(issues)} issues, {pattern_data['total_vehicles']} vehicles):")
-        print(f"   🚗 Vehicle breakdown: {vehicle_stats}")
+        print(f"\n📊 {pattern} ({len(issues)} issues):")
+        print(f"   🚗 {vehicle_stats}")
         
         for issue in issues:
-            link = f"https://ventitechnologies.atlassian.net/browse/{issue['key']}"
             print(f"  - {issue['key']} ({issue['vehicle']}): {issue['summary']} "
-                  f"(Status: {issue['status']}, Assignee: {issue['assignee']}) - {link}")
+                  f"(Status: {issue['status']}, Assignee: {issue['assignee']}) - "
+                  f"{CONFIG['server']}/browse/{issue['key']}")
 
 def main():
-    """Main execution function."""
-    print("📅 Enter date range for JIRA query:")
+    """Main execution - optimized workflow."""
+    print("📅 JIRA Issues Analyzer")
     start_date, end_date = get_date_range()
-    
     print(f"✅ Date range: {start_date} to {end_date}")
-    print("✅ Connected to JIRA successfully!")
     
-    jira_client = connect_jira()
+    # Connect and build queries
+    print("🔗 Connecting to JIRA...")
+    jira = connect_jira()
     queries = build_queries(start_date, end_date)
-    all_results = {}
     
-    # Execute all queries
-    for query_name, query_data in queries.items():
-        print(f"\n🔍 Executing {query_name} query...")
-        print(f"🔗 Query URL: {query_data['url']}")
-        try:
-            issues = jira_client.search_issues(query_data['jql'], maxResults=False)
-            print(f"✅ Found {len(issues)} {query_name.lower()} issues")
-            
-            if issues:
-                grouped_issues = process_issues(issues)
-                all_results[query_name] = {
-                    'grouped_issues': grouped_issues,
-                    'total_count': len(issues),
-                    'query_url': query_data['url']
-                }
-                display_results(grouped_issues, query_name)
-            else:
-                print(f"No {query_name.lower()} issues found.")
-                all_results[query_name] = {
-                    'grouped_issues': {}, 
-                    'total_count': 0,
-                    'query_url': query_data['url']
-                }
+    results = {}
+    
+    # Execute queries
+    for name, query in queries.items():
+        print(f"\n🔍 {name} query...")
+        print(f"🔗 {query['url']}")
         
+        try:
+            issues = jira.search_issues(query['jql'], maxResults=False)
+            count = len(issues)
+            print(f"✅ Found {count} issues")
+            
+            if count > 0:
+                grouped = process_issues(issues)
+                results[name] = {
+                    'grouped_issues': grouped,
+                    'total_count': count,
+                    'query_url': query['url']
+                }
+                display_results(grouped, name)
+            else:
+                results[name] = {'grouped_issues': {}, 'total_count': 0, 'query_url': query['url']}
+                
         except Exception as e:
-            print(f"❌ {query_name} query failed: {e}")
-            all_results[query_name] = {
-                'grouped_issues': {}, 
-                'total_count': 0,
-                'query_url': query_data['url']
-            }
+            print(f"❌ Failed: {e}")
+            results[name] = {'grouped_issues': {}, 'total_count': 0, 'query_url': query['url']}
     
     # Export and summarize
-    if any(result['total_count'] > 0 for result in all_results.values()):
-        filename = export_all_to_csv(all_results, start_date, end_date)
-        print(f"\n✅ Results exported to: {filename}")
+    if any(r['total_count'] > 0 for r in results.values()):
+        filename = export_to_csv(results, start_date, end_date)
+        print(f"\n✅ Exported: {filename}")
         
-        total_issues = sum(result['total_count'] for result in all_results.values())
+        total = sum(r['total_count'] for r in results.values())
         print(f"\n📊 Summary:")
-        for query_name, result in all_results.items():
-            print(f"  {query_name}: {result['total_count']} issues")
-        print(f"  Total: {total_issues} issues")
+        for name, result in results.items():
+            print(f"  {name}: {result['total_count']} issues")
+        print(f"  Total: {total} issues")
     else:
-        print("\n❌ No issues found for any query type.")
+        print("\n❌ No issues found.")
 
 if __name__ == "__main__":
     main()
