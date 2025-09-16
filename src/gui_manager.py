@@ -74,6 +74,10 @@ class FoxgloveAppGUIManager:
 
         # Bind Escape key to clear selections
         self.root.bind("<Escape>", self.clear_all_selections)
+        
+        # Bind Ctrl+P to show process status
+        self.root.bind("<Control-p>", lambda e: self.show_process_status())
+        self.root.bind("<Control-P>", lambda e: self.show_process_status())
 
     def create_shared_action_buttons(self, parent_frame):
         """Creates the action buttons that are shared across tabs"""
@@ -87,6 +91,7 @@ class FoxgloveAppGUIManager:
         self.open_foxglove_button = self._create_button(button_frame, "Open with Foxglove", self.open_with_foxglove)
         self.open_bazel_button = self._create_button(button_frame, "Open with Bazel GUI", self.open_with_bazel)
         self.launch_bazel_viz_button = self._create_button(button_frame, "Launch Bazel Tools Viz", self.launch_bazel_viz)
+        self.show_process_status_button = self._create_button(button_frame, "Show Process Status", self.show_process_status)
 
         # --- Button Map for State Management ---
         self._button_map = {
@@ -149,6 +154,24 @@ class FoxgloveAppGUIManager:
         message, error = self.logic.launch_bazel_tools_viz(self.settings_tab.settings)
         if message: self.log_message(message)
         if error: self.log_message(error, is_error=True)
+
+    def show_process_status(self):
+        """Display current process status in the logs."""
+        self.log_message("📊 Current Process Status:", clear_first=False)
+        status = self.logic.get_process_status()
+        
+        if status['total'] == 0:
+            self.log_message("   No processes are currently being tracked.")
+        else:
+            self.log_message(f"   Total: {status['total']} | Running: {status['running']} | Dead: {status['dead']}")
+            
+            for proc in status['processes']:
+                status_icon = "🟢" if proc['running'] else "🔴"
+                self.log_message(f"   {status_icon} {proc['name']} (PID: {proc['pid']}) - Runtime: {proc['runtime_display']}")
+        
+        # Also show if process monitor is running
+        monitor_status = "🟢 Active" if self.logic._process_monitor_thread and self.logic._process_monitor_thread.is_alive() else "🔴 Inactive"
+        self.log_message(f"   Process Monitor: {monitor_status}")
             
     def on_closing(self):
         # Clean up symlink dir if it exists
@@ -321,6 +344,7 @@ class FoxgloveAppGUIManager:
         self._update_button_states({key: False for key in self._button_map})
         self.open_in_manager_button.config(state=tk.NORMAL) # This is always available
         self.launch_bazel_viz_button.config(state=tk.NORMAL) # This is always available
+        self.show_process_status_button.config(state=tk.NORMAL) # This is always available
 
         if current_tab_index == self._explorer_tab_index:
             # File Explorer tab: update based on explorer selection (suppress logging to avoid spam)

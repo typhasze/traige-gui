@@ -90,14 +90,16 @@ class FileExplorerLogic:
         try:
             system = platform.system()
             if system == "Linux":
-                subprocess.run(["xdg-open", file_path], check=True)
+                subprocess.run(["xdg-open", file_path], check=True, timeout=10)
             elif system == "Darwin":
-                subprocess.run(["open", file_path], check=True)
+                subprocess.run(["open", file_path], check=True, timeout=10)
             elif system == "Windows":
                 os.startfile(file_path)
             else:
                 return False, f"Unsupported system: {system}"
             return True, f"Opened file: {os.path.basename(file_path)}"
+        except subprocess.TimeoutExpired:
+            return False, f"Timeout opening file: {os.path.basename(file_path)}"
         except subprocess.CalledProcessError as e:
             return False, f"Failed to open file: {e}"
         except Exception as e:
@@ -111,14 +113,16 @@ class FileExplorerLogic:
         try:
             system = platform.system()
             if system == "Linux":
-                subprocess.run(["xdg-open", dir_path], check=True)
+                subprocess.run(["xdg-open", dir_path], check=True, timeout=10)
             elif system == "Darwin":
-                subprocess.run(["open", dir_path], check=True)
+                subprocess.run(["open", dir_path], check=True, timeout=10)
             elif system == "Windows":
-                subprocess.run(["explorer", dir_path], check=True)
+                subprocess.run(["explorer", dir_path], check=True, timeout=10)
             else:
                 return False, f"Unsupported system: {system}"
             return True, f"Opened in file manager: {dir_path}"
+        except subprocess.TimeoutExpired:
+            return False, f"Timeout opening file manager for: {dir_path}"
         except subprocess.CalledProcessError as e:
             return False, f"Failed to open file manager: {e}"
         except Exception as e:

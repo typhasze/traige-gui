@@ -5,6 +5,8 @@ import shutil
 import json
 import sys
 import signal
+import threading
+import time
 from .logic.symlink_playback_logic import SymlinkPlaybackLogic
 
 # Constants for better maintainability
@@ -41,6 +43,99 @@ class FoxgloveAppLogic:
         self.backup_base_path_absolute = DEFAULT_BACKUP_PATH
         self.bazel_working_dir = None
         self.log_callback = log_callback or (lambda *args, **kwargs: None)
+        
+        # Process health monitoring
+        self._process_monitor_thread = None
+        self._monitor_stop_event = threading.Event()
+        self._start_process_monitor()
+
+    def _start_process_monitor(self):
+        """Start background thread to monitor process health and clean up zombies."""
+        if self._process_monitor_thread is None or not self._process_monitor_thread.is_alive():
+            self._monitor_stop_event.clear()
+            self._process_monitor_thread = threading.Thread(
+                target=self._process_health_monitor,
+                daemon=True,
+                name="ProcessHealthMonitor"
+            )
+            self._process_monitor_thread.start()
+
+    def _process_health_monitor(self):
+        """
+        Background process health monitor that periodically checks and cleans up
+        dead processes to prevent zombies and hanging states.
+        """
+        while not self._monitor_stop_event.wait(10):  # Check every 10 seconds
+            try:
+                self._cleanup_dead_processes()
+            except Exception as e:
+                # Log errors but don't crash the monitor
+                self.log_callback(f"Process monitor error: {e}", is_error=True)
+
+    def _cleanup_dead_processes(self):
+        """Remove dead processes from tracking list to prevent zombie accumulation."""
+        dead_processes = []
+        current_time = time.time()
+        
+        for proc_info in list(self.running_processes):
+            proc = proc_info['process']
+            if proc.poll() is not None:  # Process has terminated
+                dead_processes.append(proc_info)
+            else:
+                # Check for potentially hanging processes (running for more than 2 hours)
+                start_time = proc_info.get('start_time', current_time)
+                runtime = current_time - start_time
+                if runtime > 7200:  # 2 hours
+                    self.log_callback(
+                        f"Long-running process detected: {proc_info['name']} "
+                        f"(PID: {proc.pid}, runtime: {runtime/3600:.1f}h)",
+                        is_error=False
+                    )
+        
+        # Remove dead processes from tracking
+        for proc_info in dead_processes:
+            if proc_info in self.running_processes:
+                self.running_processes.remove(proc_info)
+                # Optionally log cleanup (commented to avoid spam)
+                # self.log_callback(f"Cleaned up terminated process: {proc_info['name']}")
+
+    def get_process_status(self):
+        """Get current status of all tracked processes."""
+        status = {
+            'total': len(self.running_processes),
+            'running': 0,
+            'dead': 0,
+            'processes': []
+        }
+        
+        current_time = time.time()
+        for proc_info in self.running_processes:
+            proc = proc_info['process']
+            is_running = proc.poll() is None
+            start_time = proc_info.get('start_time', current_time)
+            runtime = current_time - start_time
+            
+            process_status = {
+                'name': proc_info['name'],
+                'pid': proc.pid,
+                'running': is_running,
+                'runtime_seconds': runtime,
+                'runtime_display': f"Runtime: {int(runtime//60)}:{int(runtime%60):02d} min" if runtime < 3600 else f"Runtime: {runtime/3600:.1f}h"
+            }
+            
+            status['processes'].append(process_status)
+            if is_running:
+                status['running'] += 1
+            else:
+                status['dead'] += 1
+        
+        return status
+
+    def _stop_process_monitor(self):
+        """Stop the process health monitor."""
+        if self._process_monitor_thread and self._process_monitor_thread.is_alive():
+            self._monitor_stop_event.set()
+            self._process_monitor_thread.join(timeout=2)  # Wait max 2 seconds
 
     def update_search_paths(self, primary_path, backup_path):
         """Updates the primary and backup search paths."""
@@ -203,7 +298,7 @@ class FoxgloveAppLogic:
     def _terminate_process_by_name(self, name):
         """
         Terminates any running process with the given name and its children.
-        Improved error handling and cross-platform compatibility.
+        Improved error handling and cross-platform compatibility with timeout protection.
         """
         for proc_info in list(self.running_processes):
             if proc_info['name'] == name:
@@ -216,7 +311,7 @@ class FoxgloveAppLogic:
                         else:
                             proc.terminate()
                         
-                        # Wait for graceful termination
+                        # Wait for graceful termination with timeout
                         proc.wait(timeout=3)
                         
                     except subprocess.TimeoutExpired:
@@ -226,12 +321,16 @@ class FoxgloveAppLogic:
                                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
                             else:
                                 proc.kill()
-                            proc.wait()
+                            # Add timeout to prevent hanging on wait after kill
+                            proc.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            # Process is completely unresponsive, log and continue
+                            self.log_callback(f"Process {name} (PID: {proc.pid}) is unresponsive to SIGKILL", is_error=True)
                         except (ProcessLookupError, PermissionError, OSError):
-                            # Process might have already died
+                            # Process might have already died or access denied
                             pass
                     except (ProcessLookupError, PermissionError, OSError):
-                        # Process already died between poll() and killpg()
+                        # Process already died between poll() and killpg() or permission denied
                         pass
                         
                 # Remove from tracking list
@@ -246,9 +345,16 @@ class FoxgloveAppLogic:
                     return True
         return False
 
-    def _launch_process(self, command, name, cwd=None, mcap_path=None):
+    def _launch_process(self, command, name, cwd=None, mcap_path=None, startup_timeout=10):
         """
-        Enhanced process launcher with better error handling and performance monitoring.
+        Enhanced process launcher with better error handling, performance monitoring, and timeout controls.
+        
+        Args:
+            command: Command to execute (string or list)
+            name: Process name for tracking
+            cwd: Working directory
+            mcap_path: MCAP file path for tracking
+            startup_timeout: Timeout in seconds for process startup validation
         """
         if name == 'Foxglove Studio (Browser)':
             # Special case: launch in browser instead of as a process
@@ -286,23 +392,52 @@ class FoxgloveAppLogic:
                 stderr=subprocess.PIPE     # Capture errors
             )
             
+            # Validate process startup with timeout
+            try:
+                # Give the process a moment to start and check if it immediately fails
+                time.sleep(0.1)
+                if proc.poll() is not None:
+                    # Process exited immediately, check for errors
+                    try:
+                        stdout, stderr = proc.communicate(timeout=2)
+                        error_msg = stderr.decode('utf-8', errors='ignore').strip() if stderr else "Process exited immediately"
+                        return None, f"Process {name} failed to start: {error_msg}"
+                    except (subprocess.TimeoutExpired, OSError):
+                        # If we can't get the error, just report that it failed
+                        return None, f"Process {name} failed to start: Process exited immediately"
+                        
+            except subprocess.TimeoutExpired:
+                # Process is taking time to start, which is normal for some applications
+                pass
+            except Exception as e:
+                self.log_callback(f"Warning: Could not validate startup for {name}: {e}", is_error=True)
+            
             self.running_processes.append({
                 'name': name, 
                 'process': proc, 
                 'path': mcap_path, 
                 'command': command, 
-                'cwd': cwd
+                'cwd': cwd,
+                'start_time': time.time()  # Add timestamp for monitoring
             })
+            
+            # Log current process status after launching
+            total_running = sum(1 for p in self.running_processes if p['process'].poll() is None)
+            self.log_callback(f"Process tracking: {total_running} running, {len(self.running_processes)} total")
             
             return f"{name} launched (PID: {proc.pid}).", None
             
         except FileNotFoundError:
             cmd_str = command if use_shell else command[0]
             return None, f"Command for '{name}' ('{cmd_str}') not found. Ensure it's installed and in PATH."
+        except PermissionError as e:
+            return None, f"Permission denied launching {name}: {e}"
         except OSError as e:
             # Handle system-level errors (e.g., command too long)
             if "Argument list too long" in str(e):
                 return None, f"Command too long for {name}. Try selecting fewer files."
+            elif "No such file or directory" in str(e):
+                return None, f"Command not found for {name}. Check installation and PATH."
             else:
                 return None, f"System error launching {name}: {e}"
         except Exception as e:
@@ -492,10 +627,14 @@ class FoxgloveAppLogic:
         first_url = 'https://foxglove.data.ventitechnologies.net/?ds=remote-file&ds.url=https://rosbag.data.ventitechnologies.net/'
         url = f"{first_url}{relative_path}"
         
-        # Open in default web browser
+        # Open in default web browser with timeout
         try:
-            subprocess.run(['xdg-open', url], check=True)
+            subprocess.run(['xdg-open', url], check=True, timeout=10)
             return f"Foxglove Studio launched in browser with {os.path.basename(mcap_filepath_absolute)}.", None
+        except subprocess.TimeoutExpired:
+            return None, f"Timeout launching browser for Foxglove Studio"
+        except subprocess.CalledProcessError as e:
+            return None, f"Failed to launch browser: {e}"
         except Exception as e:
             return None, f"Failed to launch Foxglove Studio in browser: {e}"
 
@@ -532,6 +671,9 @@ class FoxgloveAppLogic:
         return message, error, symlink_dir
 
     def terminate_all_processes(self):
+        # Stop the process monitor first
+        self._stop_process_monitor()
+        
         log_messages = []
         if not self.running_processes:
             log_messages.append("No processes were recorded as running by this application.")
@@ -547,9 +689,15 @@ class FoxgloveAppLogic:
                     log_messages.append(f"{name} terminated.")
                 except subprocess.TimeoutExpired:
                     log_messages.append(f"{name} did not terminate gracefully, killing...")
-                    proc.kill()
-                    proc.wait()
-                    log_messages.append(f"{name} killed.")
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=5)  # Add timeout to prevent hanging
+                        log_messages.append(f"{name} killed.")
+                    except subprocess.TimeoutExpired:
+                        log_messages.append(f"{name} kill timed out, process may be unresponsive (PID: {proc.pid})")
+                    except (ProcessLookupError, PermissionError, OSError):
+                        # Process already died or permission denied
+                        log_messages.append(f"{name} process already terminated or inaccessible")
                 except Exception as e:
                     log_messages.append(f"Error terminating {name}: {e}")
             else:
@@ -570,6 +718,11 @@ class FoxgloveAppLogic:
 
         if not log_messages: # Should not happen if logic above is correct
              log_messages.append("Cleanup attempt complete. No active processes found or all terminated.")
+        
+        # Add final process status summary
+        final_status = self.get_process_status()
+        log_messages.append(f"Final process status: {final_status['running']} running, {final_status['total']} total tracked")
+        
         return "\n".join(log_messages)
 
     def list_default_subfolders(self):
@@ -626,11 +779,3 @@ class FoxgloveAppLogic:
         if parent_default:
             return parent_default
         return os.path.expanduser('~/data/default')
-
-# Remove the old ApplicationLogic class if it's no longer needed, or keep it if used elsewhere.
-# For this specific UI, we are focusing on FoxgloveLogic.
-# class ApplicationLogic:
-#     def __init__(self):
-#         # Initialize any necessary variables or states
-#         self.data = None
-# ... (rest of ApplicationLogic)
