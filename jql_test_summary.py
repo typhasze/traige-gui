@@ -152,6 +152,29 @@ def export_to_csv(all_results, start_date, end_date):
     
     return filename
 
+def export_to_text(all_results, start_date, end_date):
+    """Export results to a summary text file in the requested format."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"jira_issue_titles_and_links_{start_date}_{end_date}_{timestamp}.txt"
+    lines = []
+    for query_type, data in all_results.items():
+        for pattern, pattern_data in data['grouped_issues'].items():
+            # Title line: pattern - vehicle stats
+            vehicle_counts = pattern_data['vehicle_count']
+            vehicle_stats = []
+            for v, c in sorted(vehicle_counts.items()):
+                v_num = v.replace('PSA', '') if v.startswith('PSA') else v
+                vehicle_stats.append(f"{v_num} ({c})")
+            title_line = f"{pattern} – {', '.join(vehicle_stats)}\n"
+            lines.append(title_line)
+            # Ticket links
+            for issue in pattern_data['issues']:
+                lines.append(f"{CONFIG['server']}/browse/{issue['key']}\n")
+            lines.append("\n")
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.writelines(lines)
+    return filename
+
 def display_results(grouped_issues, query_type=""):
     """Display results to console."""
     if query_type:
@@ -209,9 +232,10 @@ def main():
     
     # Export and summarize
     if any(r['total_count'] > 0 for r in results.values()):
-        filename = export_to_csv(results, start_date, end_date)
-        print(f"\n✅ Exported: {filename}")
-        
+        csv_filename = export_to_csv(results, start_date, end_date)
+        print(f"\n✅ Exported CSV: {csv_filename}")
+        txt_filename = export_to_text(results, start_date, end_date)
+        print(f"✅ Exported TXT: {txt_filename}")
         total = sum(r['total_count'] for r in results.values())
         print(f"\n📊 Summary:")
         for name, result in results.items():
