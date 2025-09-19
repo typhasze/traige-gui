@@ -1,6 +1,9 @@
 import os
 import tkinter as tk
 from tkinter import ttk, filedialog
+import subprocess
+import glob
+from datetime import datetime
 
 class FileExplorerTab:
     def __init__(self, parent, root, logic, file_explorer_logic, log_message, update_button_states):
@@ -303,11 +306,171 @@ class FileExplorerTab:
                         self.open_file(item_path)
 
     def open_file(self, file_path):
+        # Check if this is an event_log_*.txt file
+        filename = os.path.basename(file_path).lower()
+        if filename.startswith('event_log_') and filename.endswith('.txt'):
+            self.log_message(f"*unique file opened* - Event log file: {os.path.basename(file_path)}")
+            # Open custom event log viewer
+            self.open_event_log_viewer(file_path)
+            return
+        
+        # Default file opening behavior for all other files
         success, msg = self.file_explorer_logic.open_file(file_path)
         if success:
             self.log_message(msg)
         else:
             self.log_message(msg, is_error=True)
+
+    def open_event_log_viewer(self, file_path):
+        """Open a custom viewer for event log files."""
+        try:
+            # Create a new window for the event log viewer
+            viewer_window = tk.Toplevel(self.root)
+            viewer_window.title(f"Event Log Viewer - {os.path.basename(file_path)}")
+            viewer_window.geometry("1000x600")
+            
+            # Create main frame
+            main_frame = ttk.Frame(viewer_window, padding="10")
+            main_frame.pack(fill="both", expand=True)
+            
+            # File info label
+            info_label = ttk.Label(main_frame, text=f"File: {file_path}", font=("Arial", 10, "bold"))
+            info_label.pack(anchor="w", pady=(0, 10))
+            
+            # Create scrollbars and treeview with proper layout
+            tree_container = ttk.Frame(main_frame)
+            tree_container.pack(fill="both", expand=True)
+            
+            # Define columns
+            columns = ("current_time", "timestamp", "txt_manual", "txt_criticality", "ui_mode")
+            
+            # Create treeview
+            tree = ttk.Treeview(tree_container, columns=columns, show="headings", height=20)
+            
+            # Configure column headings and widths
+            tree.heading("current_time", text="Current Time")
+            tree.heading("timestamp", text="Timestamp")
+            tree.heading("txt_manual", text="Event Description")
+            tree.heading("txt_criticality", text="Criticality")
+            tree.heading("ui_mode", text="UI Mode")
+            
+            # Set column widths
+            tree.column("current_time", width=180, minwidth=150)
+            tree.column("timestamp", width=120, minwidth=100)
+            tree.column("txt_manual", width=300, minwidth=200)
+            tree.column("txt_criticality", width=150, minwidth=100)
+            tree.column("ui_mode", width=100, minwidth=80)
+            
+            # Create scrollbars
+            v_scrollbar = ttk.Scrollbar(tree_container, orient="vertical", command=tree.yview)
+            h_scrollbar = ttk.Scrollbar(tree_container, orient="horizontal", command=tree.xview)
+            tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+            
+            # Pack treeview and vertical scrollbar
+            tree.pack(side="left", fill="both", expand=True)
+            v_scrollbar.pack(side="right", fill="y")
+            
+            # Pack horizontal scrollbar at bottom of same container
+            h_scrollbar.pack(side="bottom", fill="x", before=tree)
+            
+            # Parse and load the event log data
+            self.load_event_log_data(tree, file_path)
+            
+            # Add selection handler
+            def on_row_select(event):
+                selected_items = tree.selection()
+                if selected_items:
+                    item = selected_items[0]
+                    values = tree.item(item)['values']
+                    if values and len(values) >= 1:
+                        current_time = values[0]  # current_time is in column 0
+                        self.log_message(f"Selected event: {values[0]} - {values[2] if len(values) > 2 else ''}")
+                        
+                        # Add double-click or button to play video
+                        def play_video():
+                            try:
+                                self.play_video_at_timestamp(file_path, current_time)
+                            except Exception as e:
+                                self.log_message(f"Error playing video: {e}", is_error=True)
+                        
+                        # Store the play_video function for potential button use
+                        tree.play_video_func = play_video
+            
+            # Add double-click handler for video playback
+            def on_double_click(event):
+                if hasattr(tree, 'play_video_func'):
+                    tree.play_video_func()
+            
+            # Add buttons frame
+            button_frame = ttk.Frame(main_frame)
+            button_frame.pack(fill="x", pady=(10, 0))
+            
+            # Play Video button
+            play_video_button = ttk.Button(button_frame, text="Play Video at Selected Time", 
+                                         command=lambda: getattr(tree, 'play_video_func', lambda: None)(),
+                                         state="disabled")
+            play_video_button.pack(side="left", padx=(0, 10))
+            
+            # Update play button state based on selection
+            def update_play_button(*args):
+                selected_items = tree.selection()
+                if selected_items and hasattr(tree, 'play_video_func'):
+                    play_video_button.config(state="normal")
+                else:
+                    play_video_button.config(state="disabled")
+            
+            tree.bind("<<TreeviewSelect>>", lambda e: (on_row_select(e), update_play_button()))
+            tree.bind("<Double-1>", on_double_click)
+            
+            close_button = ttk.Button(button_frame, text="Close", command=viewer_window.destroy)
+            close_button.pack(side="right")
+            
+            # Status label showing number of events
+            status_label = ttk.Label(button_frame, text="")
+            status_label.pack(side="left")
+            
+            # Update status with row count
+            def update_status():
+                row_count = len(tree.get_children())
+                status_label.config(text=f"Total events: {row_count}")
+            
+            viewer_window.after(100, update_status)  # Update after data is loaded
+            
+        except Exception as e:
+            self.log_message(f"Error opening event log viewer: {e}", is_error=True)
+
+    def load_event_log_data(self, tree, file_path):
+        """Parse and load event log data into the treeview."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as file:
+                lines = file.readlines()
+            
+            # Skip the header line if it exists
+            data_lines = []
+            for line in lines:
+                line = line.strip()
+                if line and not line.startswith('current_time'):  # Skip header
+                    data_lines.append(line)
+            
+            # Parse each data line
+            for line_num, line in enumerate(data_lines, 1):
+                try:
+                    # Split by tab character
+                    parts = line.split('\t')
+                    if len(parts) >= 5:
+                        # Clean up the parts (remove extra whitespace)
+                        parts = [part.strip() for part in parts]
+                        
+                        # Insert into treeview
+                        tree.insert("", "end", values=parts[:5])
+                    else:
+                        self.log_message(f"Skipping malformed line {line_num}: {line}", is_error=True)
+                        
+                except Exception as e:
+                    self.log_message(f"Error parsing line {line_num}: {e}", is_error=True)
+                    
+        except Exception as e:
+            self.log_message(f"Error reading event log file: {e}", is_error=True)
 
     def on_explorer_select(self, event=None, suppress_log=False):
         selection = self.explorer_listbox.curselection()
@@ -442,3 +605,136 @@ class FileExplorerTab:
                     # Set focus to listbox for arrow key navigation
                     self.explorer_listbox.focus_set()
                     break
+
+    def play_video_at_timestamp(self, event_log_path, timestamp_str):
+        """Play video at the specified timestamp using mpv."""
+        try:
+            # Parse the timestamp from the event log
+            event_time = self.parse_timestamp(timestamp_str)
+            if not event_time:
+                self.log_message(f"Could not parse timestamp: {timestamp_str}", is_error=True)
+                return
+            
+            # Find the corresponding video file and calculate offset
+            video_file, start_offset = self.find_video_for_timestamp(event_log_path, event_time)
+            if not video_file:
+                self.log_message("No matching video file found", is_error=True)
+                return
+            
+            # Launch mpv with the calculated start time
+            cmd = ["mpv", f"--start={start_offset}", video_file]
+            self.log_message(f"Playing video: {os.path.basename(video_file)} at {start_offset}s")
+            
+            # Run mpv in background
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+        except Exception as e:
+            self.log_message(f"Error playing video: {e}", is_error=True)
+
+    def parse_timestamp(self, timestamp_str):
+        """Parse timestamp string to datetime object."""
+        try:
+            # Convert to string if it's not already
+            if not isinstance(timestamp_str, str):
+                timestamp_str = str(timestamp_str)
+            
+            # Clean the timestamp string
+            timestamp_str = timestamp_str.strip()
+            
+            # Handle the specific format: "2025-09-19 10:50:50 430"
+            # where the last part is milliseconds
+            if len(timestamp_str.split()) == 3:
+                parts = timestamp_str.split()
+                if len(parts) == 3:
+                    date_part = parts[0]  # 2025-09-19
+                    time_part = parts[1]  # 10:50:50
+                    # Ignore milliseconds part for now
+                    timestamp_str = f"{date_part} {time_part}"
+            
+            # Common timestamp formats in event logs
+            timestamp_formats = [
+                "%Y-%m-%d %H:%M:%S",       # 2025-09-19 10:50:50
+                "%Y%m%d_%H%M%S",           # 20250919_093523
+                "%Y-%m-%d_%H-%M-%S",       # 2025-09-19_09-35-23
+                "%Y%m%d%H%M%S",            # 20250919093523
+                "%H:%M:%S",                # 09:35:23 (time only)
+                "%Y-%m-%d %H:%M:%S.%f",    # 2025-09-19 09:35:23.123456
+                "%Y%m%d%H%M%S%f",          # 20250919093523123456 (with microseconds)
+            ]
+            
+            # Try each format
+            for fmt in timestamp_formats:
+                try:
+                    if fmt == "%H:%M:%S":
+                        # For time-only format, assume today's date
+                        from datetime import date
+                        time_part = datetime.strptime(timestamp_str, fmt).time()
+                        return datetime.combine(date.today(), time_part)
+                    else:
+                        return datetime.strptime(timestamp_str, fmt)
+                except ValueError:
+                    continue
+            
+            # If no format matches, log the actual timestamp format for debugging
+            self.log_message(f"Unknown timestamp format: '{timestamp_str}' (length: {len(timestamp_str)})", is_error=True)
+            return None
+            
+        except Exception as e:
+            self.log_message(f"Error parsing timestamp '{timestamp_str}': {e}", is_error=True)
+            return None
+
+    def find_video_for_timestamp(self, event_log_path, event_time):
+        """Find the video file that contains the specified timestamp and calculate offset."""
+        try:
+            # Extract date from event log path
+            # Example: ~/data/20250919/TG-7737/PSA8600/logs -> ~/data/20250919/TG-7737/PSA8600/video
+            log_dir = os.path.dirname(event_log_path)
+            base_dir = os.path.dirname(log_dir)  # Remove 'logs' part
+            video_dir = os.path.join(base_dir, "video")
+            
+            if not os.path.exists(video_dir):
+                self.log_message(f"Video directory not found: {video_dir}", is_error=True)
+                return None, 0
+            
+            # Find all video files in the directory
+            video_pattern = os.path.join(video_dir, "*.mp4")
+            video_files = glob.glob(video_pattern)
+            
+            if not video_files:
+                self.log_message(f"No video files found in: {video_dir}", is_error=True)
+                return None, 0
+            
+            # Parse video filenames to find the one that contains our timestamp
+            # Video format: 2025-09-19_09-35-23.mp4 (start time of recording)
+            best_video = None
+            best_start_time = None
+            
+            for video_file in video_files:
+                filename = os.path.basename(video_file)
+                # Extract timestamp from filename (remove .mp4 extension)
+                timestamp_part = filename.replace('.mp4', '')
+                
+                # Parse video start time
+                video_start_time = self.parse_timestamp(timestamp_part)
+                if video_start_time:
+                    # Check if event time is after this video's start time
+                    if event_time >= video_start_time:
+                        # This could be the right video, but check if there's a later one
+                        if best_start_time is None or video_start_time > best_start_time:
+                            best_video = video_file
+                            best_start_time = video_start_time
+            
+            if best_video and best_start_time:
+                # Calculate offset in seconds
+                time_diff = event_time - best_start_time
+                offset_seconds = int(time_diff.total_seconds())
+                
+                self.log_message(f"Found video: {os.path.basename(best_video)}, offset: {offset_seconds}s")
+                return best_video, offset_seconds
+            else:
+                self.log_message("No suitable video file found for the timestamp", is_error=True)
+                return None, 0
+                
+        except Exception as e:
+            self.log_message(f"Error finding video for timestamp: {e}", is_error=True)
+            return None, 0
