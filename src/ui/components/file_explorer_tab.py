@@ -429,6 +429,24 @@ class FileExplorerTab:
                                          state="disabled")
             play_bazel_button.pack(side="left", padx=(0, 10))
             
+            # Show MCAP in Explorer button
+            def show_mcap_in_explorer():
+                selected_items = tree.selection()
+                if selected_items:
+                    item = selected_items[0]
+                    values = tree.item(item)['values']
+                    if values and len(values) >= 1:
+                        current_time = values[0]
+                        try:
+                            self.navigate_to_mcap_from_timestamp(file_path, current_time)
+                        except Exception as e:
+                            self.log_message(f"Error navigating to MCAP: {e}", is_error=True)
+            
+            show_mcap_button = ttk.Button(button_frame, text="Show MCAP in Explorer", 
+                                         command=show_mcap_in_explorer,
+                                         state="disabled")
+            show_mcap_button.pack(side="left", padx=(0, 10))
+            
             # Update play button state based on selection
             def update_play_button(*args):
                 selected_items = tree.selection()
@@ -436,9 +454,11 @@ class FileExplorerTab:
                     if hasattr(tree, 'play_video_func'):
                         play_video_button.config(state="normal")
                     play_bazel_button.config(state="normal")
+                    show_mcap_button.config(state="normal")
                 else:
                     play_video_button.config(state="disabled")
                     play_bazel_button.config(state="disabled")
+                    show_mcap_button.config(state="disabled")
             
             tree.bind("<<TreeviewSelect>>", lambda e: (on_row_select(e), update_play_button()))
             tree.bind("<Double-1>", on_double_click)
@@ -874,3 +894,58 @@ class FileExplorerTab:
                 
         except Exception as e:
             self.log_message(f"Error playing bazel at timestamp: {e}", is_error=True)
+
+    def navigate_to_mcap_from_timestamp(self, event_log_path, timestamp_str):
+        """Navigate to the MCAP file in the file explorer based on the timestamp."""
+        try:
+            # Parse the timestamp from the event log
+            event_time = self.parse_timestamp(timestamp_str)
+            if not event_time:
+                self.log_message(f"Could not parse timestamp: {timestamp_str}", is_error=True)
+                return
+            
+            # Find the corresponding MCAP file
+            mcap_file, start_offset = self.find_mcap_for_timestamp(event_log_path, event_time)
+            if not mcap_file:
+                self.log_message("No matching MCAP file found", is_error=True)
+                return
+            
+            # Navigate to the directory containing the MCAP file
+            mcap_dir = os.path.dirname(mcap_file)
+            mcap_filename = os.path.basename(mcap_file)
+            
+            # Update the current explorer path
+            self.current_explorer_path = mcap_dir
+            self.explorer_path_var.set(mcap_dir)
+            
+            # Add to history
+            self._add_to_history(mcap_dir)
+            
+            # Refresh the explorer
+            self.refresh_explorer()
+            
+            # Select and highlight the MCAP file in the listbox
+            self.explorer_listbox.after(100, lambda: self._select_file_in_listbox(mcap_filename))
+            self.explorer_listbox.after(150, lambda: self.highlight_file_in_explorer(mcap_filename))
+            
+            self.log_message(f"Navigated to MCAP: {mcap_filename} (offset: ~{start_offset:.1f}s)")
+            
+        except Exception as e:
+            self.log_message(f"Error navigating to MCAP: {e}", is_error=True)
+
+    def _select_file_in_listbox(self, filename):
+        """Helper method to select a specific file in the listbox."""
+        try:
+            # Search for the file in the listbox
+            for i in range(self.explorer_listbox.size()):
+                item = self.explorer_listbox.get(i)
+                if item == filename:
+                    self.explorer_listbox.selection_clear(0, tk.END)
+                    self.explorer_listbox.selection_set(i)
+                    self.explorer_listbox.see(i)
+                    self.explorer_listbox.activate(i)
+                    # Trigger selection event to update button states
+                    self.on_explorer_select(None)
+                    break
+        except Exception as e:
+            self.log_message(f"Error selecting file in listbox: {e}", is_error=True)
