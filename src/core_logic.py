@@ -645,11 +645,20 @@ class FoxgloveAppLogic:
             return None, f"Bazel working directory not found: {self.bazel_working_dir}"
         return self._launch_process(settings.get('bazel_tools_viz_cmd'), 'Bazel Tools Viz', cwd=self.bazel_working_dir)
 
-    def launch_bazel_bag_gui(self, mcap_path, settings):
+    def launch_bazel_bag_gui(self, mcap_path, settings, start_time=None):
         self.bazel_working_dir = self.get_bazel_working_dir(settings)
         base_command = settings.get('bazel_bag_gui_cmd')
         rate = settings.get('bazel_bag_gui_rate', 1.0)
-        command = f"{base_command} -- --rate={rate} {mcap_path}"
+        command = f"{base_command} -- --rate={rate}"
+        
+        # Add start time if provided (note: bazel bag gui may not support this parameter)
+        # The start_time is calculated but may need manual seeking in the GUI
+        if start_time is not None:
+            # Most rosbag players don't support command-line start time
+            # We'll just launch normally and inform the user
+            pass
+        
+        command += f" {mcap_path}"
         return self._launch_process(command, 'Bazel Bag GUI', cwd=self.bazel_working_dir, mcap_path=mcap_path)
 
     def play_bazel_bag_gui_with_symlinks(self, mcap_filepaths, settings):
