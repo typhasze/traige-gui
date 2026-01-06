@@ -6,6 +6,10 @@ A comprehensive Python GUI application for managing, viewing, and analyzing auto
 
 ### 📁 File Explorer Tab
 - **Navigate directories**: Browse through data folders with intuitive file explorer
+- **Quick access shortcuts**: 
+  - Home button: Navigate to configured data directory
+  - LOGGING button: Navigate to external LOGGING drive
+  - Back button: Return to previous directory
 - **MCAP file management**: Select single or multiple MCAP files for playback
 - **Link analysis**: Paste Foxglove or file links to automatically navigate to files
 - **File highlighting**: Visual highlighting of analyzed files in the explorer
@@ -36,7 +40,7 @@ A comprehensive Python GUI application for managing, viewing, and analyzing auto
 ### 🎛️ Settings Tab
 - **Bazel configuration**: Configure Bazel commands and working directory
 - **Playback rate**: Adjust Bazel bag GUI playback speed
-- **Directory paths**: Set data and backup directory locations
+- **Directory paths**: Set data, backup, and LOGGING directory locations
 - **Foxglove options**: Choose between desktop or browser mode
 - **File limits**: Configure maximum files for batch operations
 - **Persistent settings**: Settings saved as JSON configuration
@@ -146,18 +150,41 @@ python src/main.py
 2. Configure:
    - Bazel commands and working directory
    - Data directory paths
+   - LOGGING directory (external drive path, default: `/media/{username}/LOGGING`)
    - Foxglove browser/desktop preference
    - Playback rates and file limits
 3. Click "Save Settings" to persist changes
 
 ## Keyboard Shortcuts
 
+### General
+- **Escape**: Clear text selections
+- **Ctrl+Q**: Quit application
+- **F1**: Show keyboard shortcuts help
+- **F5**: Refresh current tab
+- **Ctrl+P**: Show process status
+
+### File Operations
+- **Ctrl+O**: Open selected file
+- **Ctrl+F**: Open with Foxglove
+- **Ctrl+B**: Open with Bazel
+- **Ctrl+C**: Copy file path
+- **Ctrl+M**: Open in file manager
 - **Ctrl+A**: Select all text in entry fields
-- **Enter**: Navigate into selected folder (File Explorer)
+
+### Navigation
+- **Ctrl+L**: Navigate to LOGGING directory
+- **Enter**: Navigate into selected folder / Open file
 - **Double-Click**: Open file or navigate into folder
 - **Backspace**: Navigate to parent directory (File Explorer)
-- **Escape**: Clear text selections
 - **Arrow Keys**: Navigate file lists with keyboard
+
+### Event Log Viewer
+- **V**: Play video at selected time
+- **B**: Play Bazel at selected time
+- **S**: Show MCAP in Explorer
+- **Ctrl+F** or **/**: Focus search field
+- **Escape**: Clear search filter
 
 ## Performance Optimizations
 
@@ -169,9 +196,10 @@ python src/main.py
 
 ## Configuration
 
-Settings are stored in `~/.foxglove_app_settings.json` and include:
+Settings are stored in `~/.foxglove_gui_settings.json` and include:
 - Bazel tool commands and working directory
 - Data and backup directory paths
+- LOGGING directory path (for external drive access)
 - Foxglove browser/desktop preference
 - Playback rate and file limits
 

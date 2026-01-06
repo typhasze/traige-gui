@@ -17,6 +17,10 @@ class FileExplorerTab:
         # State
         self._data_root = os.path.expanduser('~/data')
         self._abs_data_root = os.path.abspath(self._data_root)
+        
+        # Logging directory will be set from settings
+        self._logging_root = None
+        
         self.current_explorer_path = self._data_root
         self.explorer_history = []
         self._history_set = set()
@@ -46,6 +50,7 @@ class FileExplorerTab:
 
         # Navigation buttons
         self.go_home_button = self._create_button(path_frame, "Home", self.go_home_directory, side=tk.LEFT)
+        self.go_logging_button = self._create_button(path_frame, "LOGGING", self.go_logging_directory, side=tk.LEFT)
         self.go_back_button = self._create_button(path_frame, "Back", self.go_back, side=tk.LEFT)
 
         # Analyze Link frame
@@ -99,6 +104,10 @@ class FileExplorerTab:
         self.explorer_listbox.bind("<Return>", self.on_explorer_enter_key)
         self.explorer_listbox.bind("<BackSpace>", self.on_explorer_backspace_key)
         self.explorer_listbox.bind("<Key>", self.on_listbox_keypress)
+        
+        # Keyboard shortcut for LOGGING directory (Ctrl+L)
+        self.frame.bind_all("<Control-l>", lambda e: self.go_logging_directory())
+        self.frame.bind_all("<Control-L>", lambda e: self.go_logging_directory())
 
     def on_listbox_keypress(self, event):
         """Focus search bar on key press in the listbox."""
@@ -252,6 +261,34 @@ class FileExplorerTab:
         self.current_explorer_path = self._data_root
         self.refresh_explorer()
 
+    def update_logging_root(self, new_logging_root, silent=False):
+        """Update the logging root directory path."""
+        self._logging_root = new_logging_root
+        if not silent:
+            self.log_message(f"LOGGING directory updated to: {self._logging_root}")
+
+    def go_logging_directory(self):
+        """Navigate to the LOGGING directory."""
+        # Check if the LOGGING directory is configured
+        if not self._logging_root:
+            self.log_message("LOGGING directory not configured. Please check Settings.", is_error=True)
+            return
+            
+        # Check if the LOGGING directory exists
+        if not os.path.exists(self._logging_root):
+            self.log_message(f"LOGGING directory not found: {self._logging_root}", is_error=True)
+            self.log_message("Please ensure the LOGGING drive is mounted.", is_error=False)
+            return
+        
+        # Add current path to history if different
+        if self.current_explorer_path != self._logging_root:
+            self._add_to_history(self.current_explorer_path)
+        
+        # Navigate to LOGGING directory
+        self.current_explorer_path = self._logging_root
+        self.refresh_explorer()
+        self.log_message(f"Navigated to LOGGING directory: {self._logging_root}")
+
     def browse_directory(self):
         selected_dir = filedialog.askdirectory(initialdir=self.current_explorer_path)
         if selected_dir:
@@ -337,6 +374,21 @@ class FileExplorerTab:
             info_label = ttk.Label(main_frame, text=f"File: {file_path}", font=("Arial", 10, "bold"))
             info_label.pack(anchor="w", pady=(0, 10))
             
+            # Search/Filter frame
+            search_frame = ttk.Frame(main_frame)
+            search_frame.pack(fill="x", pady=(0, 10))
+            
+            search_label = ttk.Label(search_frame, text="Search/Filter:")
+            search_label.pack(side="left", padx=(0, 5))
+            
+            search_var = tk.StringVar()
+            search_entry = ttk.Entry(search_frame, textvariable=search_var, width=40)
+            search_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+            
+            # Filter result label
+            filter_result_label = ttk.Label(search_frame, text="")
+            filter_result_label.pack(side="left", padx=(10, 0))
+            
             # Create scrollbars and treeview with proper layout
             tree_container = ttk.Frame(main_frame)
             tree_container.pack(fill="both", expand=True)
@@ -373,8 +425,11 @@ class FileExplorerTab:
             # Pack horizontal scrollbar at bottom of same container
             h_scrollbar.pack(side="bottom", fill="x", before=tree)
             
+            # Store for all event data (for filtering)
+            all_events = []
+            
             # Parse and load the event log data
-            self.load_event_log_data(tree, file_path)
+            all_events = self.load_event_log_data(tree, file_path)
             
             # Add selection handler
             def on_row_select(event):
@@ -470,6 +525,48 @@ class FileExplorerTab:
             status_label = ttk.Label(button_frame, text="")
             status_label.pack(side="left")
             
+            # Filter function
+            def filter_events(*args):
+                search_text = search_var.get().lower().strip()
+                
+                # Clear current tree
+                for item in tree.get_children():
+                    tree.delete(item)
+                
+                # If no search text, show all events
+                if not search_text:
+                    for event in all_events:
+                        tree.insert("", "end", values=event)
+                    filter_result_label.config(text="")
+                    update_status()
+                    return
+                
+                # Filter events - search across all columns
+                filtered_count = 0
+                for event in all_events:
+                    # Check if search text appears in any column
+                    event_text = " ".join(str(col) for col in event).lower()
+                    if search_text in event_text:
+                        tree.insert("", "end", values=event)
+                        filtered_count += 1
+                
+                # Update filter result label
+                if filtered_count == 0:
+                    filter_result_label.config(text="No matches found", foreground="red")
+                else:
+                    total = len(all_events)
+                    filter_result_label.config(text=f"Showing {filtered_count} of {total}", foreground="blue")
+                
+                update_status()
+            
+            # Bind search to text changes
+            search_var.trace_add("write", filter_events)
+            
+            # Add clear search button
+            clear_search_button = ttk.Button(search_frame, text="Clear", 
+                                            command=lambda: search_var.set(""))
+            clear_search_button.pack(side="left", padx=(5, 0))
+            
             # Update status with row count
             def update_status():
                 row_count = len(tree.get_children())
@@ -477,11 +574,37 @@ class FileExplorerTab:
             
             viewer_window.after(100, update_status)  # Update after data is loaded
             
+            # Keyboard shortcuts for event log viewer
+            def on_key_v(event):
+                if hasattr(tree, 'play_video_func'):
+                    tree.play_video_func()
+            
+            def on_key_b(event):
+                play_bazel()
+            
+            def on_key_s(event):
+                show_mcap_in_explorer()
+            
+            def on_key_f(event):
+                search_entry.focus_set()
+            
+            # Bind keyboard shortcuts
+            viewer_window.bind('<v>', on_key_v)
+            viewer_window.bind('<V>', on_key_v)
+            viewer_window.bind('<b>', on_key_b)
+            viewer_window.bind('<B>', on_key_b)
+            viewer_window.bind('<s>', on_key_s)
+            viewer_window.bind('<S>', on_key_s)
+            viewer_window.bind('<Control-f>', on_key_f)
+            viewer_window.bind('<Control-F>', on_key_f)
+            viewer_window.bind('/', on_key_f)  # Vim-style search
+            
         except Exception as e:
             self.log_message(f"Error opening event log viewer: {e}", is_error=True)
 
     def load_event_log_data(self, tree, file_path):
-        """Parse and load event log data into the treeview."""
+        """Parse and load event log data into the treeview. Returns list of all events."""
+        all_events = []
         try:
             with open(file_path, 'r', encoding='utf-8') as file:
                 lines = file.readlines()
@@ -502,6 +625,9 @@ class FileExplorerTab:
                         # Clean up the parts (remove extra whitespace)
                         parts = [part.strip() for part in parts]
                         
+                        # Store event data
+                        all_events.append(parts[:5])
+                        
                         # Insert into treeview
                         tree.insert("", "end", values=parts[:5])
                     else:
@@ -512,6 +638,8 @@ class FileExplorerTab:
                     
         except Exception as e:
             self.log_message(f"Error reading event log file: {e}", is_error=True)
+        
+        return all_events
 
     def on_explorer_select(self, event=None, suppress_log=False):
         selection = self.explorer_listbox.curselection()
@@ -527,6 +655,20 @@ class FileExplorerTab:
             
             is_multiple = len(selection) > 1
             states = self.file_explorer_logic.get_file_action_states(selected_paths, is_multiple)
+        
+        # Update selection info
+        selection_count = len(selection)
+        if selection_count == 0:
+            selection_info = "No selection"
+        elif selection_count == 1:
+            item_name = self.explorer_files_list[selection[0]] if selection[0] < len(self.explorer_files_list) else "unknown"
+            selection_info = f"Selected: {item_name}"
+        else:
+            mcap_count = len([p for p in selected_paths if p.endswith('.mcap')])
+            if mcap_count > 0:
+                selection_info = f"{selection_count} items ({mcap_count} MCAP)"
+            else:
+                selection_info = f"{selection_count} items selected"
         
         if not suppress_log:
             mcap_files = self.get_selected_explorer_mcap_paths()

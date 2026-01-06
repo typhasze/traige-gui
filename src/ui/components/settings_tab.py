@@ -42,6 +42,13 @@ class SettingsTab:
             'width': 60
         },
         {
+            'label': 'LOGGING Directory:',
+            'key': 'logging_dir',
+            'type': 'str',
+            'widget': 'entry',
+            'width': 60
+        },
+        {
             'label': 'Max MCAP Files for Foxglove:',
             'key': 'max_foxglove_files',
             'type': 'int',
@@ -72,6 +79,7 @@ class SettingsTab:
         self.settings_path = os.path.expanduser('~/.foxglove_gui_settings.json')
         self.settings = self.load_settings()
         self.on_nas_dir_changed: Optional[Callable[[str], None]] = None
+        self.on_logging_dir_changed: Optional[Callable[[str], None]] = None
         self.create_widgets()
         # Initialize logic with settings after loading them
         self.logic.update_search_paths(self.settings.get('nas_dir'), self.settings.get('backup_nas_dir'))
@@ -81,12 +89,15 @@ class SettingsTab:
         Loads settings from a JSON file, or returns defaults if not found.
         Improved error handling and structure validation.
         """
+        import getpass
+        username = getpass.getuser()
         default_settings = {
             'bazel_tools_viz_cmd': 'bazel run //tools/viz',
             'bazel_bag_gui_cmd': 'bazel run //tools/bag:gui',
             'bazel_working_dir': os.path.expanduser('~/av-system/catkin_ws/src'),
             'nas_dir': os.path.expanduser('~/data'),
             'backup_nas_dir': os.path.expanduser('~/data/psa_logs_backup_nas3'),
+            'logging_dir': f'/media/{username}/LOGGING',
             'max_foxglove_files': 50,  # Reasonable default limit for performance
             'bazel_bag_gui_rate': 1.0,  # Default playback rate for Bazel Bag GUI
             'open_foxglove_in_browser': True,
@@ -149,12 +160,15 @@ class SettingsTab:
 
     def reset_settings(self):
         """Resets settings to their default values and saves them."""
+        import getpass
+        username = getpass.getuser()
         default_settings = {
             'bazel_tools_viz_cmd': 'bazel run //tools/viz',
             'bazel_bag_gui_cmd': 'bazel run //tools/bag:gui',
             'bazel_working_dir': os.path.expanduser('~/av-system/catkin_ws/src'),
             'nas_dir': os.path.expanduser('~/data'),
             'backup_nas_dir': os.path.expanduser('~/data/psa_logs_backup_nas3'),
+            'logging_dir': f'/media/{username}/LOGGING',
             'max_foxglove_files': 50,  # Reasonable default limit for performance
             'bazel_bag_gui_rate': 1.0,  # Default playback rate for Bazel Bag GUI
             'open_foxglove_in_browser': True,
@@ -204,6 +218,7 @@ class SettingsTab:
 
     def save_settings_button(self):
         old_nas_dir = self.settings.get('nas_dir')
+        old_logging_dir = self.settings.get('logging_dir')
         
         new_settings = {}
         for config in self.settings_config:
@@ -231,13 +246,19 @@ class SettingsTab:
         # Save the new settings
         self.save_settings(new_settings)
         
-        # Now that self.settings is updated, get the new_nas_dir
+        # Now that self.settings is updated, get the new values
         new_nas_dir = self.settings.get('nas_dir')
+        new_logging_dir = self.settings.get('logging_dir')
 
         # Check if the nas_dir has changed and trigger the callback
         if self.on_nas_dir_changed and new_nas_dir != old_nas_dir:
             if isinstance(new_nas_dir, str) and new_nas_dir:
                 self.on_nas_dir_changed(new_nas_dir)
+        
+        # Check if the logging_dir has changed and trigger the callback
+        if self.on_logging_dir_changed and new_logging_dir != old_logging_dir:
+            if isinstance(new_logging_dir, str) and new_logging_dir:
+                self.on_logging_dir_changed(new_logging_dir)
                 
         self.log_message("Settings saved successfully.")
 
