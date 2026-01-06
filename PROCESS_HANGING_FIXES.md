@@ -62,7 +62,7 @@ except subprocess.TimeoutExpired:
 ```python
 def _launch_process(self, command, name, cwd=None, mcap_path=None, startup_timeout=10):
     # ... process launch code ...
-    
+
     # Validate process startup with timeout
     time.sleep(0.1)
     if proc.poll() is not None:
@@ -78,7 +78,7 @@ def _launch_process(self, command, name, cwd=None, mcap_path=None, startup_timeo
 # Before
 subprocess.run(["xdg-open", file_path], check=True)
 
-# After  
+# After
 subprocess.run(["xdg-open", file_path], check=True, timeout=10)
 ```
 
@@ -117,11 +117,11 @@ subprocess.run(['xdg-open', url], check=True, timeout=10)
 ## Testing Verification
 
 The `test_process_management.py` script verifies:
-✅ Process launch with timeout validation  
-✅ Process status monitoring functionality  
-✅ Termination completes within acceptable time (< 15 seconds)  
-✅ File operations don't hang  
-✅ Invalid commands are handled gracefully  
+✅ Process launch with timeout validation
+✅ Process status monitoring functionality
+✅ Termination completes within acceptable time (< 15 seconds)
+✅ File operations don't hang
+✅ Invalid commands are handled gracefully
 
 ## Usage Impact
 

@@ -6,7 +6,7 @@ A comprehensive Python GUI application for managing, viewing, and analyzing auto
 
 ### 📁 File Explorer Tab
 - **Navigate directories**: Browse through data folders with intuitive file explorer
-- **Quick access shortcuts**: 
+- **Quick access shortcuts**:
   - Home button: Navigate to configured data directory
   - LOGGING button: Navigate to external LOGGING drive
   - Back button: Return to previous directory

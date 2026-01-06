@@ -1,15 +1,17 @@
-import tkinter as tk
-from tkinter import ttk, filedialog
+import json
 import os
+import shutil
 import signal
 import sys
-import shutil
-import json
+import tkinter as tk
+from tkinter import ttk
+
 from .core_logic import FoxgloveAppLogic
 from .logic.file_explorer_logic import FileExplorerLogic
 from .ui.components.file_explorer_tab import FileExplorerTab
 from .ui.components.foxglove_tab import FoxgloveTab
 from .ui.components.settings_tab import SettingsTab
+
 
 class FoxgloveAppGUIManager:
     def __init__(self, root):
@@ -33,21 +35,35 @@ class FoxgloveAppGUIManager:
         self.create_shared_action_buttons(main_frame)
 
         # Now, create the tabs that might use the buttons during initialization
-        self.file_explorer_tab = FileExplorerTab(self.main_notebook, self.root, self.logic, self.file_explorer_logic, self.log_message, self._update_button_states)
-        self.foxglove_tab = FoxgloveTab(self.main_notebook, self.root, self.logic, self.log_message, self.disable_file_specific_action_buttons, self.enable_file_specific_action_buttons)
+        self.file_explorer_tab = FileExplorerTab(
+            self.main_notebook,
+            self.root,
+            self.logic,
+            self.file_explorer_logic,
+            self.log_message,
+            self._update_button_states,
+        )
+        self.foxglove_tab = FoxgloveTab(
+            self.main_notebook,
+            self.root,
+            self.logic,
+            self.log_message,
+            self.disable_file_specific_action_buttons,
+            self.enable_file_specific_action_buttons,
+        )
 
         # Link NAS directory to file explorer path at start if not set
         # Create a temporary settings object to check and set nas_dir before creating SettingsTab
-        temp_settings_path = os.path.expanduser('~/.foxglove_gui_settings.json')
+        temp_settings_path = os.path.expanduser("~/.foxglove_gui_settings.json")
         if os.path.exists(temp_settings_path):
-            with open(temp_settings_path, 'r') as f:
+            with open(temp_settings_path, "r") as f:
                 temp_settings = json.load(f)
         else:
             temp_settings = {}
-        if not temp_settings.get('nas_dir'):
+        if not temp_settings.get("nas_dir"):
             initial_path = self.file_explorer_tab.current_explorer_path
-            temp_settings['nas_dir'] = initial_path
-            with open(temp_settings_path, 'w') as f:
+            temp_settings["nas_dir"] = initial_path
+            with open(temp_settings_path, "w") as f:
                 json.dump(temp_settings, f, indent=4)
 
         self.settings_tab = SettingsTab(self.main_notebook, self.logic, self.log_message)
@@ -59,28 +75,30 @@ class FoxgloveAppGUIManager:
         # Register callback for NAS directory changes
         def nas_dir_callback(new_nas_dir):
             self.update_file_explorer_nas_dir(new_nas_dir)
+
         self.settings_tab.on_nas_dir_changed = nas_dir_callback
-        
+
         # Register callback for LOGGING directory changes
         def logging_dir_callback(new_logging_dir):
             self.update_file_explorer_logging_dir(new_logging_dir)
+
         self.settings_tab.on_logging_dir_changed = logging_dir_callback
-        
+
         # Initialize logging directory from settings (silent to avoid logging before log widget exists)
-        logging_dir = self.settings_tab.get_setting('logging_dir')
+        logging_dir = self.settings_tab.get_setting("logging_dir")
         if logging_dir:
             self.file_explorer_tab.update_logging_root(logging_dir, silent=True)
 
         # --- Shared Components ---
         self.create_shared_log_frame(main_frame)
         self.create_status_bar()
-        
+
         # --- Initial State ---
         self._cache_tab_indices()
-        self.on_tab_changed() # Set initial button states
+        self.on_tab_changed()  # Set initial button states
         self.setup_signal_handlers()
         self.setup_keyboard_shortcuts()
-        
+
         # Bind tab change event
         self.main_notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
 
@@ -95,11 +113,17 @@ class FoxgloveAppGUIManager:
         # --- Button Definitions ---
         self.open_file_button = self._create_button(button_frame, "Open File", self.open_selected_file)
         self.copy_path_button = self._create_button(button_frame, "Copy Path", self.copy_selected_path)
-        self.open_in_manager_button = self._create_button(button_frame, "Open in File Manager", self.open_in_file_manager)
+        self.open_in_manager_button = self._create_button(
+            button_frame, "Open in File Manager", self.open_in_file_manager
+        )
         self.open_foxglove_button = self._create_button(button_frame, "Open with Foxglove", self.open_with_foxglove)
         self.open_bazel_button = self._create_button(button_frame, "Open with Bazel GUI", self.open_with_bazel)
-        self.launch_bazel_viz_button = self._create_button(button_frame, "Launch Bazel Tools Viz", self.launch_bazel_viz)
-        self.show_process_status_button = self._create_button(button_frame, "Show Process Status", self.show_process_status)
+        self.launch_bazel_viz_button = self._create_button(
+            button_frame, "Launch Bazel Tools Viz", self.launch_bazel_viz
+        )
+        self.show_process_status_button = self._create_button(
+            button_frame, "Show Process Status", self.show_process_status
+        )
 
         # --- Button Map for State Management ---
         self._button_map = {
@@ -113,18 +137,20 @@ class FoxgloveAppGUIManager:
         # --- Status/Log Frame ---
         status_frame = ttk.LabelFrame(parent_frame, text="Log", padding="10")
         status_frame.pack(padx=5, pady=5, fill="both", expand=True)
-        
+
         log_container = ttk.Frame(status_frame)
         log_container.pack(fill="both", expand=True)
 
         log_yscrollbar = ttk.Scrollbar(log_container, orient=tk.VERTICAL)
         log_xscrollbar = ttk.Scrollbar(log_container, orient=tk.HORIZONTAL)
-        
-        self.log_text = tk.Text(log_container, height=6, wrap=tk.WORD, yscrollcommand=log_yscrollbar.set, state=tk.DISABLED)
+
+        self.log_text = tk.Text(
+            log_container, height=6, wrap=tk.WORD, yscrollcommand=log_yscrollbar.set, state=tk.DISABLED
+        )
         self.log_text.tag_config("error", foreground="red")
         log_yscrollbar.config(command=self.log_text.yview)
         log_xscrollbar.config(command=self.log_text.xview)
-        
+
         log_yscrollbar.pack(side="right", fill="y")
         log_xscrollbar.pack(side="bottom", fill="x")
         self.log_text.pack(side="left", fill="both", expand=True)
@@ -132,22 +158,22 @@ class FoxgloveAppGUIManager:
     def log_message(self, message, is_error=False, clear_first=False):
         self.log_text.config(state=tk.NORMAL)
         if clear_first:
-            self.log_text.delete('1.0', tk.END)
-        
+            self.log_text.delete("1.0", tk.END)
+
         tag = "error" if is_error else "info"
         prefix = "ERROR: " if is_error else "INFO: "
-        
+
         # Split message by newlines to apply tags correctly if needed
         for line in message.splitlines():
             self.log_text.insert(tk.END, f"{prefix}{line}\n", tag)
-            
+
         self.log_text.see(tk.END)
         self.log_text.update_idletasks()
         self.log_text.config(state=tk.DISABLED)
 
     def enable_file_specific_action_buttons(self, open_with_foxglove=True, open_with_bazel=True, copy_path=False):
         states = {
-            "open_with_foxglove": open_with_foxglove, 
+            "open_with_foxglove": open_with_foxglove,
             "open_with_bazel": open_with_bazel,
             "copy_path": copy_path,
         }
@@ -158,32 +184,40 @@ class FoxgloveAppGUIManager:
         self._update_button_states(states)
 
     def launch_bazel_viz(self):
-        self.log_message(f"Launching Bazel Tools Viz...")
+        self.log_message("Launching Bazel Tools Viz...")
         message, error = self.logic.launch_bazel_tools_viz(self.settings_tab.settings)
-        if message: self.log_message(message)
-        if error: self.log_message(error, is_error=True)
+        if message:
+            self.log_message(message)
+        if error:
+            self.log_message(error, is_error=True)
 
     def show_process_status(self):
         """Display current process status in the logs."""
         self.log_message("📊 Current Process Status:", clear_first=False)
         status = self.logic.get_process_status()
-        
-        if status['total'] == 0:
+
+        if status["total"] == 0:
             self.log_message("   No processes are currently being tracked.")
         else:
             self.log_message(f"   Total: {status['total']} | Running: {status['running']} | Dead: {status['dead']}")
-            
-            for proc in status['processes']:
-                status_icon = "🟢" if proc['running'] else "🔴"
-                self.log_message(f"   {status_icon} {proc['name']} (PID: {proc['pid']}) - Runtime: {proc['runtime_display']}")
-        
+
+            for proc in status["processes"]:
+                status_icon = "🟢" if proc["running"] else "🔴"
+                self.log_message(
+                    f"   {status_icon} {proc['name']} (PID: {proc['pid']}) - Runtime: {proc['runtime_display']}"
+                )
+
         # Also show if process monitor is running
-        monitor_status = "🟢 Active" if self.logic._process_monitor_thread and self.logic._process_monitor_thread.is_alive() else "🔴 Inactive"
+        monitor_status = (
+            "🟢 Active"
+            if self.logic._process_monitor_thread and self.logic._process_monitor_thread.is_alive()
+            else "🔴 Inactive"
+        )
         self.log_message(f"   Process Monitor: {monitor_status}")
-            
+
     def on_closing(self):
         # Clean up symlink dir if it exists
-        symlink_dir = '/tmp/selected_bags_symlinks'
+        symlink_dir = "/tmp/selected_bags_symlinks"
         if os.path.exists(symlink_dir):
             try:
                 shutil.rmtree(symlink_dir, ignore_errors=True)
@@ -199,6 +233,7 @@ class FoxgloveAppGUIManager:
         def handler(signum, frame):
             self.on_closing()
             sys.exit(0)
+
         signal.signal(signal.SIGINT, handler)
         signal.signal(signal.SIGTERM, handler)
 
@@ -206,38 +241,56 @@ class FoxgloveAppGUIManager:
         """Setup keyboard shortcuts for common actions."""
         # Escape - clear selections (already bound)
         self.root.bind("<Escape>", self.clear_all_selections)
-        
+
         # Ctrl+P - Show process status
         self.root.bind("<Control-p>", lambda e: self.show_process_status())
         self.root.bind("<Control-P>", lambda e: self.show_process_status())
-        
+
         # Ctrl+F - Open with Foxglove
-        self.root.bind("<Control-f>", lambda e: self.open_with_foxglove() if self.open_foxglove_button['state'] == tk.NORMAL else None)
-        self.root.bind("<Control-F>", lambda e: self.open_with_foxglove() if self.open_foxglove_button['state'] == tk.NORMAL else None)
-        
+        self.root.bind(
+            "<Control-f>",
+            lambda e: self.open_with_foxglove() if self.open_foxglove_button["state"] == tk.NORMAL else None,
+        )
+        self.root.bind(
+            "<Control-F>",
+            lambda e: self.open_with_foxglove() if self.open_foxglove_button["state"] == tk.NORMAL else None,
+        )
+
         # Ctrl+B - Open with Bazel
-        self.root.bind("<Control-b>", lambda e: self.open_with_bazel() if self.open_bazel_button['state'] == tk.NORMAL else None)
-        self.root.bind("<Control-B>", lambda e: self.open_with_bazel() if self.open_bazel_button['state'] == tk.NORMAL else None)
-        
+        self.root.bind(
+            "<Control-b>", lambda e: self.open_with_bazel() if self.open_bazel_button["state"] == tk.NORMAL else None
+        )
+        self.root.bind(
+            "<Control-B>", lambda e: self.open_with_bazel() if self.open_bazel_button["state"] == tk.NORMAL else None
+        )
+
         # Ctrl+C - Copy path (when button is enabled)
-        self.root.bind("<Control-c>", lambda e: self.copy_selected_path() if self.copy_path_button['state'] == tk.NORMAL else None)
-        self.root.bind("<Control-C>", lambda e: self.copy_selected_path() if self.copy_path_button['state'] == tk.NORMAL else None)
-        
+        self.root.bind(
+            "<Control-c>", lambda e: self.copy_selected_path() if self.copy_path_button["state"] == tk.NORMAL else None
+        )
+        self.root.bind(
+            "<Control-C>", lambda e: self.copy_selected_path() if self.copy_path_button["state"] == tk.NORMAL else None
+        )
+
         # Ctrl+O - Open file
-        self.root.bind("<Control-o>", lambda e: self.open_selected_file() if self.open_file_button['state'] == tk.NORMAL else None)
-        self.root.bind("<Control-O>", lambda e: self.open_selected_file() if self.open_file_button['state'] == tk.NORMAL else None)
-        
+        self.root.bind(
+            "<Control-o>", lambda e: self.open_selected_file() if self.open_file_button["state"] == tk.NORMAL else None
+        )
+        self.root.bind(
+            "<Control-O>", lambda e: self.open_selected_file() if self.open_file_button["state"] == tk.NORMAL else None
+        )
+
         # Ctrl+M - Open in file manager
         self.root.bind("<Control-m>", lambda e: self.open_in_file_manager())
         self.root.bind("<Control-M>", lambda e: self.open_in_file_manager())
-        
+
         # Ctrl+Q - Quit application
         self.root.bind("<Control-q>", lambda e: self.on_closing())
         self.root.bind("<Control-Q>", lambda e: self.on_closing())
-        
+
         # F5 - Refresh current view
         self.root.bind("<F5>", lambda e: self.refresh_current_tab())
-        
+
         # F1 - Show help/shortcuts
         self.root.bind("<F1>", lambda e: self.show_keyboard_shortcuts())
 
@@ -245,17 +298,19 @@ class FoxgloveAppGUIManager:
         """Create a status bar at the bottom of the window."""
         self.status_frame = ttk.Frame(self.root)
         self.status_frame.pack(side="bottom", fill="x", padx=5, pady=2)
-        
+
         # Left side - main status message
         self.status_label = ttk.Label(self.status_frame, text="Ready", relief=tk.SUNKEN, anchor=tk.W)
         self.status_label.pack(side="left", fill="x", expand=True, padx=(0, 5))
-        
+
         # Right side - selection info
-        self.selection_label = ttk.Label(self.status_frame, text="No selection", relief=tk.SUNKEN, anchor=tk.E, width=30)
+        self.selection_label = ttk.Label(
+            self.status_frame, text="No selection", relief=tk.SUNKEN, anchor=tk.E, width=30
+        )
         self.selection_label.pack(side="right", padx=(5, 0))
-        
+
         # Progress bar (hidden by default)
-        self.progress_bar = ttk.Progressbar(self.status_frame, mode='indeterminate', length=100)
+        self.progress_bar = ttk.Progressbar(self.status_frame, mode="indeterminate", length=100)
         # Don't pack it yet, will show when needed
 
     def update_status_bar(self, message, selection_info=None):
@@ -276,7 +331,7 @@ class FoxgloveAppGUIManager:
     def refresh_current_tab(self):
         """Refresh the currently active tab."""
         current_tab_index = self.main_notebook.index(self.main_notebook.select())
-        
+
         if current_tab_index == self._explorer_tab_index:
             self.file_explorer_tab.refresh_explorer()
             self.update_status_bar("File Explorer refreshed")
@@ -291,72 +346,84 @@ class FoxgloveAppGUIManager:
         shortcuts_window = tk.Toplevel(self.root)
         shortcuts_window.title("Keyboard Shortcuts")
         shortcuts_window.geometry("500x550")
-        
+
         main_frame = ttk.Frame(shortcuts_window, padding="20")
         main_frame.pack(fill="both", expand=True)
-        
+
         title_label = ttk.Label(main_frame, text="Keyboard Shortcuts", font=("Arial", 14, "bold"))
         title_label.pack(pady=(0, 15))
-        
+
         # Create scrollable frame
         canvas = tk.Canvas(main_frame)
         scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
-        
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
+
+        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
-        
+
         # Shortcuts list
         shortcuts = [
-            ("General", [
-                ("Escape", "Clear text selections"),
-                ("Ctrl+Q", "Quit application"),
-                ("F1", "Show this help"),
-                ("F5", "Refresh current tab"),
-            ]),
-            ("File Operations", [
-                ("Ctrl+O", "Open selected file"),
-                ("Ctrl+F", "Open with Foxglove"),
-                ("Ctrl+B", "Open with Bazel"),
-                ("Ctrl+C", "Copy file path"),
-                ("Ctrl+M", "Open in file manager"),
-            ]),
-            ("Navigation", [
-                ("Enter", "Open folder/file"),
-                ("Backspace", "Go to parent directory"),
-                ("Arrow Keys", "Navigate file lists"),
-                ("Double-Click", "Open file/folder"),
-            ]),
-            ("Process Management", [
-                ("Ctrl+P", "Show process status"),
-            ]),
-            ("Text Editing", [
-                ("Ctrl+A", "Select all text in entry"),
-            ]),
+            (
+                "General",
+                [
+                    ("Escape", "Clear text selections"),
+                    ("Ctrl+Q", "Quit application"),
+                    ("F1", "Show this help"),
+                    ("F5", "Refresh current tab"),
+                ],
+            ),
+            (
+                "File Operations",
+                [
+                    ("Ctrl+O", "Open selected file"),
+                    ("Ctrl+F", "Open with Foxglove"),
+                    ("Ctrl+B", "Open with Bazel"),
+                    ("Ctrl+C", "Copy file path"),
+                    ("Ctrl+M", "Open in file manager"),
+                ],
+            ),
+            (
+                "Navigation",
+                [
+                    ("Enter", "Open folder/file"),
+                    ("Backspace", "Go to parent directory"),
+                    ("Arrow Keys", "Navigate file lists"),
+                    ("Double-Click", "Open file/folder"),
+                ],
+            ),
+            (
+                "Process Management",
+                [
+                    ("Ctrl+P", "Show process status"),
+                ],
+            ),
+            (
+                "Text Editing",
+                [
+                    ("Ctrl+A", "Select all text in entry"),
+                ],
+            ),
         ]
-        
+
         for section, items in shortcuts:
             section_label = ttk.Label(scrollable_frame, text=section, font=("Arial", 11, "bold"))
             section_label.pack(anchor="w", pady=(10, 5))
-            
+
             for key, description in items:
                 shortcut_frame = ttk.Frame(scrollable_frame)
                 shortcut_frame.pack(fill="x", pady=2)
-                
+
                 key_label = ttk.Label(shortcut_frame, text=key, font=("Courier", 9), width=20)
                 key_label.pack(side="left")
-                
+
                 desc_label = ttk.Label(shortcut_frame, text=description)
                 desc_label.pack(side="left", padx=(10, 0))
-        
+
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
-        
+
         close_button = ttk.Button(main_frame, text="Close", command=shortcuts_window.destroy)
         close_button.pack(pady=(15, 0))
 
@@ -376,14 +443,14 @@ class FoxgloveAppGUIManager:
     def open_in_file_manager(self):
         """Open current directory in system file manager via FileExplorerLogic"""
         current_tab = self.main_notebook.index(self.main_notebook.select())
-        
+
         folder_to_open = None
         if current_tab == self._foxglove_tab_index:
             # Get the path directly from the tab's state when the button is clicked
             folder_to_open = self.foxglove_tab.get_current_folder()
         else:
             folder_to_open = self.file_explorer_tab.current_explorer_path
-        
+
         self.log_message(f"Attempting to open in file manager: {folder_to_open}")
 
         if folder_to_open and os.path.isdir(folder_to_open):
@@ -409,7 +476,7 @@ class FoxgloveAppGUIManager:
                 if idx < len(self.file_explorer_tab.explorer_files_list):
                     selected_item = self.file_explorer_tab.explorer_files_list[idx]
                     item_path = os.path.join(self.file_explorer_tab.current_explorer_path, selected_item)
-        
+
         elif current_tab == self._foxglove_tab_index:
             # In Foxglove tab, get the single selected MCAP path.
             # The button state logic in foxglove_tab ensures this.
@@ -424,14 +491,13 @@ class FoxgloveAppGUIManager:
         else:
             self.log_message("No single item selected to copy path from.", is_error=True)
 
-
     def open_with_foxglove(self):
         """
         Open the selected MCAP file(s) with Foxglove from either tab.
         Optimized for better performance and user feedback.
         """
         current_tab = self.main_notebook.index(self.main_notebook.select())
-        
+
         mcap_files = []
         if current_tab == self._explorer_tab_index:
             mcap_files = self.file_explorer_tab.get_selected_explorer_mcap_paths()
@@ -443,19 +509,19 @@ class FoxgloveAppGUIManager:
             if not mcap_files:
                 self.log_message("No MCAP file selected in Foxglove MCAP tab.", is_error=True)
                 return
-        
+
         if not mcap_files:
             self.log_message("Open with Foxglove is not available for the current selection.", is_error=True)
             return
-        
+
         # Show progress indicator for multiple files
         file_count = len(mcap_files)
         if file_count > 5:
             self.show_progress(True)
             self.update_status_bar(f"Loading {file_count} MCAP files...", f"{file_count} files selected")
         else:
-            self.update_status_bar(f"Launching Foxglove...", f"{file_count} file(s) selected")
-        
+            self.update_status_bar("Launching Foxglove...", f"{file_count} file(s) selected")
+
         # Optimized logging for better user experience
         if file_count == 1:
             file_name = os.path.basename(mcap_files[0])
@@ -467,10 +533,11 @@ class FoxgloveAppGUIManager:
                 file_names = [os.path.basename(f) for f in mcap_files]
                 self.log_message(f"Launching Foxglove with {file_count} files: {', '.join(file_names)}")
             else:
-                self.log_message(f"Launching Foxglove with {file_count} files (showing first 3): {', '.join([os.path.basename(f) for f in mcap_files[:3]])}...")
-            
+                first_three = ", ".join([os.path.basename(f) for f in mcap_files[:3]])
+                self.log_message(f"Launching Foxglove with {file_count} files (showing first 3): {first_three}...")
+
             message, error = self.logic.launch_foxglove(mcap_files, self.settings_tab.settings)
-        
+
         # Hide progress and provide feedback
         self.show_progress(False)
         if message:
@@ -480,11 +547,10 @@ class FoxgloveAppGUIManager:
             self.log_message(error, is_error=True)
             self.update_status_bar("Error launching Foxglove", f"{file_count} file(s)")
 
-
     def open_with_bazel(self):
         """Open the selected MCAP file(s) with Bazel Bag GUI from either tab."""
         current_tab = self.main_notebook.index(self.main_notebook.select())
-        
+
         mcap_files = []
         if current_tab == self._explorer_tab_index:
             mcap_files = self.file_explorer_tab.get_selected_explorer_mcap_paths()
@@ -498,27 +564,33 @@ class FoxgloveAppGUIManager:
                 return
 
         if not mcap_files:
-             self.log_message("Open with Bazel is not available for the current selection.", is_error=True)
-             return
+            self.log_message("Open with Bazel is not available for the current selection.", is_error=True)
+            return
 
         # Show progress for multiple files
         file_count = len(mcap_files)
         if file_count > 1:
             self.show_progress(True)
             self.update_status_bar(f"Preparing {file_count} MCAP files...", f"{file_count} files selected")
-        
+
         if len(mcap_files) == 1:
             self.log_message(f"Launching Bazel Bag GUI with {os.path.basename(mcap_files[0])}...")
             self.update_status_bar("Launching Bazel Bag GUI...", "1 file selected")
             message, error = self.logic.launch_bazel_bag_gui(mcap_files[0], self.settings_tab.settings)
-            if message: self.log_message(message)
-            if error: self.log_message(error, is_error=True)
+            if message:
+                self.log_message(message)
+            if error:
+                self.log_message(error, is_error=True)
         else:
             self.log_message(f"Launching Bazel Bag GUI with {len(mcap_files)} selected MCAP files using symlinks...")
-            message, error, symlink_dir = self.logic.play_bazel_bag_gui_with_symlinks(mcap_files, self.settings_tab.settings)
-            if message: self.log_message(message)
-            if error: self.log_message(error, is_error=True)
-        
+            message, error, symlink_dir = self.logic.play_bazel_bag_gui_with_symlinks(
+                mcap_files, self.settings_tab.settings
+            )
+            if message:
+                self.log_message(message)
+            if error:
+                self.log_message(error, is_error=True)
+
         # Hide progress
         self.show_progress(False)
         if not error:
@@ -527,12 +599,12 @@ class FoxgloveAppGUIManager:
     def on_tab_changed(self, event=None):
         """Update file action button states when switching tabs."""
         current_tab_index = self.main_notebook.index(self.main_notebook.select())
-        
+
         # Disable all buttons first
         self._update_button_states({key: False for key in self._button_map})
-        self.open_in_manager_button.config(state=tk.NORMAL) # This is always available
-        self.launch_bazel_viz_button.config(state=tk.NORMAL) # This is always available
-        self.show_process_status_button.config(state=tk.NORMAL) # This is always available
+        self.open_in_manager_button.config(state=tk.NORMAL)  # This is always available
+        self.launch_bazel_viz_button.config(state=tk.NORMAL)  # This is always available
+        self.show_process_status_button.config(state=tk.NORMAL)  # This is always available
 
         if current_tab_index == self._explorer_tab_index:
             # File Explorer tab: update based on explorer selection (suppress logging to avoid spam)
@@ -556,33 +628,33 @@ class FoxgloveAppGUIManager:
         Only updates buttons that actually need to change state.
         """
         state_map = {True: tk.NORMAL, False: tk.DISABLED}
-        
+
         for state_key, button in self._button_map.items():
             new_state = state_map[states.get(state_key, False)]
             # Only update if state actually changed to reduce UI flicker
-            if str(button['state']) != new_state:
+            if str(button["state"]) != new_state:
                 button.config(state=new_state)
 
     def clear_all_selections(self, event=None):
         """Clear text selections from all entry widgets"""
         entry_widgets = (
-            self.file_explorer_tab.explorer_path_entry, 
+            self.file_explorer_tab.explorer_path_entry,
             self.foxglove_tab.link_entry,
         )
-        
+
         for widget in entry_widgets:
-            if hasattr(widget, 'selection_clear'):
+            if hasattr(widget, "selection_clear"):
                 widget.selection_clear()
-        
+
         for widget in self.settings_tab.get_entry_widgets():
-            if hasattr(widget, 'selection_clear'):
+            if hasattr(widget, "selection_clear"):
                 widget.selection_clear()
 
     def update_file_explorer_nas_dir(self, new_nas_dir):
         """Update the file explorer's path to match the new NAS directory."""
         self.file_explorer_tab.current_explorer_path = new_nas_dir
         self.file_explorer_tab.refresh_explorer()
-    
+
     def update_file_explorer_logging_dir(self, new_logging_dir):
         """Update the file explorer's logging directory."""
         self.file_explorer_tab.update_logging_root(new_logging_dir)

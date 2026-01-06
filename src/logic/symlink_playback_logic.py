@@ -1,9 +1,10 @@
 import os
 import shutil
-from typing import List, Tuple, Optional
+from typing import List, Optional, Tuple
+
 
 class SymlinkPlaybackLogic:
-    def __init__(self, symlink_dir: str = '/tmp/selected_bags_symlinks'):
+    def __init__(self, symlink_dir: str = "/tmp/selected_bags_symlinks"):
         self.symlink_dir = symlink_dir
 
     def prepare_symlinks(self, mcap_filepaths: List[str]) -> Tuple[Optional[str], Optional[str]]:
@@ -39,11 +40,7 @@ class SymlinkPlaybackLogic:
         """
         if not os.path.isdir(self.symlink_dir):
             return []
-        return [
-            os.path.join(self.symlink_dir, f)
-            for f in os.listdir(self.symlink_dir)
-            if f.lower().endswith('.mcap')
-        ]
+        return [os.path.join(self.symlink_dir, f) for f in os.listdir(self.symlink_dir) if f.lower().endswith(".mcap")]
 
     def cleanup_symlinks(self) -> Optional[str]:
         """
@@ -55,4 +52,4 @@ class SymlinkPlaybackLogic:
                 shutil.rmtree(self.symlink_dir)
             except Exception as e:
                 return f"Failed to clean symlink dir: {e}"
-        return None 
+        return None

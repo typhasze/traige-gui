@@ -1,0 +1,15 @@
+[tool.black]
+line-length = 120
+target-version = ['py37']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.bandit]
+exclude_dirs = ["tests", "test"]
+skips = ["B101", "B601", "B404", "B603", "B607", "B602", "B108", "B606"]
+
+[tool.bandit.assert_used]
+skips = ['*_test.py', '*/test_*.py']

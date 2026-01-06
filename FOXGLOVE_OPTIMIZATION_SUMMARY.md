@@ -48,13 +48,13 @@ def _batch_validate_files(self, filepaths):
     """Efficiently validate multiple files in batch."""
     valid_files = []
     missing_files = []
-    
+
     for filepath in filepaths:
         if os.path.isfile(filepath):
             valid_files.append(filepath)
         else:
             missing_files.append(filepath)
-            
+
     return {'valid_files': valid_files, 'missing_files': missing_files}
 ```
 
