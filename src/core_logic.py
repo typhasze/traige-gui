@@ -386,15 +386,18 @@ class FoxgloveAppLogic:
             # On Unix, start the process in a new session to control its process group
             preexec_fn = os.setsid if sys.platform != "win32" else None
 
-            # Use optimized subprocess settings for better performance
+            # Redirect all output to DEVNULL to prevent pipe buffer blocking
+            # Long-running GUI processes can produce large amounts of output which would
+            # fill pipe buffers and cause the process to hang waiting for reads
+            # Trade-off: We lose detailed error messages, but GUI tools show their own errors anyway
             proc = subprocess.Popen(
                 command,
                 cwd=cwd,
                 shell=use_shell,
                 preexec_fn=preexec_fn,
-                stdin=subprocess.DEVNULL,  # Prevent blocking on stdin
-                stdout=subprocess.PIPE,  # Capture output for error handling
-                stderr=subprocess.PIPE,  # Capture errors
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
 
             # Validate process startup with timeout
@@ -402,16 +405,11 @@ class FoxgloveAppLogic:
                 # Give the process a moment to start and check if it immediately fails
                 time.sleep(0.1)
                 if proc.poll() is not None:
-                    # Process exited immediately, check for errors
-                    try:
-                        stdout, stderr = proc.communicate(timeout=2)
-                        error_msg = (
-                            stderr.decode("utf-8", errors="ignore").strip() if stderr else "Process exited immediately"
-                        )
-                        return None, f"Process {name} failed to start: {error_msg}"
-                    except (subprocess.TimeoutExpired, OSError):
-                        # If we can't get the error, just report that it failed
-                        return None, f"Process {name} failed to start: Process exited immediately"
+                    # Process exited immediately - since we're using DEVNULL, we can't get detailed errors
+                    return (
+                        None,
+                        f"Process {name} failed to start (exited immediately). Check command and working directory.",
+                    )
 
             except subprocess.TimeoutExpired:
                 # Process is taking time to start, which is normal for some applications
@@ -429,10 +427,6 @@ class FoxgloveAppLogic:
                     "start_time": time.time(),  # Add timestamp for monitoring
                 }
             )
-
-            # Log current process status after launching
-            total_running = sum(1 for p in self.running_processes if p["process"].poll() is None)
-            self.log_callback(f"Process tracking: {total_running} running, {len(self.running_processes)} total")
 
             return f"{name} launched (PID: {proc.pid}).", None
 
@@ -658,6 +652,48 @@ class FoxgloveAppLogic:
             return None, f"Bazel working directory not found: {self.bazel_working_dir}"
         return self._launch_process(settings.get("bazel_tools_viz_cmd"), "Bazel Tools Viz", cwd=self.bazel_working_dir)
 
+    def run_bazel_build(self, settings):
+        """Run bazel build //... command in the bazel working directory."""
+        self.bazel_working_dir = self.get_bazel_working_dir(settings)
+        if not self.bazel_working_dir or not os.path.isdir(self.bazel_working_dir):
+            return None, f"Bazel working directory not found: {self.bazel_working_dir}"
+
+        self.log_callback("Running: bazel build //...")
+        self.log_callback("=" * 60)
+        try:
+            # Use Popen to stream output in real-time
+            process = subprocess.Popen(
+                ["bazel", "build", "//..."],
+                cwd=self.bazel_working_dir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # Merge stderr into stdout
+                text=True,
+                bufsize=1,  # Line buffered
+            )
+
+            # Read output line by line and log it
+            for line in process.stdout:
+                line = line.rstrip()
+                if line:  # Only log non-empty lines
+                    self.log_callback(line)
+
+            # Wait for process to complete
+            return_code = process.wait(timeout=600)
+            self.log_callback("=" * 60)
+
+            if return_code == 0:
+                return "✓ Bazel build completed successfully.", None
+            else:
+                return None, f"Build failed with exit code {return_code}"
+
+        except subprocess.TimeoutExpired:
+            process.kill()
+            return None, "Build timed out after 10 minutes"
+        except FileNotFoundError:
+            return None, "Bazel command not found. Ensure bazel is installed and in PATH."
+        except Exception as e:
+            return None, f"Build error: {e}"
+
     def launch_bazel_bag_gui(self, mcap_path, settings, start_time=None):
         self.bazel_working_dir = self.get_bazel_working_dir(settings)
         base_command = settings.get("bazel_bag_gui_cmd")
@@ -676,7 +712,7 @@ class FoxgloveAppLogic:
 
     def play_bazel_bag_gui_with_symlinks(self, mcap_filepaths, settings):
         self.bazel_working_dir = self.get_bazel_working_dir(settings)
-        symlink_logic = SymlinkPlaybackLogic()
+        symlink_logic = SymlinkPlaybackLogic(log_callback=self.log_callback)
         symlink_dir, error = symlink_logic.prepare_symlinks(mcap_filepaths)
         if error:
             return None, error, symlink_dir
@@ -689,8 +725,25 @@ class FoxgloveAppLogic:
         base_command = settings.get("bazel_bag_gui_cmd")
         rate = settings.get("bazel_bag_gui_rate", 1.0)
         command = f"{base_command} -- --rate={rate} {mcap_files_str}"
-        message, error = self._launch_process(command, "Bazel Bag GUI", cwd=self.bazel_working_dir)
+        # Pass symlink_dir as mcap_path for verification logic
+        message, error = self._launch_process(
+            command, "Bazel Bag GUI", cwd=self.bazel_working_dir, mcap_path=symlink_dir
+        )
         return message, error, symlink_dir
+
+    def check_process_loaded(self, process_name):
+        """
+        Check if a process is still running (indication it loaded successfully).
+        Returns (is_running: bool, message: str)
+        """
+        for proc_info in self.running_processes:
+            if proc_info["name"] == process_name:
+                if proc_info["process"].poll() is None:
+                    runtime = time.time() - proc_info["start_time"]
+                    return True, f"{process_name} is running (runtime: {runtime:.1f}s, PID: {proc_info['process'].pid})"
+                else:
+                    return False, f"{process_name} has exited unexpectedly"
+        return False, f"{process_name} not found in running processes"
 
     def terminate_all_processes(self):
         # Stop the process monitor first

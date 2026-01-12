@@ -48,6 +48,9 @@ A comprehensive Python GUI application for managing, viewing, and analyzing auto
 ### 🔧 Advanced Features
 - **Multi-file selection**: Select and open multiple MCAP files simultaneously
 - **Symlink management**: Automatic symlink creation for multi-bag playback
+- **Build integration**: Build Bazel workspace with `bazel build //...` command
+  - Real-time build output streaming
+  - Animated build status indicator
 - **Process monitoring**: View running processes with PID and runtime
 - **Background process cleanup**: Automatic zombie process prevention
 - **Error handling**: Comprehensive error reporting and validation
@@ -184,6 +187,7 @@ python src/main.py
 - **B**: Play Bazel at selected time
 - **S**: Show MCAP in Explorer
 - **Ctrl+F** or **/**: Focus search field
+- **Ctrl+A**: Select all text in search/filter fields
 - **Escape**: Clear search filter
 
 ## Performance Optimizations
@@ -193,6 +197,8 @@ python src/main.py
 - **Process health monitoring**: Automatic cleanup of terminated processes
 - **Lazy loading**: Directories loaded on-demand for better performance
 - **Cached operations**: File metadata cached to reduce disk I/O
+- **Non-blocking operations**: Background threading for builds and long-running tasks
+- **Real-time feedback**: Animated status indicators for loading and building operations
 
 ## Configuration
 

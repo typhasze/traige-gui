@@ -97,6 +97,8 @@ class FileExplorerTab:
         self.explorer_path_entry.bind("<Return>", self.navigate_to_path)
         self.explorer_search_var.trace_add("write", self.on_explorer_search)
         self.explorer_search_entry.bind("<Return>", lambda e: self.explorer_listbox.focus_set())
+        self.explorer_search_entry.bind("<Control-a>", self.select_all_text)
+        self.explorer_search_entry.bind("<Control-A>", self.select_all_text)
         self.explorer_search_entry.bind("<Down>", self.focus_explorer_listbox_down)
         self.explorer_search_entry.bind("<Up>", self.focus_explorer_listbox_up)
         self.explorer_search_entry.bind("<Escape>", self.clear_explorer_search)

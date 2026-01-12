@@ -113,16 +113,13 @@ class FoxgloveAppGUIManager:
         # --- Button Definitions ---
         self.open_file_button = self._create_button(button_frame, "Open File", self.open_selected_file)
         self.copy_path_button = self._create_button(button_frame, "Copy Path", self.copy_selected_path)
-        self.open_in_manager_button = self._create_button(
-            button_frame, "Open in File Manager", self.open_in_file_manager
-        )
-        self.open_foxglove_button = self._create_button(button_frame, "Open with Foxglove", self.open_with_foxglove)
-        self.open_bazel_button = self._create_button(button_frame, "Open with Bazel GUI", self.open_with_bazel)
-        self.launch_bazel_viz_button = self._create_button(
-            button_frame, "Launch Bazel Tools Viz", self.launch_bazel_viz
-        )
+        self.open_in_manager_button = self._create_button(button_frame, "File Manager", self.open_in_file_manager)
+        self.open_foxglove_button = self._create_button(button_frame, "Foxglove", self.open_with_foxglove)
+        self.open_bazel_button = self._create_button(button_frame, "Rosbag Playback", self.open_with_bazel)
+        self.launch_bazel_viz_button = self._create_button(button_frame, "Bazel Viz", self.launch_bazel_viz)
+        self.build_bazel_button = self._create_button(button_frame, "Build ...", self.run_bazel_build)
         self.show_process_status_button = self._create_button(
-            button_frame, "Show Process Status", self.show_process_status
+            button_frame, "Running Processes", self.show_process_status
         )
 
         # --- Button Map for State Management ---
@@ -190,6 +187,79 @@ class FoxgloveAppGUIManager:
             self.log_message(message)
         if error:
             self.log_message(error, is_error=True)
+
+    def run_bazel_build(self):
+        """Run bazel build //... in the bazel working directory."""
+        self.log_message("Starting Bazel build (bazel build //...)...")
+        self.status_label.config(foreground="orange")
+        self.show_progress(True)
+
+        # Start animated status
+        self._building = True
+        self._show_building_status()
+
+        # Run build in background thread to avoid blocking GUI
+        import threading
+
+        def build_task():
+            message, error = self.logic.run_bazel_build(self.settings_tab.settings)
+            # Schedule GUI update on main thread
+            self.root.after(0, lambda: self._bazel_build_complete(message, error))
+
+        thread = threading.Thread(target=build_task, daemon=True)
+        thread.start()
+
+    def _show_building_status(self, count=0):
+        """Show animated building status with cycling dots."""
+        if not hasattr(self, "_building") or not self._building:
+            return
+
+        # Cycle through 1-3 dots
+        dots = "." * ((count % 3) + 1)
+        self.update_status_bar(f"Building{dots}", "")
+
+        # Continue animation
+        self.root.after(400, lambda: self._show_building_status(count + 1))
+
+    def _bazel_build_complete(self, message, error):
+        """Handle build completion on main thread."""
+        self._building = False
+        self.show_progress(False)
+        self.status_label.config(foreground="")
+        if message:
+            self.log_message(message)
+        if error:
+            self.log_message(error, is_error=True)
+            self.update_status_bar("Build failed", "")
+        else:
+            self.update_status_bar("Build complete", "")
+
+    def run_bazel_clean(self):
+        """Run bazel clean in the bazel working directory."""
+        self.log_message("Running Bazel clean...")
+        self.update_status_bar("Cleaning...", "")
+        self.show_progress(True)
+
+        # Run clean in background thread
+        import threading
+
+        def clean_task():
+            message, error = self.logic.run_bazel_clean(self.settings_tab.settings)
+            self.root.after(0, lambda: self._bazel_clean_complete(message, error))
+
+        thread = threading.Thread(target=clean_task, daemon=True)
+        thread.start()
+
+    def _bazel_clean_complete(self, message, error):
+        """Handle clean completion on main thread."""
+        self.show_progress(False)
+        if message:
+            self.log_message(message)
+        if error:
+            self.log_message(error, is_error=True)
+            self.update_status_bar("Clean failed", "")
+        else:
+            self.update_status_bar("Clean complete", "")
 
     def show_process_status(self):
         """Display current process status in the logs."""
@@ -297,15 +367,28 @@ class FoxgloveAppGUIManager:
     def create_status_bar(self):
         """Create a status bar at the bottom of the window."""
         self.status_frame = ttk.Frame(self.root)
-        self.status_frame.pack(side="bottom", fill="x", padx=5, pady=2)
+        self.status_frame.pack(side="bottom", fill="x", padx=5, pady=5)
 
-        # Left side - main status message
-        self.status_label = ttk.Label(self.status_frame, text="Ready", relief=tk.SUNKEN, anchor=tk.W)
+        # Left side - main status message (larger and bold)
+        self.status_label = ttk.Label(
+            self.status_frame,
+            text="Ready",
+            relief=tk.SUNKEN,
+            anchor=tk.W,
+            font=("TkDefaultFont", 11, "bold"),  # Larger and bold
+            padding=(8, 6),  # More padding for bigger text area
+        )
         self.status_label.pack(side="left", fill="x", expand=True, padx=(0, 5))
 
         # Right side - selection info
         self.selection_label = ttk.Label(
-            self.status_frame, text="No selection", relief=tk.SUNKEN, anchor=tk.E, width=30
+            self.status_frame,
+            text="No selection",
+            relief=tk.SUNKEN,
+            anchor=tk.E,
+            width=30,
+            font=("TkDefaultFont", 10),
+            padding=(6, 6),
         )
         self.selection_label.pack(side="right", padx=(5, 0))
 
@@ -582,7 +665,8 @@ class FoxgloveAppGUIManager:
             if error:
                 self.log_message(error, is_error=True)
         else:
-            self.log_message(f"Launching Bazel Bag GUI with {len(mcap_files)} selected MCAP files using symlinks...")
+            self.log_message(f"Launching Bazel Bag GUI with {len(mcap_files)} files...")
+            self.update_status_bar(f"Loading {file_count} MCAP files...", f"{file_count} files selected")
             message, error, symlink_dir = self.logic.play_bazel_bag_gui_with_symlinks(
                 mcap_files, self.settings_tab.settings
             )
@@ -590,6 +674,9 @@ class FoxgloveAppGUIManager:
                 self.log_message(message)
             if error:
                 self.log_message(error, is_error=True)
+            else:
+                # Show loading animation and check if process is still running
+                self._show_loading_status("Bazel Bag GUI")
 
         # Hide progress
         self.show_progress(False)
@@ -604,6 +691,7 @@ class FoxgloveAppGUIManager:
         self._update_button_states({key: False for key in self._button_map})
         self.open_in_manager_button.config(state=tk.NORMAL)  # This is always available
         self.launch_bazel_viz_button.config(state=tk.NORMAL)  # This is always available
+        self.build_bazel_button.config(state=tk.NORMAL)  # This is always available
         self.show_process_status_button.config(state=tk.NORMAL)  # This is always available
 
         if current_tab_index == self._explorer_tab_index:
@@ -649,6 +737,47 @@ class FoxgloveAppGUIManager:
         for widget in self.settings_tab.get_entry_widgets():
             if hasattr(widget, "selection_clear"):
                 widget.selection_clear()
+
+    def _verify_bazel_loaded(self):
+        """Verify that Bazel Bag GUI is still running after launch (indicates successful load)"""
+        is_running, message = self.logic.check_process_loaded("Bazel Bag GUI")
+        if is_running:
+            self.log_message(f"✓ {message}")
+            self.update_status_bar("Bazel Bag GUI is running", "")
+        else:
+            self.log_message(f"✗ {message}", is_error=True)
+            self.update_status_bar("Bazel Bag GUI failed", "")
+
+    def _show_loading_status(self, process_name, count=0):
+        """Show animated loading status and verify process is still running"""
+        is_running, message = self.logic.check_process_loaded(process_name)
+
+        if not is_running:
+            self.log_message(f"✗ {message}", is_error=True)
+            self.update_status_bar(f"{process_name} failed", "")
+            # Reset status label color to default
+            self.status_label.config(foreground="")
+            return
+
+        # Calculate elapsed time
+        elapsed_seconds = (count * 300) / 1000  # count * 300ms in seconds
+
+        # Show animated dots (faster animation - 300ms) in green
+        dots = "." * ((count % 4) + 1)  # 1-4 dots
+        self.status_label.config(foreground="green")
+
+        # After 30 seconds, show elapsed time in status
+        if count >= 100:  # 100 * 300ms = 30 seconds
+            self.update_status_bar(f"{process_name} loading{dots}", f"{int(elapsed_seconds)}s")
+        else:
+            self.update_status_bar(f"{process_name} loading{dots}", "")
+
+        # Continue polling indefinitely until process exits or loads
+        # Check every 300ms for first 60 seconds, then every 1 second
+        if count < 200:  # First 60 seconds: fast polling
+            self.root.after(300, lambda: self._show_loading_status(process_name, count + 1))
+        else:  # After 60 seconds: slower polling
+            self.root.after(1000, lambda: self._show_loading_status(process_name, count + 4))
 
     def update_file_explorer_nas_dir(self, new_nas_dir):
         """Update the file explorer's path to match the new NAS directory."""
