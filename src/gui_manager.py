@@ -9,7 +9,6 @@ from tkinter import ttk
 from .core_logic import FoxgloveAppLogic
 from .logic.file_explorer_logic import FileExplorerLogic
 from .ui.components.file_explorer_tab import FileExplorerTab
-from .ui.components.foxglove_tab import FoxgloveTab
 from .ui.components.settings_tab import SettingsTab
 
 
@@ -43,14 +42,6 @@ class FoxgloveAppGUIManager:
             self.log_message,
             self._update_button_states,
         )
-        self.foxglove_tab = FoxgloveTab(
-            self.main_notebook,
-            self.root,
-            self.logic,
-            self.log_message,
-            self.disable_file_specific_action_buttons,
-            self.enable_file_specific_action_buttons,
-        )
 
         # Link NAS directory to file explorer path at start if not set
         # Create a temporary settings object to check and set nas_dir before creating SettingsTab
@@ -69,7 +60,6 @@ class FoxgloveAppGUIManager:
         self.settings_tab = SettingsTab(self.main_notebook, self.logic, self.log_message)
 
         self.main_notebook.add(self.file_explorer_tab.frame, text="File Explorer")
-        self.main_notebook.add(self.foxglove_tab.frame, text="Foxglove MCAP")
         self.main_notebook.add(self.settings_tab.frame, text="Settings")
 
         # Register callback for NAS directory changes
@@ -191,7 +181,7 @@ class FoxgloveAppGUIManager:
     def run_bazel_build(self):
         """Run bazel build //... in the bazel working directory."""
         self.log_message("Starting Bazel build (bazel build //...)...")
-        self.status_label.config(foreground="orange")
+        self.status_label.config(foreground="red")
         self.show_progress(True)
 
         # Start animated status
@@ -418,9 +408,6 @@ class FoxgloveAppGUIManager:
         if current_tab_index == self._explorer_tab_index:
             self.file_explorer_tab.refresh_explorer()
             self.update_status_bar("File Explorer refreshed")
-        elif current_tab_index == self._foxglove_tab_index:
-            # Foxglove tab doesn't have auto-refresh, but we can re-analyze if link exists
-            self.update_status_bar("Foxglove tab active")
         elif current_tab_index == self._settings_tab_index:
             self.update_status_bar("Settings tab active")
 
@@ -525,14 +512,7 @@ class FoxgloveAppGUIManager:
 
     def open_in_file_manager(self):
         """Open current directory in system file manager via FileExplorerLogic"""
-        current_tab = self.main_notebook.index(self.main_notebook.select())
-
-        folder_to_open = None
-        if current_tab == self._foxglove_tab_index:
-            # Get the path directly from the tab's state when the button is clicked
-            folder_to_open = self.foxglove_tab.get_current_folder()
-        else:
-            folder_to_open = self.file_explorer_tab.current_explorer_path
+        folder_to_open = self.file_explorer_tab.current_explorer_path
 
         self.log_message(f"Attempting to open in file manager: {folder_to_open}")
 
@@ -560,11 +540,6 @@ class FoxgloveAppGUIManager:
                     selected_item = self.file_explorer_tab.explorer_files_list[idx]
                     item_path = os.path.join(self.file_explorer_tab.current_explorer_path, selected_item)
 
-        elif current_tab == self._foxglove_tab_index:
-            # In Foxglove tab, get the single selected MCAP path.
-            # The button state logic in foxglove_tab ensures this.
-            item_path = self.foxglove_tab.get_selected_mcap_path()
-
         if item_path:
             success, msg = self.file_explorer_logic.copy_to_clipboard(self.root, item_path)
             if success:
@@ -586,11 +561,6 @@ class FoxgloveAppGUIManager:
             mcap_files = self.file_explorer_tab.get_selected_explorer_mcap_paths()
             if not mcap_files:
                 self.log_message("No MCAP file selected in File Explorer.", is_error=True)
-                return
-        elif current_tab == self._foxglove_tab_index:
-            mcap_files = self.foxglove_tab.get_selected_mcap_paths()
-            if not mcap_files:
-                self.log_message("No MCAP file selected in Foxglove MCAP tab.", is_error=True)
                 return
 
         if not mcap_files:
@@ -639,11 +609,6 @@ class FoxgloveAppGUIManager:
             mcap_files = self.file_explorer_tab.get_selected_explorer_mcap_paths()
             if not mcap_files:
                 self.log_message("No MCAP file selected in File Explorer.", is_error=True)
-                return
-        elif current_tab == self._foxglove_tab_index:
-            mcap_files = self.foxglove_tab.get_selected_mcap_paths()
-            if not mcap_files:
-                self.log_message("No MCAP file selected in Foxglove MCAP tab.", is_error=True)
                 return
 
         if not mcap_files:
@@ -697,9 +662,6 @@ class FoxgloveAppGUIManager:
         if current_tab_index == self._explorer_tab_index:
             # File Explorer tab: update based on explorer selection (suppress logging to avoid spam)
             self.file_explorer_tab.on_explorer_select(None, suppress_log=True)
-        elif current_tab_index == self._foxglove_tab_index:
-            # Foxglove MCAP tab: update based on MCAP list selection
-            self.foxglove_tab.on_file_select(None, suppress_log=True)
         else:
             # Settings or other tabs: disable all file-specific action buttons
             self.disable_file_specific_action_buttons()
@@ -707,8 +669,7 @@ class FoxgloveAppGUIManager:
     def _cache_tab_indices(self):
         """Cache tab indices for performance optimization"""
         self._explorer_tab_index = 0
-        self._foxglove_tab_index = 1
-        self._settings_tab_index = 2
+        self._settings_tab_index = 1
 
     def _update_button_states(self, states):
         """
@@ -725,10 +686,7 @@ class FoxgloveAppGUIManager:
 
     def clear_all_selections(self, event=None):
         """Clear text selections from all entry widgets"""
-        entry_widgets = (
-            self.file_explorer_tab.explorer_path_entry,
-            self.foxglove_tab.link_entry,
-        )
+        entry_widgets = (self.file_explorer_tab.explorer_path_entry,)
 
         for widget in entry_widgets:
             if hasattr(widget, "selection_clear"):
@@ -765,19 +723,16 @@ class FoxgloveAppGUIManager:
         # Show animated dots (faster animation - 300ms) in green
         dots = "." * ((count % 4) + 1)  # 1-4 dots
         self.status_label.config(foreground="green")
+        self.update_status_bar(f"{process_name} loading{dots}", "")
 
-        # After 30 seconds, show elapsed time in status
-        if count >= 100:  # 100 * 300ms = 30 seconds
-            self.update_status_bar(f"{process_name} loading{dots}", f"{int(elapsed_seconds)}s")
-        else:
-            self.update_status_bar(f"{process_name} loading{dots}", "")
-
-        # Continue polling indefinitely until process exits or loads
-        # Check every 300ms for first 60 seconds, then every 1 second
-        if count < 200:  # First 60 seconds: fast polling
+        # Continue polling for 30 seconds max
+        if count < 100:  # 100 * 300ms = 30 seconds
             self.root.after(300, lambda: self._show_loading_status(process_name, count + 1))
-        else:  # After 60 seconds: slower polling
-            self.root.after(1000, lambda: self._show_loading_status(process_name, count + 4))
+        else:
+            # After 30 seconds, assume loaded and reset color
+            self.status_label.config(foreground="")
+            self.log_message(f"✓ {process_name} is running (runtime: {int(elapsed_seconds)}s)")
+            self.update_status_bar(f"{process_name} is running", "")
 
     def update_file_explorer_nas_dir(self, new_nas_dir):
         """Update the file explorer's path to match the new NAS directory."""
