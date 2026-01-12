@@ -731,8 +731,9 @@ class FileExplorerTab:
         self.log_message(f"Mapped local folder: {local_folder}")
         self.current_explorer_path = local_folder
         self.refresh_explorer()
-        # Highlight the file if present
-        self.highlight_file_in_explorer(mcap_filename)
+        # Highlight the file if present - delay to ensure listbox is fully populated
+        if mcap_filename:
+            self.explorer_listbox.after(150, lambda: self.highlight_file_in_explorer(mcap_filename))
 
     def clear_link_and_list(self):
         self.link_var.set("")
@@ -744,47 +745,78 @@ class FileExplorerTab:
     def highlight_file_in_explorer(self, filename):
         if not filename:
             return
-        # Clear previous highlights
-        for idx in range(self.explorer_listbox.size()):
-            self.explorer_listbox.itemconfig(idx, {"bg": "white"})
-        # Try to find and select the file in the explorer listbox
-        for idx, fname in enumerate(self.explorer_files_list):
-            if fname.lower() == filename.strip().lower():
-                self.explorer_listbox.selection_clear(0, tk.END)
-                self.explorer_listbox.selection_set(idx)
-                self.explorer_listbox.see(idx)
-                self.explorer_listbox.itemconfig(idx, {"bg": "yellow"})
-                # Trigger selection handler to update button states
-                self.on_explorer_select(suppress_log=True)
-                # Set focus to listbox for arrow key navigation
-                self.explorer_listbox.focus_set()
-                break
+
+        try:
+            # Safety check: ensure listbox is populated
+            if not hasattr(self, "explorer_files_list") or not self.explorer_files_list:
+                return
+
+            # Clear previous highlights
+            listbox_size = self.explorer_listbox.size()
+            for idx in range(listbox_size):
+                try:
+                    self.explorer_listbox.itemconfig(idx, {"bg": "white"})
+                except tk.TclError:
+                    # Skip if item no longer exists
+                    pass
+
+            # Try to find and select the file in the explorer listbox
+            for idx, fname in enumerate(self.explorer_files_list):
+                if fname.lower() == filename.strip().lower():
+                    try:
+                        self.explorer_listbox.selection_clear(0, tk.END)
+                        self.explorer_listbox.selection_set(idx)
+                        self.explorer_listbox.see(idx)
+                        self.explorer_listbox.itemconfig(idx, {"bg": "yellow"})
+                        # Trigger selection handler to update button states
+                        self.on_explorer_select(suppress_log=True)
+                        # Set focus to listbox for arrow key navigation
+                        self.explorer_listbox.focus_set()
+                    except tk.TclError as e:
+                        self.log_message(f"Warning: Could not highlight file: {e}", is_error=False)
+                    break
+        except Exception as e:
+            self.log_message(f"Error highlighting file: {e}", is_error=False)
 
     def highlight_directory_in_explorer(self, dirname):
         """Highlight and select a directory by name in the explorer listbox."""
         if not dirname:
             return
 
-        # Clear previous highlights
-        for idx in range(self.explorer_listbox.size()):
-            self.explorer_listbox.itemconfig(idx, {"bg": "white"})
+        try:
+            # Safety check: ensure listbox is populated
+            if not hasattr(self, "explorer_files_list") or not self.explorer_files_list:
+                return
 
-        # Try to find and select the directory in the explorer listbox
-        dirname_lower = dirname.strip().lower()
-        for idx, fname in enumerate(self.explorer_files_list):
-            if fname.lower() == dirname_lower:
-                # Check if this is actually a directory (should be among the first items)
-                item_path = os.path.join(self.current_explorer_path, fname)
-                if os.path.isdir(item_path):
-                    self.explorer_listbox.selection_clear(0, tk.END)
-                    self.explorer_listbox.selection_set(idx)
-                    self.explorer_listbox.see(idx)
-                    self.explorer_listbox.itemconfig(idx, {"bg": "lightblue"})
-                    # Trigger selection handler to update button states
-                    self.on_explorer_select(suppress_log=True)
-                    # Set focus to listbox for arrow key navigation
-                    self.explorer_listbox.focus_set()
-                    break
+            # Clear previous highlights
+            listbox_size = self.explorer_listbox.size()
+            for idx in range(listbox_size):
+                try:
+                    self.explorer_listbox.itemconfig(idx, {"bg": "white"})
+                except tk.TclError:
+                    pass
+
+            # Try to find and select the directory in the explorer listbox
+            dirname_lower = dirname.strip().lower()
+            for idx, fname in enumerate(self.explorer_files_list):
+                if fname.lower() == dirname_lower:
+                    # Check if this is actually a directory (should be among the first items)
+                    item_path = os.path.join(self.current_explorer_path, fname)
+                    if os.path.isdir(item_path):
+                        try:
+                            self.explorer_listbox.selection_clear(0, tk.END)
+                            self.explorer_listbox.selection_set(idx)
+                            self.explorer_listbox.see(idx)
+                            self.explorer_listbox.itemconfig(idx, {"bg": "lightblue"})
+                            # Trigger selection handler to update button states
+                            self.on_explorer_select(suppress_log=True)
+                            # Set focus to listbox for arrow key navigation
+                            self.explorer_listbox.focus_set()
+                        except tk.TclError as e:
+                            self.log_message(f"Warning: Could not highlight directory: {e}", is_error=False)
+                        break
+        except Exception as e:
+            self.log_message(f"Error highlighting directory: {e}", is_error=False)
 
     def play_video_at_timestamp(self, event_log_path, timestamp_str):
         """Play video at the specified timestamp using mpv."""
