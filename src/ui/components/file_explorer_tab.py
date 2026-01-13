@@ -1058,19 +1058,16 @@ class FileExplorerTab:
 
                 settings = DEFAULT_SETTINGS.copy()
 
-            # Launch bazel bag gui with the MCAP file and start time
-            self.log_message(f"Launching Bazel Bag GUI with {os.path.basename(mcap_file)} (closest to timestamp)...")
+            # Launch bazel bag gui with the MCAP file and start offset
+            self.log_message(
+                f"Launching Bazel Bag GUI with {os.path.basename(mcap_file)} at offset {int(start_offset)}s..."
+            )
             message, error = self.logic.launch_bazel_bag_gui(mcap_file, settings, start_time=start_offset)
 
             if message:
                 self.log_message(message)
             if error:
                 self.log_message(error, is_error=True)
-            else:
-                self.log_message(
-                    f"Note: Bazel playback started at bag beginning. "
-                    f"Use seek controls to navigate to ~{start_offset:.1f}s"
-                )
 
         except Exception as e:
             self.log_message(f"Error playing bazel at timestamp: {e}", is_error=True)

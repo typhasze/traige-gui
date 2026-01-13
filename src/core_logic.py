@@ -698,16 +698,15 @@ class FoxgloveAppLogic:
         self.bazel_working_dir = self.get_bazel_working_dir(settings)
         base_command = settings.get("bazel_bag_gui_cmd")
         rate = settings.get("bazel_bag_gui_rate", 1.0)
-        command = f"{base_command} -- --rate={rate}"
 
-        # Add start time if provided (note: bazel bag gui may not support this parameter)
-        # The start_time is calculated but may need manual seeking in the GUI
+        # Build command with start offset if provided
         if start_time is not None:
-            # Most rosbag players don't support command-line start time
-            # We'll just launch normally and inform the user
-            pass
+            # Add --start-offset parameter (convert to int for cleaner command)
+            command = f"{base_command} -- --start-offset {int(start_time)} --rate={rate} {mcap_path}"
+            self.log_callback(f"Starting playback at offset: {int(start_time)}s")
+        else:
+            command = f"{base_command} -- --rate={rate} {mcap_path}"
 
-        command += f" {mcap_path}"
         return self._launch_process(command, "Bazel Bag GUI", cwd=self.bazel_working_dir, mcap_path=mcap_path)
 
     def play_bazel_bag_gui_with_symlinks(self, mcap_filepaths, settings):
