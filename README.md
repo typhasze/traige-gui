@@ -27,21 +27,22 @@ A comprehensive Python GUI application for managing, viewing, and analyzing auto
 - **Timestamp parsing**: Intelligent parsing of various timestamp formats
 
 ### 🎥 Playback Integration
-- **Foxglove Studio**: Launch with single or multiple MCAP files
-  - Desktop or browser mode support
-  - Optimized batch file loading
-  - Command-line length protection
 - **Bazel Bag GUI**: Play rosbags with configurable playback rate
   - Single file or symlink-based multi-file playback
-  - Timestamp-aware launching from event logs
+  - Timestamp-aware launching from event logs with `--start-offset`
+  - Accurate event timestamp playback (respects 300-second bag duration)
+  - Real-time loading status with animated progress indicators
 - **Video playback**: Launch mpv player at specific timestamps
+  - Synchronized with event log timestamps
+  - Automatic video file selection based on timestamp
 - **Process management**: Track and terminate running playback processes
+  - View PID and runtime for all processes
+  - Automatic cleanup on application exit
 
 ### 🎛️ Settings Tab
 - **Bazel configuration**: Configure Bazel commands and working directory
 - **Playback rate**: Adjust Bazel bag GUI playback speed
 - **Directory paths**: Set data, backup, and LOGGING directory locations
-- **Foxglove options**: Choose between desktop or browser mode
 - **File limits**: Configure maximum files for batch operations
 - **Persistent settings**: Settings saved as JSON configuration
 
@@ -71,22 +72,22 @@ traige-gui/
 │   │   └── symlink_playback_logic.py # Symlink management
 │   ├── ui/
 │   │   └── components/
-│   │       ├── file_explorer_tab.py  # File browser UI
-│   │       ├── foxglove_tab.py       # Foxglove MCAP UI
+│   │       ├── file_explorer_tab.py  # File browser and event viewer UI
 │   │       └── settings_tab.py       # Settings UI
 │   └── utils/
 │       └── utils.py               # Utility functions
 ├── requirements.txt
+├── .pre-commit-config.yaml        # Pre-commit hooks
+├── pyproject.toml                 # Tool configurations
 └── README.md
 ```
 
 ## Installation
 
 ### Prerequisites
-- Python 3.7+
-- Foxglove Studio (optional, for MCAP playback)
-- Bazel (optional, for bazel bag gui)
-- mpv (optional, for video playback)
+- **Python 3.7+** (with tkinter support)
+- **Bazel** (required, for bazel bag gui and build commands)
+- **mpv** (optional, for video playback from event logs)
 
 ### Setup
 
@@ -96,24 +97,52 @@ git clone <repository-url>
 cd traige-gui
 ```
 
-2. Install required Python dependencies:
+2. Install tkinter if not already available:
 ```bash
+# Ubuntu/Debian
+sudo apt-get install python3-tk
+
+# Fedora
+sudo dnf install python3-tkinter
+
+# macOS - included with Python from python.org
+```
+
+3. No pip packages required! The application uses only Python standard library.
+
+4. (Optional) Install mpv for video playback:
+```bash
+# Ubuntu/Debian
+sudo apt-get install mpv
+
+# macOS
+brew install mpv
+```
 pip install -r requirements.txt
 ```
 
 3. (Optional) Install external tools:
 ```bash
 # Foxglove Studio - https://foxglove.dev/download
-# Bazel - https://bazel.build/install
-# mpv - https://mpv.io/installation/
 ```
+
+5. Add the following line to your ~/.bashrc and source
+
+triage_gui() {
+	cd
+	nohup ./traige-gui/src/main.py &
+}
 
 ## Running the Application
 
 Launch the application with:
 
 ```bash
-python src/main.py
+./src/main.py
+# or
+python3 src/main.py
+# or
+triage_gui
 ```
 
 ## Usage Guide
@@ -123,23 +152,30 @@ python src/main.py
 **Method 1: File Explorer**
 1. Navigate to your data directory using the File Explorer tab
 2. Select one or more MCAP files
-3. Click "Open with Foxglove" or "Open with Bazel"
+3. Click "Rosbag Playback" (Bazel Bag GUI)
 
 **Method 2: Link Analysis**
-1. Copy a Foxglove link or file URL
-2. Paste into the "Analyze Link" field
-3. Click "Analyze" to navigate to the file
-4. File will be automatically highlighted
+1. Copy a file link or URL containing MCAP path information
+2. Paste into the "Analyze Link" field in File Explorer
+3. Click "Analyze" to navigate to the file location
+4. File will be automatically highlighted in yellow
 
 ### Viewing Event Logs
 
 1. Navigate to an `event_log_*.txt` file in File Explorer
-2. Double-click to open the Event Log Viewer
+2. Double-click to open the Event Log Viewer window
 3. Select an event row to see details
 4. Use action buttons:
-   - **Play Video at Selected Time**: Launch video at event timestamp
-   - **Play Bazel at Selected Time**: Launch rosbag playback at closest timestamp
-   - **Show MCAP in Explorer**: Navigate to corresponding MCAP file
+   - **Play Video at Selected Time**: Launch video at exact event timestamp with mpv
+   - **Play Bazel at Selected Time**: Launch rosbag playback at exact event timestamp with `--start-offset`
+   - **Show MCAP in Explorer**: Navigate to and highlight the corresponding MCAP file
+
+### Building Bazel Workspace
+
+1. Click the "Build" button in the main window
+2. Real-time build output will stream to the console
+3. Animated status indicator shows build progress
+4. Build command: `bazel build //...`
 
 ### Managing Processes
 
@@ -169,8 +205,7 @@ python src/main.py
 
 ### File Operations
 - **Ctrl+O**: Open selected file
-- **Ctrl+F**: Open with Foxglove
-- **Ctrl+B**: Open with Bazel
+- **Ctrl+B**: Open with Bazel Bag GUI
 - **Ctrl+C**: Copy file path
 - **Ctrl+M**: Open in file manager
 - **Ctrl+A**: Select all text in entry fields
@@ -203,11 +238,11 @@ python src/main.py
 ## Configuration
 
 Settings are stored in `~/.foxglove_gui_settings.json` and include:
-- Bazel tool commands and working directory
+- Bazel tool commands and working directory (e.g., `bazel run //tools/bag:gui`)
 - Data and backup directory paths
 - LOGGING directory path (for external drive access)
-- Foxglove browser/desktop preference
-- Playback rate and file limits
+- Playback rate (default: 1.0)
+- File operation limits
 
 ## Troubleshooting
 
@@ -215,23 +250,21 @@ Settings are stored in `~/.foxglove_gui_settings.json` and include:
 - Check that files exist in `~/data` or configured data directory
 - Verify paths in Settings tab
 
-**Foxglove/Bazel won't launch:**
-- Ensure tools are installed and in PATH
-- Check Bazel working directory in Settings
+**Bazel won't launch:**
+- Ensure Bazel is installed and in PATH
+- Check Bazel working directory in Settings tab
+- Verify Bazel command is correct: `bazel run //tools/bag:gui`
 - View process status for error messages
 
 **Event log timestamp issues:**
 - Application supports multiple timestamp formats
 - Check that MCAP filenames follow format: `VEHICLE_YYYY-MM-DD-HH-MM-SS_N.mcap`
+- Each rosbag should be 300 seconds duration for accurate offset calculation
 
-## Contributing
+**Video playback not working:**
+- Install mpv: `sudo apt-get install mpv`
+- Check that video files exist in the `video/` directory parallel to event logs
 
-Contributions are welcome! Please feel free to submit a pull request or open an issue for:
-- Bug reports
-- Feature requests
-- Performance improvements
-- Documentation updates
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+**Link analysis segmentation fault:**
+- This has been fixed with safety checks and delayed highlighting
+- If it persists, ensure you're using the latest version
