@@ -1,8 +1,26 @@
-# Triage GUI
+<div align="center">
 
-A comprehensive Python GUI application for managing, viewing, and analyzing autonomous vehicle rosbag data, event logs, and video recordings. This tool streamlines the workflow for accessing MCAP files, playing back data with Foxglove Studio or Bazel Bag GUI, and correlating events with video footage.
+# 🚗 Triage GUI
 
-## Features
+### A powerful Python GUI for autonomous vehicle data analysis
+
+[![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
+[![Bazel](https://img.shields.io/badge/bazel-required-green.svg)](https://bazel.build/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+*Streamline your workflow for analyzing MCAP rosbag data, event logs, and video recordings*
+
+[Features](#features) • [Installation](#installation) • [Usage](#usage-guide) • [Shortcuts](#keyboard-shortcuts)
+
+</div>
+
+---
+
+## 📖 Overview
+
+A comprehensive Python GUI application for managing, viewing, and analyzing autonomous vehicle rosbag data, event logs, and video recordings. Built with tkinter for maximum compatibility and minimal dependencies.
+
+## ✨ Features
 
 ### 📁 File Explorer Tab
 - **Navigate directories**: Browse through data folders with intuitive file explorer
@@ -58,46 +76,56 @@ A comprehensive Python GUI application for managing, viewing, and analyzing auto
 - **Clipboard integration**: Copy file paths to clipboard
 - **System integration**: Open directories in native file manager
 
-## Project Structure
+## 📂 Project Structure
+
+<details>
+<summary>Click to expand project structure</summary>
 
 ```
 traige-gui/
 ├── src/
 │   ├── __init__.py
-│   ├── main.py                    # Application entry point
-│   ├── gui_manager.py             # Main GUI coordinator
-│   ├── core_logic.py              # Core application logic
+│   ├── main.py                         # 🚀 Application entry point
+│   ├── gui_manager.py                  # 🎨 Main GUI coordinator
+│   ├── core_logic.py                   # ⚙️  Core application logic
 │   ├── logic/
-│   │   ├── file_explorer_logic.py # File operations logic
-│   │   └── symlink_playback_logic.py # Symlink management
+│   │   ├── file_explorer_logic.py      # 📂 File operations
+│   │   └── symlink_playback_logic.py   # 🔗 Symlink management
 │   ├── ui/
 │   │   └── components/
-│   │       ├── file_explorer_tab.py  # File browser and event viewer UI
-│   │       └── settings_tab.py       # Settings UI
+│   │       ├── file_explorer_tab.py    # 🗂️  File browser & event viewer
+│   │       └── settings_tab.py         # ⚙️  Settings interface
 │   └── utils/
-│       └── utils.py               # Utility functions
-├── requirements.txt
-├── .pre-commit-config.yaml        # Pre-commit hooks
-├── pyproject.toml                 # Tool configurations
-└── README.md
+│       └── utils.py                    # 🛠️  Utility functions
+├── requirements.txt                     # 📦 Dependencies (none needed!)
+├── .pre-commit-config.yaml             # ✅ Code quality hooks
+├── pyproject.toml                      # 🔧 Tool configurations
+└── README.md                           # 📖 This file
 ```
 
-## Installation
+| Component | Required | Purpose |
+|-----------|----------|---------|
+| Python 3.7+ | ✅ Yes | Runtime environment (with tkinter) |
+| Bazel | ✅ Yes | Rosbag GUI and build commands |
+| mpv | 🔷 Optional | Video playback from event logs |
+| NAS Connection | ✅ Yes | Access to rosbag data |
 
-### Prerequisites
-- **Python 3.7+** (with tkinter support)
+> **📚 Setup Guides:**
+> - [NAS Setup Guide](https://ventitechnologies.atlassian.net/wiki/spaces/ACH/pages/763953520/Laptop+Set+Up+Guide+for+TE#NAS-SETUP)
+> - [AV-System Clone Guide](https://ventitechnologies.atlassian.net/wiki/spaces/ACH/pages/763953520/Laptop+Set+Up+Guide+for+TE) - Clone `av-system` repo to root directory
+
+### 🔧*Python 3.7+** (with tkinter support)
 - **Bazel** (required, for bazel bag gui and build commands)
 - **mpv** (optional, for video playback from event logs)
 
-### Setup
-
-1. Clone the repository:
+- **NAS SETUP** https://ventitechnologies.atlassian.net/wiki/spaces/ACH/pages/763953520/Laptop+Set+Up+Guide+for+TE#NAS-SETUP
+**Step 1:** Clone the repository
 ```bash
 git clone <repository-url>
 cd traige-gui
 ```
 
-2. Install tkinter if not already available:
+**Step 2:** Install tkinter (if not available)
 ```bash
 # Ubuntu/Debian
 sudo apt-get install python3-tk
@@ -108,9 +136,10 @@ sudo dnf install python3-tkinter
 # macOS - included with Python from python.org
 ```
 
-3. No pip packages required! The application uses only Python standard library.
+**Step 3:** No pip packages required! 🎉
+> The application uses only Python standard library
 
-4. (Optional) Install mpv for video playback:
+**Step 4 (Optional):** Install mpv for video playback
 ```bash
 # Ubuntu/Debian
 sudo apt-get install mpv
@@ -118,38 +147,47 @@ sudo apt-get install mpv
 # macOS
 brew install mpv
 ```
-pip install -r requirements.txt
-```
 
-3. (Optional) Install external tools:
+**Step 5:** Add convenience function to `~/.bashrc`
 ```bash
-# Foxglove Studio - https://foxglove.dev/download
-```
-
-5. Add the following line to your ~/.bashrc and source
-
 triage_gui() {
-	cd
-	nohup ./traige-gui/src/main.py &
+    cd
+    nohup ./traige-gui/src/main.py &
 }
+```
 
-## Running the Application
+Then reload: `source ~/.bashrc`
 
-Launch the application with:
+---
 
-```bash
+## 🎮 Running the Application
+
+> ⚠️ **Important:** Ensure NAS is connected before launching!
+
+**Launch options:**
+
+# Option 1: Direct execution
 ./src/main.py
-# or
+
+# Option 2: Python command
 python3 src/main.py
-# or
+
+# Option 3: Convenience function (after adding to .bashrc)
 triage_gui
 ```
+
+---
+
+## 📘thon3 src/main.py
+# or📂 Opening MCAP Files
+
+#### Method 1: File Explorer
 
 ## Usage Guide
 
 ### Opening MCAP Files
 
-**Method 1: File Explorer**
+#### Method 2: Link Analysis
 1. Navigate to your data directory using the File Explorer tab
 2. Select one or more MCAP files
 3. Click "Rosbag Playback" (Bazel Bag GUI)
@@ -160,7 +198,7 @@ triage_gui
 3. Click "Analyze" to navigate to the file location
 4. File will be automatically highlighted in yellow
 
-### Viewing Event Logs
+### 📊 Viewing Event Logs
 
 1. Navigate to an `event_log_*.txt` file in File Explorer
 2. Double-click to open the Event Log Viewer window
@@ -170,20 +208,20 @@ triage_gui
    - **Play Bazel at Selected Time**: Launch rosbag playback at exact event timestamp with `--start-offset`
    - **Show MCAP in Explorer**: Navigate to and highlight the corresponding MCAP file
 
-### Building Bazel Workspace
+### 🔨 Building Bazel Workspace
 
 1. Click the "Build" button in the main window
 2. Real-time build output will stream to the console
 3. Animated status indicator shows build progress
 4. Build command: `bazel build //...`
 
-### Managing Processes
+### 🔄 Managing Processes
 
 - Click "Show Process Status" to view running Foxglove/Bazel instances
 - Each process shows PID and runtime
 - Close the application to automatically terminate all spawned processes
 
-### Configuring Settings
+### ⚙️ Configuring Settings
 
 1. Open the Settings tab
 2. Configure:
@@ -194,48 +232,93 @@ triage_gui
    - Playback rates and file limits
 3. Click "Save Settings" to persist changes
 
-## Keyboard Shortcuts
+---
 
-### General
+## ⌨️ Keyboard Shortcuts
+
+<table>
+<tr><td>
+
+### 🔧 General
 - **Escape**: Clear text selections
-- **Ctrl+Q**: Quit application
+</td><td>
+
+### 📁*Ctrl+Q**: Quit application
 - **F1**: Show keyboard shortcuts help
 - **F5**: Refresh current tab
 - **Ctrl+P**: Show process status
 
-### File Operations
+</td></tr>
+<tr><td>
+
+### 🧭 File Operations
 - **Ctrl+O**: Open selected file
 - **Ctrl+B**: Open with Bazel Bag GUI
 - **Ctrl+C**: Copy file path
-- **Ctrl+M**: Open in file manager
+</td><td>
+
+### 📊*Ctrl+M**: Open in file manager
 - **Ctrl+A**: Select all text in entry fields
 
 ### Navigation
 - **Ctrl+L**: Navigate to LOGGING directory
 - **Enter**: Navigate into selected folder / Open file
-- **Double-Click**: Open file or navigate into folder
+</td></tr>
+</table>
+
+---
+
+## ⚡**Double-Click**: Open file or navigate into folder
 - **Backspace**: Navigate to parent directory (File Explorer)
 - **Arrow Keys**: Navigate file lists with keyboard
 
 ### Event Log Viewer
-- **V**: Play video at selected time
+---
+
+## ⚙️**V**: Play video at selected time
 - **B**: Play Bazel at selected time
 - **S**: Show MCAP in Explorer
 - **Ctrl+F** or **/**: Focus search field
 - **Ctrl+A**: Select all text in search/filter fields
 - **Escape**: Clear search filter
 
-## Performance Optimizations
+---
 
-- **Batch file validation**: Efficient validation of multiple MCAP files
+## 🔧 Troubleshooting
+
+<details>
+<summary><b>MCAP files not found</b></summary>
+
+**Solutionion**: Efficient validation of multiple MCAP files
 - **Command-line length protection**: Prevents "Argument list too long" errors
 - **Process health monitoring**: Automatic cleanup of terminated processes
-- **Lazy loading**: Directories loaded on-demand for better performance
-- **Cached operations**: File metadata cached to reduce disk I/O
-- **Non-blocking operations**: Background threading for builds and long-running tasks
-- **Real-time feedback**: Animated status indicators for loading and building operations
+- Ensure NAS is connected
 
-## Configuration
+</details>
+
+<details>
+<summary><b>Bazel won't launch</b></summary>
+
+**Solutions**: File metadata cached to reduce disk I/O
+- **Non-blocking operations**: Background threading for builds and long-running tasks
+</details>
+
+<details>
+<summary><b>Event log timestamp issues</b></summary>
+
+</details>
+
+<details>
+<summary><b>Video playback not working</b></summary>
+
+**Solutioncators for loading and building operations
+
+</details>
+
+<details>
+<parameter name="summary"><b>Link analysis segmentation fault</b></summary>
+
+**Solution
 
 Settings are stored in `~/.foxglove_gui_settings.json` and include:
 - Bazel tool commands and working directory (e.g., `bazel run //tools/bag:gui`)
