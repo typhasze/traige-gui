@@ -181,9 +181,13 @@ class SettingsTab:
         # Buttons
         button_frame = ttk.Frame(self.frame)
         button_frame.pack(fill="x", padx=10, pady=5)
-        self.save_button = ttk.Button(button_frame, text="Save Settings", command=self.save_settings_button)
+        self.save_button = ttk.Button(
+            button_frame, text="Save Settings", command=self.save_settings_button, style="Action.TButton"
+        )
         self.save_button.pack(side=tk.LEFT, padx=5)
-        self.reset_button = ttk.Button(button_frame, text="Reset to Defaults", command=self.reset_settings_button)
+        self.reset_button = ttk.Button(
+            button_frame, text="Reset to Defaults", command=self.reset_settings_button, style="Action.TButton"
+        )
         self.reset_button.pack(side=tk.LEFT, padx=5)
 
     def save_settings_button(self):

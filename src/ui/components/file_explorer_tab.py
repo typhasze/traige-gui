@@ -126,7 +126,7 @@ class FileExplorerTab:
             return "break"  # Prevents the default listbox behavior for the key press
 
     def _create_button(self, parent, text, command, state=tk.NORMAL, **pack_opts):
-        btn = ttk.Button(parent, text=text, command=command, state=state)
+        btn = ttk.Button(parent, text=text, command=command, state=state, style="Action.TButton")
         btn.pack(padx=2, **pack_opts)
         return btn
 
@@ -473,6 +473,7 @@ class FileExplorerTab:
                 text="Play Video at Selected Time",
                 command=lambda: getattr(tree, "play_video_func", lambda: None)(),
                 state="disabled",
+                style="Action.TButton",
             )
             play_video_button.pack(side="left", padx=(0, 10))
 
@@ -490,7 +491,11 @@ class FileExplorerTab:
                             self.log_message(f"Error playing bazel: {e}", is_error=True)
 
             play_bazel_button = ttk.Button(
-                button_frame, text="Play Bazel at Selected Time", command=play_bazel, state="disabled"
+                button_frame,
+                text="Play Bazel at Selected Time",
+                command=play_bazel,
+                state="disabled",
+                style="Action.TButton",
             )
             play_bazel_button.pack(side="left", padx=(0, 10))
 
@@ -508,7 +513,11 @@ class FileExplorerTab:
                             self.log_message(f"Error navigating to MCAP: {e}", is_error=True)
 
             show_mcap_button = ttk.Button(
-                button_frame, text="Show MCAP in Explorer", command=show_mcap_in_explorer, state="disabled"
+                button_frame,
+                text="Show MCAP in Explorer",
+                command=show_mcap_in_explorer,
+                state="disabled",
+                style="Action.TButton",
             )
             show_mcap_button.pack(side="left", padx=(0, 10))
 
@@ -528,7 +537,7 @@ class FileExplorerTab:
             tree.bind("<<TreeviewSelect>>", lambda e: (on_row_select(e), update_play_button()))
             tree.bind("<Double-1>", on_double_click)
 
-            close_button = ttk.Button(button_frame, text="Close", command=viewer_window.destroy)
+            close_button = ttk.Button(button_frame, text="Close", command=viewer_window.destroy, style="Action.TButton")
             close_button.pack(side="right")
 
             # Status label showing number of events
@@ -573,7 +582,9 @@ class FileExplorerTab:
             search_var.trace_add("write", filter_events)
 
             # Add clear search button
-            clear_search_button = ttk.Button(search_frame, text="Clear", command=lambda: search_var.set(""))
+            clear_search_button = ttk.Button(
+                search_frame, text="Clear", command=lambda: search_var.set(""), style="Action.TButton"
+            )
             clear_search_button.pack(side="left", padx=(5, 0))
 
             # Update status with row count
@@ -714,12 +725,13 @@ class FileExplorerTab:
         self.analyze_link_folder = extracted_remote_folder
         self.analyze_link_filename = mcap_filename
 
-        if not extracted_remote_folder or not mcap_filename:
+        if not extracted_remote_folder:
             self.log_message("Could not extract information from link.", is_error=True)
             return
 
         self.log_message(f"Extracted remote folder: {extracted_remote_folder}")
-        self.log_message(f"MCAP file from link: {mcap_filename}")
+        if mcap_filename:
+            self.log_message(f"MCAP file from link: {mcap_filename}")
 
         local_folder = self.logic.get_local_folder_path(extracted_remote_folder)
         if not local_folder or not os.path.isdir(local_folder):

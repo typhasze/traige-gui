@@ -18,6 +18,9 @@ class FoxgloveAppGUIManager:
         self.logic = FoxgloveAppLogic(log_callback=self.log_message)
         self.file_explorer_logic = FileExplorerLogic()
 
+        # --- Configure Button Styles ---
+        self.setup_button_styles()
+
         # --- Main UI Frames ---
         self.root.title("Triage GUI")
         # self.root.geometry("1000x800") # Set a default size
@@ -94,6 +97,27 @@ class FoxgloveAppGUIManager:
 
         # Update status bar initially
         self.update_status_bar("Ready")
+
+    def setup_button_styles(self):
+        """Configure custom button styles for better visibility"""
+        style = ttk.Style()
+
+        # Create a custom button style with a more noticeable color
+        # Light blue background for better visibility
+        style.configure(
+            "Action.TButton",
+            background="#A7DCFF",  # Light blue
+            foreground="black",
+            borderwidth=2,
+            focusthickness=3,
+            focuscolor="none",
+            padding=6,
+        )
+
+        # Hover effect
+        style.map(
+            "Action.TButton", background=[("active", "#3498DB"), ("disabled", "#BDC3C7")]  # Darker blue on hover
+        )  # Gray when disabled
 
     def create_shared_action_buttons(self, parent_frame):
         """Creates the action buttons that are shared across tabs"""
@@ -499,7 +523,7 @@ class FoxgloveAppGUIManager:
 
     def _create_button(self, parent, text, command, state=tk.DISABLED, **pack_opts):
         """Helper to create and pack a ttk.Button with common options."""
-        btn = ttk.Button(parent, text=text, command=command, state=state)
+        btn = ttk.Button(parent, text=text, command=command, state=state, style="Action.TButton")
         btn.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x", **pack_opts)
         return btn
 
