@@ -42,7 +42,7 @@ class FileExplorerTab:
     def create_widgets(self):
         # Explorer path frame
         path_frame = ttk.Frame(self.frame)
-        path_frame.pack(fill="x", padx=5, pady=5)
+        path_frame.pack(fill="x", padx=5, pady=(5, 1))
 
         path_label = ttk.Label(path_frame, text="File Path:")
         path_label.pack(side=tk.LEFT, padx=(0, 5))
@@ -60,7 +60,7 @@ class FileExplorerTab:
 
         # Analyze Link frame
         link_frame = ttk.Frame(self.frame)
-        link_frame.pack(fill="x", padx=5, pady=5)
+        link_frame.pack(fill="x", padx=5, pady=1)
 
         link_label = ttk.Label(link_frame, text="Analyze Link:")
         link_label.pack(side=tk.LEFT, padx=(0, 5))
@@ -74,7 +74,7 @@ class FileExplorerTab:
 
         # Search frame
         search_frame = ttk.Frame(self.frame)
-        search_frame.pack(fill="x", padx=5, pady=5)
+        search_frame.pack(fill="x", padx=5, pady=(1, 5))
 
         search_label = ttk.Label(search_frame, text="Search Filter:")
         search_label.pack(side=tk.LEFT, padx=(0, 5))

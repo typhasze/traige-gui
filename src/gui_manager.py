@@ -141,7 +141,7 @@ class FoxgloveAppGUIManager:
             borderwidth=2,
             focusthickness=3,
             focuscolor="none",
-            padding=6,
+            padding=(6, 4),  # Horizontal padding 6px, vertical padding 4px
         )
 
         # Hover effect
