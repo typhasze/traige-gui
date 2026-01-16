@@ -275,9 +275,9 @@ triage_gui
 ### Event Log Viewer
 ---
 
-## ⚙️**V**: Play video at selected time
-- **B**: Play Bazel at selected time
-- **S**: Show MCAP in Explorer
+## ⚙️**V**: Video Playback
+- **B**: Rosbag Playback
+- **S**: MCAP Location
 - **Ctrl+F** or **/**: Focus search field
 - **Ctrl+A**: Select all text in search/filter fields
 - **Escape**: Clear search filter

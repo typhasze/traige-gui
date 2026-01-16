@@ -172,6 +172,8 @@ class SettingsTab:
                 ttk.Label(settings_frame, text=config["label"]).grid(row=row, column=0, sticky="w", padx=5, pady=2)
                 entry = ttk.Entry(settings_frame, textvariable=var, width=config.get("width", 40))
                 entry.grid(row=row, column=1, sticky="we", padx=5, pady=2)
+                # Prevent auto-selection when entry receives focus
+                entry.bind("<FocusIn>", lambda e: e.widget.selection_clear())
                 self.entries[key] = entry
             self.vars[key] = var
             row += 1

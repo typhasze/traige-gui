@@ -46,6 +46,9 @@ class FoxgloveAppGUIManager:
             self._update_button_states,
         )
 
+        # Register callback for focusing file explorer tab
+        self.file_explorer_tab.focus_file_explorer_tab = self.focus_file_explorer_tab
+
         # Link NAS directory to file explorer path at start if not set
         # Create a temporary settings object to check and set nas_dir before creating SettingsTab
         temp_settings_path = os.path.expanduser("~/.foxglove_gui_settings.json")
@@ -85,6 +88,33 @@ class FoxgloveAppGUIManager:
         # --- Shared Components ---
         self.create_shared_log_frame(main_frame)
         self.create_status_bar()
+
+        # Check if NAS directory exists and log error if not (after log widget is created)
+        nas_dir = self.settings_tab.get_setting("nas_dir")
+        if nas_dir:
+            if not os.path.exists(nas_dir):
+                self.log_message(
+                    f"⚠️ NAS directory not found: {nas_dir} - "
+                    "Please check if NAS is mounted or update path in Settings",
+                    is_error=True,
+                )
+            elif not os.path.isdir(nas_dir):
+                self.log_message(f"⚠️ NAS path exists but is not a directory: {nas_dir}", is_error=True)
+            elif not os.access(nas_dir, os.R_OK):
+                self.log_message(
+                    f"⚠️ NAS directory exists but is not accessible (permission denied): {nas_dir}", is_error=True
+                )
+            else:
+                # Check if directory is empty (NAS not mounted)
+                try:
+                    if not os.listdir(nas_dir):
+                        self.log_message(
+                            f"⚠️ NAS directory is empty: {nas_dir} - "
+                            "NAS may not be mounted. Please run 'mount_all_nas' or check network connection.",
+                            is_error=True,
+                        )
+                except Exception as e:
+                    self.log_message(f"⚠️ Could not check NAS directory contents: {nas_dir} - {e}", is_error=True)
 
         # --- Initial State ---
         self._cache_tab_indices()
@@ -766,3 +796,9 @@ class FoxgloveAppGUIManager:
     def update_file_explorer_logging_dir(self, new_logging_dir):
         """Update the file explorer's logging directory."""
         self.file_explorer_tab.update_logging_root(new_logging_dir)
+
+    def focus_file_explorer_tab(self):
+        """Switch to the File Explorer tab and bring window to front."""
+        self.main_notebook.select(self.file_explorer_tab.frame)
+        self.root.lift()
+        self.root.focus_force()

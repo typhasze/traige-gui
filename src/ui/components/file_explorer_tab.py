@@ -14,6 +14,8 @@ class FileExplorerTab:
         self.file_explorer_logic = file_explorer_logic
         self.log_message = log_message
         self._update_button_states = update_button_states
+        self.focus_file_explorer_tab = None  # Callback to switch to file explorer tab
+        self.focus_file_explorer_tab = None  # Callback to switch to file explorer tab
 
         # State
         self._data_root = os.path.expanduser("~/data")
@@ -48,6 +50,8 @@ class FileExplorerTab:
         self.explorer_path_var = tk.StringVar(value=self.current_explorer_path)
         self.explorer_path_entry = ttk.Entry(path_frame, textvariable=self.explorer_path_var, state="readonly")
         self.explorer_path_entry.pack(side=tk.LEFT, fill="x", expand=True)
+        # Prevent auto-selection when entry receives focus
+        self.explorer_path_entry.bind("<FocusIn>", lambda e: e.widget.selection_clear())
 
         # Navigation buttons
         self.go_home_button = self._create_button(path_frame, "Home", self.go_home_directory, side=tk.LEFT)
@@ -391,6 +395,9 @@ class FileExplorerTab:
             search_var = tk.StringVar()
             search_entry = ttk.Entry(search_frame, textvariable=search_var, width=40)
             search_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+            # Add Ctrl+A support for search entry
+            search_entry.bind("<Control-a>", self.select_all_text)
+            search_entry.bind("<Control-A>", self.select_all_text)
 
             # Filter result label
             filter_result_label = ttk.Label(search_frame, text="")
@@ -470,7 +477,7 @@ class FileExplorerTab:
             # Play Video button
             play_video_button = ttk.Button(
                 button_frame,
-                text="Play Video at Selected Time",
+                text="Video Playback",
                 command=lambda: getattr(tree, "play_video_func", lambda: None)(),
                 state="disabled",
                 style="Action.TButton",
@@ -492,7 +499,7 @@ class FileExplorerTab:
 
             play_bazel_button = ttk.Button(
                 button_frame,
-                text="Play Bazel at Selected Time",
+                text="Rosbag Play",
                 command=play_bazel,
                 state="disabled",
                 style="Action.TButton",
@@ -514,7 +521,7 @@ class FileExplorerTab:
 
             show_mcap_button = ttk.Button(
                 button_frame,
-                text="Show MCAP in Explorer",
+                text="MCAP Location",
                 command=show_mcap_in_explorer,
                 state="disabled",
                 style="Action.TButton",
@@ -1116,6 +1123,10 @@ class FileExplorerTab:
             # Select and highlight the MCAP file in the listbox
             self.explorer_listbox.after(100, lambda: self._select_file_in_listbox(mcap_filename))
             self.explorer_listbox.after(150, lambda: self.highlight_file_in_explorer(mcap_filename))
+
+            # Switch to file explorer tab
+            if self.focus_file_explorer_tab:
+                self.explorer_listbox.after(200, self.focus_file_explorer_tab)
 
             self.log_message(f"Navigated to MCAP: {mcap_filename} (offset: ~{start_offset:.1f}s)")
 
