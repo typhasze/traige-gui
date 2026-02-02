@@ -783,7 +783,7 @@ class FoxgloveAppLogic:
 
         return self._launch_process(command, "Bazel Bag GUI", cwd=self.bazel_working_dir, mcap_path=mcap_path)
 
-    def play_bazel_bag_gui_with_symlinks(self, mcap_filepaths, settings):
+    def play_bazel_bag_gui_with_symlinks(self, mcap_filepaths, settings, start_time=None):
         self.bazel_working_dir = self.get_bazel_working_dir(settings)
         symlink_logic = SymlinkPlaybackLogic(log_callback=self.log_callback)
         symlink_dir, error = symlink_logic.prepare_symlinks(mcap_filepaths)
@@ -797,7 +797,14 @@ class FoxgloveAppLogic:
         mcap_files_str = " ".join([f'"{f}"' for f in mcap_files])
         base_command = settings.get("bazel_bag_gui_cmd")
         rate = settings.get("bazel_bag_gui_rate", 1.0)
-        command = f"{base_command} -- --rate={rate} {mcap_files_str}"
+
+        # Build command with start offset if provided
+        if start_time is not None:
+            command = f"{base_command} -- --start-offset {int(start_time)} --rate={rate} {mcap_files_str}"
+            self.log_callback(f"Starting playback at offset: {int(start_time)}s")
+        else:
+            command = f"{base_command} -- --rate={rate} {mcap_files_str}"
+
         # Pass symlink_dir as mcap_path for verification logic
         message, error = self._launch_process(
             command, "Bazel Bag GUI", cwd=self.bazel_working_dir, mcap_path=symlink_dir

@@ -15,7 +15,6 @@ class FileExplorerTab:
         self.log_message = log_message
         self._update_button_states = update_button_states
         self.focus_file_explorer_tab = None  # Callback to switch to file explorer tab
-        self.focus_file_explorer_tab = None  # Callback to switch to file explorer tab
 
         # State
         self._data_root = os.path.expanduser("~/data")
@@ -484,7 +483,7 @@ class FileExplorerTab:
             )
             play_video_button.pack(side="left", padx=(0, 10))
 
-            # Play Bazel button
+            # Play Bazel button (at timestamp)
             def play_bazel():
                 selected_items = tree.selection()
                 if selected_items:
@@ -505,6 +504,28 @@ class FileExplorerTab:
                 style="Action.TButton",
             )
             play_bazel_button.pack(side="left", padx=(0, 10))
+
+            # Play Bazel from Start button
+            def play_bazel_from_start():
+                selected_items = tree.selection()
+                if selected_items:
+                    item = selected_items[0]
+                    values = tree.item(item)["values"]
+                    if values and len(values) >= 1:
+                        current_time = values[0]
+                        try:
+                            self.play_bazel_from_start(file_path, current_time)
+                        except Exception as e:
+                            self.log_message(f"Error playing bazel from start: {e}", is_error=True)
+
+            play_bazel_start_button = ttk.Button(
+                button_frame,
+                text="Play from Start",
+                command=play_bazel_from_start,
+                state="disabled",
+                style="Action.TButton",
+            )
+            play_bazel_start_button.pack(side="left", padx=(0, 10))
 
             # Show MCAP in Explorer button
             def show_mcap_in_explorer():
@@ -535,10 +556,12 @@ class FileExplorerTab:
                     if hasattr(tree, "play_video_func"):
                         play_video_button.config(state="normal")
                     play_bazel_button.config(state="normal")
+                    play_bazel_start_button.config(state="normal")
                     show_mcap_button.config(state="normal")
                 else:
                     play_video_button.config(state="disabled")
                     play_bazel_button.config(state="disabled")
+                    play_bazel_start_button.config(state="disabled")
                     show_mcap_button.config(state="disabled")
 
             tree.bind("<<TreeviewSelect>>", lambda e: (on_row_select(e), update_play_button()))
@@ -986,7 +1009,8 @@ class FileExplorerTab:
             return None, 0
 
     def find_mcap_for_timestamp(self, event_log_path, event_time):
-        """Find the MCAP file that contains the specified timestamp."""
+        """Find the MCAP file that contains the specified timestamp.
+        If event_time is None, return the first available MCAP file."""
         try:
             # Extract date from event log path
             # Example: ~/data/20250919/TG-7737/PSA8600/logs -> ~/data/20250919/TG-7737/PSA8600/rosbags/default/...
@@ -1009,6 +1033,13 @@ class FileExplorerTab:
             if not mcap_files:
                 self.log_message(f"No MCAP files found in: {rosbags_dir}", is_error=True)
                 return None, None
+
+            # If no event_time provided, return the first MCAP file (for playing from start)
+            if event_time is None:
+                # Sort by filename to get a consistent result
+                mcap_files.sort()
+                self.log_message(f"Using MCAP: {os.path.basename(mcap_files[0])}")
+                return mcap_files[0], 0
 
             # Parse MCAP filenames to find the one that contains our timestamp
             # MCAP format examples: 2025-09-19_09-35-23.mcap or similar
@@ -1047,8 +1078,93 @@ class FileExplorerTab:
             self.log_message(f"Error finding MCAP for timestamp: {e}", is_error=True)
             return None, None
 
+    def find_mcap_with_buffer(self, event_log_path, event_time, buffer_seconds=30):
+        """Find MCAP files needed to play with a time buffer before the event.
+        Returns (mcap_files_list, adjusted_offset) where mcap_files_list contains
+        files needed and adjusted_offset is the start time within the combined files."""
+        try:
+            # Extract date from event log path
+            log_dir = os.path.dirname(event_log_path)
+            base_dir = os.path.dirname(log_dir)
+            rosbags_dir = os.path.join(base_dir, "rosbags", "default")
+
+            if not os.path.exists(rosbags_dir):
+                self.log_message(f"Rosbags directory not found: {rosbags_dir}", is_error=True)
+                return None, None
+
+            # Find all MCAP files and parse their timestamps
+            mcap_files_with_times = []
+            for root, dirs, files in os.walk(rosbags_dir):
+                for file in files:
+                    if file.endswith(".mcap"):
+                        mcap_path = os.path.join(root, file)
+                        timestamp_part = file.replace(".mcap", "")
+                        mcap_start_time = self.parse_timestamp(timestamp_part)
+                        if mcap_start_time:
+                            mcap_files_with_times.append((mcap_path, mcap_start_time))
+
+            if not mcap_files_with_times:
+                self.log_message(f"No MCAP files found in: {rosbags_dir}", is_error=True)
+                return None, None
+
+            # Sort by start time
+            mcap_files_with_times.sort(key=lambda x: x[1])
+
+            # Find the MCAP that contains the event
+            target_mcap_idx = None
+            for idx, (mcap_file, start_time) in enumerate(mcap_files_with_times):
+                if event_time >= start_time:
+                    target_mcap_idx = idx
+
+            if target_mcap_idx is None:
+                self.log_message("No suitable MCAP file found for the timestamp", is_error=True)
+                return None, None
+
+            target_mcap, target_start_time = mcap_files_with_times[target_mcap_idx]
+
+            # Calculate the desired playback start time (30 seconds before event)
+            from datetime import timedelta
+
+            buffered_time = event_time - timedelta(seconds=buffer_seconds)
+
+            # Check if buffered time falls into previous MCAP
+            if target_mcap_idx > 0:
+                prev_mcap, prev_start_time = mcap_files_with_times[target_mcap_idx - 1]
+
+                # If buffered time is before the current MCAP's start, we need the previous MCAP
+                if buffered_time < target_start_time:
+                    # Check if buffered time falls within previous MCAP
+                    if buffered_time >= prev_start_time:
+                        # Need both previous and current MCAP
+                        time_diff = buffered_time - prev_start_time
+                        offset_seconds = time_diff.total_seconds()
+                        self.log_message(
+                            f"Using MCAPs: {os.path.basename(prev_mcap)} + {os.path.basename(target_mcap)}, "
+                            f"offset: {offset_seconds:.1f}s (30s buffer)"
+                        )
+                        return [prev_mcap, target_mcap], offset_seconds
+                    else:
+                        # Buffered time is before previous MCAP, just use current MCAP from start
+                        self.log_message(
+                            f"Buffer time exceeds available data, starting from beginning of "
+                            f"{os.path.basename(target_mcap)}"
+                        )
+                        return [target_mcap], 0
+
+            # Buffered time is within the current MCAP
+            time_diff = buffered_time - target_start_time
+            offset_seconds = max(0, time_diff.total_seconds())  # Don't go negative
+
+            self.log_message(f"Using MCAP: {os.path.basename(target_mcap)}, offset: {offset_seconds:.1f}s (30s buffer)")
+            return [target_mcap], offset_seconds
+
+        except Exception as e:
+            self.log_message(f"Error finding MCAP with buffer: {e}", is_error=True)
+            return None, None
+
     def play_bazel_at_timestamp(self, event_log_path, timestamp_str):
-        """Play rosbag at the specified timestamp using Bazel Bag GUI."""
+        """Play rosbag at the specified timestamp using Bazel Bag GUI.
+        Starts playback 30 seconds before the event timestamp."""
         try:
             # Parse the timestamp from the event log
             event_time = self.parse_timestamp(timestamp_str)
@@ -1056,8 +1172,61 @@ class FileExplorerTab:
                 self.log_message(f"Could not parse timestamp: {timestamp_str}", is_error=True)
                 return
 
-            # Find the corresponding MCAP file and offset
-            mcap_file, start_offset = self.find_mcap_for_timestamp(event_log_path, event_time)
+            # Find the corresponding MCAP files with 30-second buffer
+            mcap_files, start_offset = self.find_mcap_with_buffer(event_log_path, event_time, buffer_seconds=30)
+            if not mcap_files:
+                self.log_message("No matching MCAP file found", is_error=True)
+                return
+
+            # Get settings from the logic's GUI manager (if available)
+            try:
+                # Try to get settings from parent GUI manager
+                settings = getattr(self.logic, "settings", {})
+                if not settings:
+                    # Fallback to default settings
+                    from ...core_logic import DEFAULT_SETTINGS
+
+                    settings = DEFAULT_SETTINGS.copy()
+            except (AttributeError, ImportError):
+                # Fallback to default settings
+                from ...core_logic import DEFAULT_SETTINGS
+
+                settings = DEFAULT_SETTINGS.copy()
+
+            # Launch bazel bag gui with the MCAP file(s) and start offset
+            if len(mcap_files) > 1:
+                # Multiple MCAPs - use symlink playback
+                self.log_message(f"Launching Bazel Bag GUI with combined MCAPs at offset {int(start_offset)}s...")
+                message, error, symlink_dir = self.logic.play_bazel_bag_gui_with_symlinks(
+                    mcap_files, settings, start_time=start_offset
+                )
+            else:
+                # Single MCAP - use normal playback
+                self.log_message(
+                    f"Launching Bazel Bag GUI with {os.path.basename(mcap_files[0])} at offset {int(start_offset)}s..."
+                )
+                message, error = self.logic.launch_bazel_bag_gui(mcap_files[0], settings, start_time=start_offset)
+
+            if message:
+                self.log_message(message)
+            if error:
+                self.log_message(error, is_error=True)
+
+        except Exception as e:
+            self.log_message(f"Error playing bazel at timestamp: {e}", is_error=True)
+
+    def play_bazel_from_start(self, event_log_path, timestamp_str):
+        """Play rosbag from the start without seeking to a specific timestamp.
+        Uses the timestamp to identify which rosbag file to play."""
+        try:
+            # Parse the timestamp from the event log to identify the correct MCAP
+            event_time = self.parse_timestamp(timestamp_str)
+            if not event_time:
+                self.log_message(f"Could not parse timestamp: {timestamp_str}", is_error=True)
+                return
+
+            # Find the corresponding MCAP file (but we'll play from start, so offset doesn't matter)
+            mcap_file, _ = self.find_mcap_for_timestamp(event_log_path, event_time)
             if not mcap_file:
                 self.log_message("No matching MCAP file found", is_error=True)
                 return
@@ -1077,11 +1246,9 @@ class FileExplorerTab:
 
                 settings = DEFAULT_SETTINGS.copy()
 
-            # Launch bazel bag gui with the MCAP file and start offset
-            self.log_message(
-                f"Launching Bazel Bag GUI with {os.path.basename(mcap_file)} at offset {int(start_offset)}s..."
-            )
-            message, error = self.logic.launch_bazel_bag_gui(mcap_file, settings, start_time=start_offset)
+            # Launch bazel bag gui without start offset (play from beginning)
+            self.log_message(f"Launching Bazel Bag GUI with {os.path.basename(mcap_file)} from start...")
+            message, error = self.logic.launch_bazel_bag_gui(mcap_file, settings, start_time=None)
 
             if message:
                 self.log_message(message)
@@ -1089,7 +1256,7 @@ class FileExplorerTab:
                 self.log_message(error, is_error=True)
 
         except Exception as e:
-            self.log_message(f"Error playing bazel at timestamp: {e}", is_error=True)
+            self.log_message(f"Error playing bazel from start: {e}", is_error=True)
 
     def navigate_to_mcap_from_timestamp(self, event_log_path, timestamp_str):
         """Navigate to the MCAP file in the file explorer based on the timestamp."""

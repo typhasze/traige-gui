@@ -197,6 +197,11 @@ class FoxgloveAppGUIManager:
         self.log_text.pack(side="left", fill="both", expand=True)
 
     def log_message(self, message, is_error=False, clear_first=False):
+        # Check if log_text widget exists yet (it's created after some tabs are initialized)
+        if not hasattr(self, "log_text"):
+            # Silently ignore logging during early initialization
+            return
+
         self.log_text.config(state=tk.NORMAL)
         if clear_first:
             self.log_text.delete("1.0", tk.END)
