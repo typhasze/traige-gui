@@ -31,6 +31,10 @@ class FileExplorerTab:
         self.analyze_link_filename = None
         self.analyze_link_folder = None
 
+        # Track event log viewers and their associated processes
+        self.event_log_viewers = {}  # {window_id: {"window": tk.Toplevel, "processes": []}}
+        self._next_viewer_id = 0
+
         # UI Widgets
         self.create_widgets()
         self.bind_events()
@@ -370,10 +374,24 @@ class FileExplorerTab:
     def open_event_log_viewer(self, file_path):
         """Open a custom viewer for event log files."""
         try:
+            # Assign unique ID for this viewer
+            viewer_id = self._next_viewer_id
+            self._next_viewer_id += 1
+
             # Create a new window for the event log viewer
             viewer_window = tk.Toplevel(self.root)
             viewer_window.title(f"Event Log Viewer - {os.path.basename(file_path)}")
             viewer_window.geometry("1000x600")
+
+            # Track this viewer
+            self.event_log_viewers[viewer_id] = {"window": viewer_window, "processes": [], "file_path": file_path}
+
+            # Cleanup handler for when viewer closes
+            def on_viewer_close():
+                self._cleanup_viewer_processes(viewer_id)
+                viewer_window.destroy()
+
+            viewer_window.protocol("WM_DELETE_WINDOW", on_viewer_close)
 
             # Create main frame
             main_frame = ttk.Frame(viewer_window, padding="10")
@@ -456,7 +474,7 @@ class FileExplorerTab:
                         # Add double-click or button to play video
                         def play_video():
                             try:
-                                self.play_video_at_timestamp(file_path, current_time)
+                                self.play_video_at_timestamp(file_path, current_time, viewer_id=viewer_id)
                             except Exception as e:
                                 self.log_message(f"Error playing video: {e}", is_error=True)
 
@@ -491,7 +509,7 @@ class FileExplorerTab:
                     if values and len(values) >= 1:
                         current_time = values[0]
                         try:
-                            self.play_bazel_at_timestamp(file_path, current_time)
+                            self.play_bazel_at_timestamp(file_path, current_time, viewer_id=viewer_id)
                         except Exception as e:
                             self.log_message(f"Error playing bazel: {e}", is_error=True)
 
@@ -513,7 +531,7 @@ class FileExplorerTab:
                     if values and len(values) >= 1:
                         current_time = values[0]
                         try:
-                            self.play_bazel_from_start(file_path, current_time)
+                            self.play_bazel_from_start(file_path, current_time, viewer_id=viewer_id)
                         except Exception as e:
                             self.log_message(f"Error playing bazel from start: {e}", is_error=True)
 
@@ -566,7 +584,7 @@ class FileExplorerTab:
             tree.bind("<<TreeviewSelect>>", lambda e: (on_row_select(e), update_play_button()))
             tree.bind("<Double-1>", on_double_click)
 
-            close_button = ttk.Button(button_frame, text="Close", command=viewer_window.destroy, style="Action.TButton")
+            close_button = ttk.Button(button_frame, text="Close", command=on_viewer_close, style="Action.TButton")
             close_button.pack(side="right")
 
             # Status label showing number of events
@@ -859,7 +877,7 @@ class FileExplorerTab:
         except Exception as e:
             self.log_message(f"Error highlighting directory: {e}", is_error=False)
 
-    def play_video_at_timestamp(self, event_log_path, timestamp_str):
+    def play_video_at_timestamp(self, event_log_path, timestamp_str, viewer_id=None):
         """Play video at the specified timestamp using mpv."""
         try:
             # Parse the timestamp from the event log
@@ -878,7 +896,13 @@ class FileExplorerTab:
             self.log_message(f"Playing video: {os.path.basename(video_file)} at {start_offset}s")
 
             settings = self._get_runtime_settings()
-            message, error = self.logic.launch_mpv_video(video_file, start_offset, settings)
+            message, error, proc_id = self.logic.launch_mpv_video(video_file, start_offset, settings)
+
+            # Track the process for this viewer
+            if viewer_id is not None and proc_id is not None:
+                if viewer_id in self.event_log_viewers:
+                    self.event_log_viewers[viewer_id]["processes"].append(proc_id)
+
             if message:
                 self.log_message(message)
             if error:
@@ -894,6 +918,25 @@ class FileExplorerTab:
 
             settings = DEFAULT_SETTINGS.copy()
         return settings
+
+    def _cleanup_viewer_processes(self, viewer_id):
+        """Clean up processes associated with a specific event log viewer."""
+        if viewer_id not in self.event_log_viewers:
+            return
+
+        viewer_info = self.event_log_viewers[viewer_id]
+        process_ids = viewer_info.get("processes", [])
+
+        if process_ids:
+            self.log_message(f"Closing {len(process_ids)} process(es) for event log viewer...")
+            for proc_id in process_ids:
+                try:
+                    self.logic.terminate_process_by_id(proc_id)
+                except Exception as e:
+                    self.log_message(f"Error terminating process: {e}", is_error=True)
+
+        # Remove viewer from tracking
+        del self.event_log_viewers[viewer_id]
 
     def parse_timestamp(self, timestamp_str):
         """Parse timestamp string to datetime object."""
@@ -1172,7 +1215,7 @@ class FileExplorerTab:
             self.log_message(f"Error finding MCAP with buffer: {e}", is_error=True)
             return None, None
 
-    def play_bazel_at_timestamp(self, event_log_path, timestamp_str):
+    def play_bazel_at_timestamp(self, event_log_path, timestamp_str, viewer_id=None):
         """Play rosbag at the specified timestamp using Bazel Bag GUI.
         Starts playback 30 seconds before the event timestamp."""
         try:
@@ -1200,7 +1243,7 @@ class FileExplorerTab:
             if len(mcap_files) > 1:
                 # Multiple MCAPs - use symlink playback
                 self.log_message(f"Launching Bazel Bag GUI with combined MCAPs at offset {int(start_offset)}s...")
-                message, error, symlink_dir = self.logic.play_bazel_bag_gui_with_symlinks(
+                message, error, symlink_dir, proc_id = self.logic.play_bazel_bag_gui_with_symlinks(
                     mcap_files, settings, start_time=start_offset
                 )
             else:
@@ -1208,7 +1251,14 @@ class FileExplorerTab:
                 self.log_message(
                     f"Launching Bazel Bag GUI with {os.path.basename(mcap_files[0])} at offset {int(start_offset)}s..."
                 )
-                message, error = self.logic.launch_bazel_bag_gui(mcap_files[0], settings, start_time=start_offset)
+                message, error, proc_id = self.logic.launch_bazel_bag_gui(
+                    mcap_files[0], settings, start_time=start_offset
+                )
+
+            # Track the process for this viewer
+            if viewer_id is not None and proc_id is not None:
+                if viewer_id in self.event_log_viewers:
+                    self.event_log_viewers[viewer_id]["processes"].append(proc_id)
 
             if message:
                 self.log_message(message)
@@ -1218,7 +1268,7 @@ class FileExplorerTab:
         except Exception as e:
             self.log_message(f"Error playing bazel at timestamp: {e}", is_error=True)
 
-    def play_bazel_from_start(self, event_log_path, timestamp_str):
+    def play_bazel_from_start(self, event_log_path, timestamp_str, viewer_id=None):
         """Play rosbag from the start without seeking to a specific timestamp.
         Uses the timestamp to identify which rosbag file to play."""
         try:
@@ -1244,7 +1294,12 @@ class FileExplorerTab:
 
             # Launch bazel bag gui without start offset (play from beginning)
             self.log_message(f"Launching Bazel Bag GUI with {os.path.basename(mcap_file)} from start...")
-            message, error = self.logic.launch_bazel_bag_gui(mcap_file, settings, start_time=None)
+            message, error, proc_id = self.logic.launch_bazel_bag_gui(mcap_file, settings, start_time=None)
+
+            # Track the process for this viewer
+            if viewer_id is not None and proc_id is not None:
+                if viewer_id in self.event_log_viewers:
+                    self.event_log_viewers[viewer_id]["processes"].append(proc_id)
 
             if message:
                 self.log_message(message)

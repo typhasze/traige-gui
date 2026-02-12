@@ -231,7 +231,7 @@ class FoxgloveAppGUIManager:
 
     def launch_bazel_viz(self):
         self.log_message("Launching Bazel Tools Viz...")
-        message, error = self.logic.launch_bazel_tools_viz(self.settings_tab.settings)
+        message, error, _ = self.logic.launch_bazel_tools_viz(self.settings_tab.settings)
         if message:
             self.log_message(message)
         if error:
@@ -638,7 +638,7 @@ class FoxgloveAppGUIManager:
         if file_count == 1:
             file_name = os.path.basename(mcap_files[0])
             self.log_message(f"Launching Foxglove with {file_name}...")
-            message, error = self.logic.launch_foxglove(mcap_files[0], self.settings_tab.settings)
+            message, error, _ = self.logic.launch_foxglove(mcap_files[0], self.settings_tab.settings)
         else:
             # Show progress for multiple files
             if file_count <= 5:
@@ -648,7 +648,7 @@ class FoxgloveAppGUIManager:
                 first_three = ", ".join([os.path.basename(f) for f in mcap_files[:3]])
                 self.log_message(f"Launching Foxglove with {file_count} files (showing first 3): {first_three}...")
 
-            message, error = self.logic.launch_foxglove(mcap_files, self.settings_tab.settings)
+            message, error, _ = self.logic.launch_foxglove(mcap_files, self.settings_tab.settings)
 
         # Hide progress and provide feedback
         self.show_progress(False)
@@ -683,7 +683,7 @@ class FoxgloveAppGUIManager:
         if len(mcap_files) == 1:
             self.log_message(f"Launching Bazel Bag GUI with {os.path.basename(mcap_files[0])}...")
             self.update_status_bar("Launching Bazel Bag GUI...", "1 file selected")
-            message, error = self.logic.launch_bazel_bag_gui(mcap_files[0], self.settings_tab.settings)
+            message, error, _ = self.logic.launch_bazel_bag_gui(mcap_files[0], self.settings_tab.settings)
             if message:
                 self.log_message(message)
             if error:
@@ -691,7 +691,7 @@ class FoxgloveAppGUIManager:
         else:
             self.log_message(f"Launching Bazel Bag GUI with {len(mcap_files)} files...")
             self.update_status_bar(f"Loading {file_count} MCAP files...", f"{file_count} files selected")
-            message, error, symlink_dir = self.logic.play_bazel_bag_gui_with_symlinks(
+            message, error, symlink_dir, _ = self.logic.play_bazel_bag_gui_with_symlinks(
                 mcap_files, self.settings_tab.settings
             )
             if message:

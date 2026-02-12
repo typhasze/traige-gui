@@ -49,6 +49,7 @@ class FoxgloveAppLogic:
         self.backup_base_path_absolute = DEFAULT_BACKUP_PATH
         self.bazel_working_dir = None
         self.settings = DEFAULT_SETTINGS.copy()
+        self._process_id_counter = 0
         self.log_callback = log_callback or (lambda *args, **kwargs: None)
 
         # Process health monitoring
@@ -454,7 +455,7 @@ class FoxgloveAppLogic:
             if mcap_path:
                 return self.launch_foxglove_browser(mcap_path)
             else:
-                return None, "No MCAP file path provided for browser launch."
+                return None, "No MCAP file path provided for browser launch.", None
 
         # Use shell=True for commands that are strings, False for lists of args
         use_shell = isinstance(command, str)
@@ -502,6 +503,7 @@ class FoxgloveAppLogic:
                     return (
                         None,
                         f"Process {name} failed to start (exited immediately). Check command and working directory.",
+                        None,
                     )
 
             except subprocess.TimeoutExpired:
@@ -510,6 +512,8 @@ class FoxgloveAppLogic:
             except Exception as e:
                 self.log_callback(f"Warning: Could not validate startup for {name}: {e}", is_error=True)
 
+            proc_id = self._process_id_counter
+            self._process_id_counter += 1
             self.running_processes.append(
                 {
                     "name": name,
@@ -518,26 +522,27 @@ class FoxgloveAppLogic:
                     "command": command,
                     "cwd": cwd,
                     "start_time": time.time(),  # Add timestamp for monitoring
+                    "id": proc_id,  # Unique ID for this process
                 }
             )
 
-            return f"{name} launched (PID: {proc.pid}).", None
+            return f"{name} launched (PID: {proc.pid}).", None, proc_id
 
         except FileNotFoundError:
             cmd_str = command if use_shell else command[0]
-            return None, f"Command for '{name}' ('{cmd_str}') not found. Ensure it's installed and in PATH."
+            return None, f"Command for '{name}' ('{cmd_str}') not found. Ensure it's installed and in PATH.", None
         except PermissionError as e:
-            return None, f"Permission denied launching {name}: {e}"
+            return None, f"Permission denied launching {name}: {e}", None
         except OSError as e:
             # Handle system-level errors (e.g., command too long)
             if "Argument list too long" in str(e):
-                return None, f"Command too long for {name}. Try selecting fewer files."
+                return None, f"Command too long for {name}. Try selecting fewer files.", None
             elif "No such file or directory" in str(e):
-                return None, f"Command not found for {name}. Check installation and PATH."
+                return None, f"Command not found for {name}. Check installation and PATH.", None
             else:
-                return None, f"System error launching {name}: {e}"
+                return None, f"System error launching {name}: {e}", None
         except Exception as e:
-            return None, f"Failed to launch {name}: {e}"
+            return None, f"Failed to launch {name}: {e}", None
 
     def launch_foxglove(self, mcap_filepath_absolute, settings):
         """
@@ -557,7 +562,7 @@ class FoxgloveAppLogic:
 
         # Early validation: empty list check
         if not mcap_filepaths:
-            return None, "No MCAP files provided"
+            return None, "No MCAP files provided", None
 
         open_in_browser = settings.get("open_foxglove_in_browser", False)
 
@@ -585,10 +590,10 @@ class FoxgloveAppLogic:
         """
         # Early validation for better performance
         if not mcap_filepath_absolute:
-            return None, "No MCAP file path provided"
+            return None, "No MCAP file path provided", None
 
         if not os.path.isfile(mcap_filepath_absolute):
-            return None, f"MCAP file not found: {os.path.basename(mcap_filepath_absolute)}"
+            return None, f"MCAP file not found: {os.path.basename(mcap_filepath_absolute)}", None
 
         # Use optimized command format
         command = ["foxglove-studio", "--file", mcap_filepath_absolute]
@@ -602,7 +607,7 @@ class FoxgloveAppLogic:
         Optimized for performance with batch validation and command size limits.
         """
         if not mcap_filepaths:
-            return None, "No MCAP files provided"
+            return None, "No MCAP files provided", None
 
         # Performance optimization: batch validate all files at once
         validation_results = self._batch_validate_files(mcap_filepaths)
@@ -611,14 +616,14 @@ class FoxgloveAppLogic:
             if missing_count <= 3:
                 # Show specific files if few are missing
                 missing_names = [os.path.basename(f) for f in validation_results["missing_files"]]
-                return None, f"MCAP files not found: {', '.join(missing_names)}"
+                return None, f"MCAP files not found: {', '.join(missing_names)}", None
             else:
                 # Show count if many are missing
-                return None, f"{missing_count} MCAP files not found"
+                return None, f"{missing_count} MCAP files not found", None
 
         valid_files = validation_results["valid_files"]
         if not valid_files:
-            return None, "No valid MCAP files found"
+            return None, "No valid MCAP files found", None
 
         # Apply user-configured file limit for performance
         max_files = getattr(self, "_max_foxglove_files", 50)  # Default fallback
@@ -717,7 +722,7 @@ class FoxgloveAppLogic:
         Returns a tuple: (message, error)
         """
         if not os.path.isfile(mcap_filepath_absolute):
-            return None, f"MCAP file not found: {mcap_filepath_absolute}"
+            return None, f"MCAP file not found: {mcap_filepath_absolute}", None
 
         # Encode the file path for URL
         prefix = os.path.expanduser("~/data")
@@ -731,13 +736,13 @@ class FoxgloveAppLogic:
         # Open in default web browser with timeout
         try:
             subprocess.run(["xdg-open", url], check=True, timeout=10)
-            return f"Foxglove Studio launched in browser with {os.path.basename(mcap_filepath_absolute)}.", None
+            return f"Foxglove Studio launched in browser with {os.path.basename(mcap_filepath_absolute)}.", None, None
         except subprocess.TimeoutExpired:
-            return None, "Timeout launching browser for Foxglove Studio"
+            return None, "Timeout launching browser for Foxglove Studio", None
         except subprocess.CalledProcessError as e:
-            return None, f"Failed to launch browser: {e}"
+            return None, f"Failed to launch browser: {e}", None
         except Exception as e:
-            return None, f"Failed to launch Foxglove Studio in browser: {e}"
+            return None, f"Failed to launch Foxglove Studio in browser: {e}", None
 
     def launch_bazel_tools_viz(self, settings):
         self.bazel_working_dir = self.get_bazel_working_dir(settings)
@@ -833,22 +838,22 @@ class FoxgloveAppLogic:
             command = f"{base_command} -- --rate={rate} {mcap_files_str}"
 
         # Pass symlink_dir as mcap_path for verification logic
-        message, error = self._launch_process(
+        message, error, proc_id = self._launch_process(
             command,
             "Bazel Bag GUI",
             cwd=self.bazel_working_dir,
             mcap_path=symlink_dir,
             single_instance=single_instance,
         )
-        return message, error, symlink_dir
+        return message, error, symlink_dir, proc_id
 
     def launch_mpv_video(self, video_filepath, start_offset, settings):
         """Launch mpv for video playback with optional single-instance behavior."""
         if not video_filepath:
-            return None, "No video file path provided"
+            return None, "No video file path provided", None
 
         if not os.path.isfile(video_filepath):
-            return None, f"Video file not found: {os.path.basename(video_filepath)}"
+            return None, f"Video file not found: {os.path.basename(video_filepath)}", None
 
         single_instance = settings.get("single_instance_video", True)
         command = ["mpv", f"--start={int(start_offset)}", video_filepath]
@@ -867,6 +872,41 @@ class FoxgloveAppLogic:
                 else:
                     return False, f"{process_name} has exited unexpectedly"
         return False, f"{process_name} not found in running processes"
+
+    def terminate_process_by_id(self, proc_id):
+        """Terminate a specific process by its ID."""
+        for proc_info in list(self.running_processes):
+            if proc_info.get("id") == proc_id:
+                proc = proc_info["process"]
+                name = proc_info["name"]
+                if proc.poll() is None:
+                    try:
+                        # Terminate the entire process group
+                        if sys.platform != "win32":
+                            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                        else:
+                            proc.terminate()
+
+                        proc.wait(timeout=3)
+                        self.log_callback(f"{name} terminated (ID: {proc_id}).")
+                    except subprocess.TimeoutExpired:
+                        try:
+                            if sys.platform != "win32":
+                                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                            else:
+                                proc.kill()
+                            proc.wait(timeout=5)
+                            self.log_callback(f"{name} killed (ID: {proc_id}).")
+                        except (subprocess.TimeoutExpired, ProcessLookupError, PermissionError, OSError):
+                            self.log_callback(f"Error killing {name} (ID: {proc_id})", is_error=True)
+                    except (ProcessLookupError, PermissionError, OSError):
+                        pass
+
+                # Remove from tracking
+                if proc_info in self.running_processes:
+                    self.running_processes.remove(proc_info)
+                return True
+        return False
 
     def terminate_all_processes(self):
         # Stop the process monitor first
