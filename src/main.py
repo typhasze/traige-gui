@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-# filepath: /python-gui-app/python-gui-app/src/main.py
 import os
 import sys
 import tkinter as tk
 
-# Add the project root to the Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 

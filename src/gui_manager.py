@@ -18,13 +18,9 @@ class FoxgloveAppGUIManager:
         self.logic = FoxgloveAppLogic(log_callback=self.log_message)
         self.file_explorer_logic = FileExplorerLogic()
 
-        # --- Configure Button Styles ---
         self.setup_button_styles()
 
-        # --- Main UI Frames ---
         self.root.title("Triage GUI")
-        # self.root.geometry("1000x800") # Set a default size
-        # self.root.minsize(800, 600) # Set minimum size
 
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.pack(fill="both", expand=True)
@@ -32,11 +28,8 @@ class FoxgloveAppGUIManager:
         self.main_notebook = ttk.Notebook(main_frame)
         self.main_notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Create the button map and action buttons first
         self._button_map = {}
         self.create_shared_action_buttons(main_frame)
-
-        # Now, create the tabs that might use the buttons during initialization
         self.file_explorer_tab = FileExplorerTab(
             self.main_notebook,
             self.root,
@@ -46,11 +39,8 @@ class FoxgloveAppGUIManager:
             self._update_button_states,
         )
 
-        # Register callback for focusing file explorer tab
         self.file_explorer_tab.focus_file_explorer_tab = self.focus_file_explorer_tab
 
-        # Link NAS directory to file explorer path at start if not set
-        # Create a temporary settings object to check and set nas_dir before creating SettingsTab
         temp_settings_path = os.path.expanduser("~/.foxglove_gui_settings.json")
         if os.path.exists(temp_settings_path):
             with open(temp_settings_path, "r") as f:
@@ -129,14 +119,11 @@ class FoxgloveAppGUIManager:
         self.update_status_bar("Ready")
 
     def setup_button_styles(self):
-        """Configure custom button styles for better visibility"""
         style = ttk.Style()
 
-        # Create a custom button style with a more noticeable color
-        # Light blue background for better visibility
         style.configure(
             "Action.TButton",
-            background="#A7DCFF",  # Light blue
+            background="#A7DCFF",
             foreground="black",
             borderwidth=2,
             focusthickness=3,
@@ -150,11 +137,9 @@ class FoxgloveAppGUIManager:
         )  # Gray when disabled
 
     def create_shared_action_buttons(self, parent_frame):
-        """Creates the action buttons that are shared across tabs"""
         button_frame = ttk.Frame(parent_frame)
         button_frame.pack(fill="x", padx=10, pady=5)
 
-        # --- Button Definitions ---
         self.open_file_button = self._create_button(button_frame, "Open File", self.open_selected_file)
         self.copy_path_button = self._create_button(button_frame, "Copy Path", self.copy_selected_path)
         self.open_in_manager_button = self._create_button(button_frame, "File Manager", self.open_in_file_manager)
@@ -166,7 +151,6 @@ class FoxgloveAppGUIManager:
             button_frame, "Running Processes", self.show_process_status
         )
 
-        # --- Button Map for State Management ---
         self._button_map = {
             "open_file": self.open_file_button,
             "copy_path": self.copy_path_button,
@@ -175,7 +159,6 @@ class FoxgloveAppGUIManager:
         }
 
     def create_shared_log_frame(self, parent_frame):
-        # --- Status/Log Frame ---
         status_frame = ttk.LabelFrame(parent_frame, text="Log", padding="10")
         status_frame.pack(padx=5, pady=5, fill="both", expand=True)
 
@@ -238,40 +221,31 @@ class FoxgloveAppGUIManager:
             self.log_message(error, is_error=True)
 
     def run_bazel_build(self):
-        """Run bazel build //... in the bazel working directory."""
         self.log_message("Starting Bazel build (bazel build //...)...")
         self.status_label.config(foreground="red")
         self.show_progress(True)
 
-        # Start animated status
         self._building = True
         self._show_building_status()
-
-        # Run build in background thread to avoid blocking GUI
         import threading
 
         def build_task():
             message, error = self.logic.run_bazel_build(self.settings_tab.settings)
-            # Schedule GUI update on main thread
             self.root.after(0, lambda: self._bazel_build_complete(message, error))
 
         thread = threading.Thread(target=build_task, daemon=True)
         thread.start()
 
     def _show_building_status(self, count=0):
-        """Show animated building status with cycling dots."""
         if not hasattr(self, "_building") or not self._building:
             return
 
-        # Cycle through 1-3 dots
         dots = "." * ((count % 3) + 1)
         self.update_status_bar(f"Building{dots}", "")
 
-        # Continue animation
         self.root.after(400, lambda: self._show_building_status(count + 1))
 
     def _bazel_build_complete(self, message, error):
-        """Handle build completion on main thread."""
         self._building = False
         self.show_progress(False)
         self.status_label.config(foreground="")
@@ -284,12 +258,10 @@ class FoxgloveAppGUIManager:
             self.update_status_bar("Build complete", "")
 
     def run_bazel_clean(self):
-        """Run bazel clean in the bazel working directory."""
         self.log_message("Running Bazel clean...")
         self.update_status_bar("Cleaning...", "")
         self.show_progress(True)
 
-        # Run clean in background thread
         import threading
 
         def clean_task():
@@ -300,7 +272,6 @@ class FoxgloveAppGUIManager:
         thread.start()
 
     def _bazel_clean_complete(self, message, error):
-        """Handle clean completion on main thread."""
         self.show_progress(False)
         if message:
             self.log_message(message)
@@ -311,7 +282,6 @@ class FoxgloveAppGUIManager:
             self.update_status_bar("Clean complete", "")
 
     def show_process_status(self):
-        """Display current process status in the logs."""
         self.log_message("📊 Current Process Status:", clear_first=False)
         status = self.logic.get_process_status()
 

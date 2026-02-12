@@ -37,8 +37,6 @@ PROCESS_NAMES = {
 
 
 def perform_operation(data):
-    # Placeholder for core logic operation
-    # Implement the main functionality of the application here
     return data
 
 
@@ -98,12 +96,9 @@ class FoxgloveAppLogic:
                         is_error=False,
                     )
 
-        # Remove dead processes from tracking
         for proc_info in dead_processes:
             if proc_info in self.running_processes:
                 self.running_processes.remove(proc_info)
-                # Optionally log cleanup (commented to avoid spam)
-                # self.log_callback(f"Cleaned up terminated process: {proc_info['name']}")
 
     def get_process_status(self):
         """Get current status of all tracked processes."""
@@ -159,42 +154,26 @@ class FoxgloveAppLogic:
             self.settings = DEFAULT_SETTINGS.copy()
 
     def load_settings(self):
-        """
-        Loads settings from a JSON file, or returns defaults if not found.
-        """
-        # Remove any code that references self.settings_path, as settings are now managed in SettingsTab.
         return DEFAULT_SETTINGS.copy()
 
     def save_settings(self, settings_dict):
-        """
-        Saves provided settings to the JSON file.
-        """
         try:
-            # Update the current settings with the new values
-            # self.settings.update(settings_dict) # self.settings is no longer present
-            # with open(self.settings_path, 'w') as f: # self.settings_path is no longer present
-            #     json.dump(self.settings, f, indent=4)
-            # After saving, update any properties that depend on settings
             self.bazel_working_dir = self.get_bazel_working_dir()
             return True, None
         except Exception as e:
             return False, str(e)
 
     def reset_settings(self):
-        """Resets settings to their default values and saves them."""
         default_settings = {
             "bazel_tools_viz_cmd": "bazel run //tools/viz",
             "bazel_bag_gui_cmd": "bazel run //tools/bag:gui",
             "bazel_working_dir": os.path.expanduser("~/av-system/catkin_ws/src"),
             "bazel_bag_gui_rate": 1.0,
         }
-        # self.settings = default_settings.copy() # self.settings is no longer present
         self.save_settings(default_settings)
 
     def get_setting(self, key):
-        """Gets a specific setting value by key."""
-        # self.settings.get(key) # self.settings is no longer present
-        return None  # Placeholder as settings are not managed here
+        return None
 
     def get_bazel_working_dir(self, settings=None):
         if settings is not None:
@@ -440,27 +419,13 @@ class FoxgloveAppLogic:
         return False
 
     def _launch_process(self, command, name, cwd=None, mcap_path=None, startup_timeout=10, single_instance=None):
-        """
-        Enhanced process launcher with better error handling, performance monitoring, and timeout controls.
-
-        Args:
-            command: Command to execute (string or list)
-            name: Process name for tracking
-            cwd: Working directory
-            mcap_path: MCAP file path for tracking
-            startup_timeout: Timeout in seconds for process startup validation
-        """
         if name == "Foxglove Studio (Browser)":
-            # Special case: launch in browser instead of as a process
             if mcap_path:
                 return self.launch_foxglove_browser(mcap_path)
             else:
                 return None, "No MCAP file path provided for browser launch.", None
 
-        # Use shell=True for commands that are strings, False for lists of args
         use_shell = isinstance(command, str)
-
-        # Process management optimization
         if name == "Bazel Tools Viz":
             if self._is_process_running_by_name(name):
                 return f"{name} is already running.", None
@@ -473,17 +438,12 @@ class FoxgloveAppLogic:
                 self._terminate_process_by_name(name)
 
         try:
-            # Performance monitoring for large commands
             if isinstance(command, list) and len(command) > 10:
                 self.log_callback(f"Launching {name} with {len(command)-2} files...")
 
-            # On Unix, start the process in a new session to control its process group
             preexec_fn = os.setsid if sys.platform != "win32" else None
 
-            # Redirect all output to DEVNULL to prevent pipe buffer blocking
-            # Long-running GUI processes can produce large amounts of output which would
-            # fill pipe buffers and cause the process to hang waiting for reads
-            # Trade-off: We lose detailed error messages, but GUI tools show their own errors anyway
+            # Redirect output to DEVNULL to prevent pipe buffer blocking in long-running GUI processes
             proc = subprocess.Popen(
                 command,
                 cwd=cwd,
@@ -494,12 +454,9 @@ class FoxgloveAppLogic:
                 stderr=subprocess.DEVNULL,
             )
 
-            # Validate process startup with timeout
             try:
-                # Give the process a moment to start and check if it immediately fails
                 time.sleep(0.1)
                 if proc.poll() is not None:
-                    # Process exited immediately - since we're using DEVNULL, we can't get detailed errors
                     return (
                         None,
                         f"Process {name} failed to start (exited immediately). Check command and working directory.",
@@ -507,7 +464,6 @@ class FoxgloveAppLogic:
                     )
 
             except subprocess.TimeoutExpired:
-                # Process is taking time to start, which is normal for some applications
                 pass
             except Exception as e:
                 self.log_callback(f"Warning: Could not validate startup for {name}: {e}", is_error=True)
@@ -521,8 +477,8 @@ class FoxgloveAppLogic:
                     "path": mcap_path,
                     "command": command,
                     "cwd": cwd,
-                    "start_time": time.time(),  # Add timestamp for monitoring
-                    "id": proc_id,  # Unique ID for this process
+                    "start_time": time.time(),
+                    "id": proc_id,
                 }
             )
 
@@ -534,7 +490,6 @@ class FoxgloveAppLogic:
         except PermissionError as e:
             return None, f"Permission denied launching {name}: {e}", None
         except OSError as e:
-            # Handle system-level errors (e.g., command too long)
             if "Argument list too long" in str(e):
                 return None, f"Command too long for {name}. Try selecting fewer files.", None
             elif "No such file or directory" in str(e):
@@ -545,37 +500,25 @@ class FoxgloveAppLogic:
             return None, f"Failed to launch {name}: {e}", None
 
     def launch_foxglove(self, mcap_filepath_absolute, settings):
-        """
-        Launches Foxglove Studio with the given .mcap file(s).
-        Can handle single file or multiple files (desktop only for multiple).
-        Returns a tuple: (message, error)
-        Optimized for performance with batch validation and smart routing.
-        """
-        # Store max files setting for use in other methods
         self._max_foxglove_files = settings.get("max_foxglove_files", 50)
 
-        # Normalize input to list format for consistent processing
         if isinstance(mcap_filepath_absolute, list):
             mcap_filepaths = mcap_filepath_absolute
         else:
             mcap_filepaths = [mcap_filepath_absolute]
 
-        # Early validation: empty list check
         if not mcap_filepaths:
             return None, "No MCAP files provided", None
 
         open_in_browser = settings.get("open_foxglove_in_browser", False)
 
-        # Optimized routing based on file count and user preference
         if len(mcap_filepaths) == 1:
-            # Single file - use user's preference
             single_file = mcap_filepaths[0]
             if open_in_browser:
                 return self.launch_foxglove_browser(single_file)
             else:
                 return self.launch_foxglove_desktop(single_file)
         else:
-            # Multiple files - force desktop version with notification
             if open_in_browser:
                 self.log_callback(
                     "Multiple MCAP files selected. Browser version doesn't support multiple files, "
@@ -584,41 +527,26 @@ class FoxgloveAppLogic:
             return self.launch_foxglove_desktop_multiple(mcap_filepaths)
 
     def launch_foxglove_desktop(self, mcap_filepath_absolute):
-        """
-        Launches Foxglove Studio desktop with a single MCAP file.
-        Optimized with validation and better error handling.
-        """
-        # Early validation for better performance
         if not mcap_filepath_absolute:
             return None, "No MCAP file path provided", None
 
         if not os.path.isfile(mcap_filepath_absolute):
             return None, f"MCAP file not found: {os.path.basename(mcap_filepath_absolute)}", None
 
-        # Use optimized command format
         command = ["foxglove-studio", "--file", mcap_filepath_absolute]
         return self._launch_process(command, "Foxglove Studio", mcap_path=mcap_filepath_absolute)
 
     def launch_foxglove_desktop_multiple(self, mcap_filepaths):
-        """
-        Launches Foxglove Studio desktop with multiple MCAP files.
-        Uses the 'foxglove-studio open file1.mcap file2.mcap ...' command format.
-        Returns a tuple: (message, error)
-        Optimized for performance with batch validation and command size limits.
-        """
         if not mcap_filepaths:
             return None, "No MCAP files provided", None
 
-        # Performance optimization: batch validate all files at once
         validation_results = self._batch_validate_files(mcap_filepaths)
         if validation_results["missing_files"]:
             missing_count = len(validation_results["missing_files"])
             if missing_count <= 3:
-                # Show specific files if few are missing
                 missing_names = [os.path.basename(f) for f in validation_results["missing_files"]]
                 return None, f"MCAP files not found: {', '.join(missing_names)}", None
             else:
-                # Show count if many are missing
                 return None, f"{missing_count} MCAP files not found", None
 
         valid_files = validation_results["valid_files"]
@@ -674,40 +602,28 @@ class FoxgloveAppLogic:
         return {"valid_files": valid_files, "missing_files": missing_files}
 
     def _get_max_command_length(self):
-        """
-        Get maximum command line length for the current system.
-        Returns conservative default if unable to determine.
-        """
         try:
-            # Try to get system limit
             import subprocess
 
             result = subprocess.run(["getconf", "ARG_MAX"], capture_output=True, text=True, timeout=1)
             if result.returncode == 0:
-                # Use 80% of system limit as safety margin
                 return int(int(result.stdout.strip()) * 0.8)
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError, ValueError, OSError):
             pass
 
-        # Conservative fallback (works on most systems)
-        return 32768  # 32KB - safe for most Unix systems
+        return 32768
 
     def _limit_files_by_command_length(self, filepaths, max_length):
-        """
-        Limit file list to fit within command length constraints.
-        Prioritizes shorter paths and warns user about limitation.
-        """
         if not filepaths:
             return []
 
-        # Sort by path length (shorter paths first for efficiency)
         sorted_files = sorted(filepaths, key=len)
 
         selected_files = []
         current_length = 0
 
         for filepath in sorted_files:
-            file_length = len(filepath) + 3  # +3 for quotes and space
+            file_length = len(filepath) + 3
             if current_length + file_length <= max_length:
                 selected_files.append(filepath)
                 current_length += file_length
@@ -717,14 +633,9 @@ class FoxgloveAppLogic:
         return selected_files
 
     def launch_foxglove_browser(self, mcap_filepath_absolute):
-        """
-        Launches Foxglove Studio in a web browser with the given .mcap file.
-        Returns a tuple: (message, error)
-        """
         if not os.path.isfile(mcap_filepath_absolute):
             return None, f"MCAP file not found: {mcap_filepath_absolute}", None
 
-        # Encode the file path for URL
         prefix = os.path.expanduser("~/data")
         relative_path = mcap_filepath_absolute.removeprefix(prefix)
         first_url = (
@@ -733,7 +644,6 @@ class FoxgloveAppLogic:
         )
         url = f"{first_url}{relative_path}"
 
-        # Open in default web browser with timeout
         try:
             subprocess.run(["xdg-open", url], check=True, timeout=10)
             return f"Foxglove Studio launched in browser with {os.path.basename(mcap_filepath_absolute)}.", None, None
@@ -751,7 +661,6 @@ class FoxgloveAppLogic:
         return self._launch_process(settings.get("bazel_tools_viz_cmd"), "Bazel Tools Viz", cwd=self.bazel_working_dir)
 
     def run_bazel_build(self, settings):
-        """Run bazel build //... command in the bazel working directory."""
         self.bazel_working_dir = self.get_bazel_working_dir(settings)
         if not self.bazel_working_dir or not os.path.isdir(self.bazel_working_dir):
             return None, f"Bazel working directory not found: {self.bazel_working_dir}"
@@ -759,23 +668,20 @@ class FoxgloveAppLogic:
         self.log_callback("Running: bazel build //...")
         self.log_callback("=" * 60)
         try:
-            # Use Popen to stream output in real-time
             process = subprocess.Popen(
                 ["bazel", "build", "//..."],
                 cwd=self.bazel_working_dir,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,  # Merge stderr into stdout
+                stderr=subprocess.STDOUT,
                 text=True,
-                bufsize=1,  # Line buffered
+                bufsize=1,
             )
 
-            # Read output line by line and log it
             for line in process.stdout:
                 line = line.rstrip()
-                if line:  # Only log non-empty lines
+                if line:
                     self.log_callback(line)
 
-            # Wait for process to complete
             return_code = process.wait(timeout=600)
             self.log_callback("=" * 60)
 
@@ -798,9 +704,7 @@ class FoxgloveAppLogic:
         rate = settings.get("bazel_bag_gui_rate", 1.0)
         single_instance = settings.get("single_instance_rosbag", True)
 
-        # Build command with start offset if provided
         if start_time is not None:
-            # Add --start-offset parameter (convert to int for cleaner command)
             command = f"{base_command} -- --start-offset {int(start_time)} --rate={rate} {mcap_path}"
             self.log_callback(f"Starting playback at offset: {int(start_time)}s")
         else:
@@ -830,14 +734,12 @@ class FoxgloveAppLogic:
         rate = settings.get("bazel_bag_gui_rate", 1.0)
         single_instance = settings.get("single_instance_rosbag", True)
 
-        # Build command with start offset if provided
         if start_time is not None:
             command = f"{base_command} -- --start-offset {int(start_time)} --rate={rate} {mcap_files_str}"
             self.log_callback(f"Starting playback at offset: {int(start_time)}s")
         else:
             command = f"{base_command} -- --rate={rate} {mcap_files_str}"
 
-        # Pass symlink_dir as mcap_path for verification logic
         message, error, proc_id = self._launch_process(
             command,
             "Bazel Bag GUI",
@@ -848,7 +750,6 @@ class FoxgloveAppLogic:
         return message, error, symlink_dir, proc_id
 
     def launch_mpv_video(self, video_filepath, start_offset, settings):
-        """Launch mpv for video playback with optional single-instance behavior."""
         if not video_filepath:
             return None, "No video file path provided", None
 
@@ -860,10 +761,6 @@ class FoxgloveAppLogic:
         return self._launch_process(command, "MPV Video", mcap_path=video_filepath, single_instance=single_instance)
 
     def check_process_loaded(self, process_name):
-        """
-        Check if a process is still running (indication it loaded successfully).
-        Returns (is_running: bool, message: str)
-        """
         for proc_info in self.running_processes:
             if proc_info["name"] == process_name:
                 if proc_info["process"].poll() is None:
@@ -902,33 +799,30 @@ class FoxgloveAppLogic:
                     except (ProcessLookupError, PermissionError, OSError):
                         pass
 
-                # Remove from tracking
                 if proc_info in self.running_processes:
                     self.running_processes.remove(proc_info)
                 return True
         return False
 
     def terminate_all_processes(self):
-        # Stop the process monitor first
         self._stop_process_monitor()
 
         log_messages = []
         if not self.running_processes:
             log_messages.append("No processes were recorded as running by this application.")
 
-        for proc_info in list(self.running_processes):  # Iterate over a copy for safe removal
+        for proc_info in list(self.running_processes):
             proc = proc_info["process"]
             name = proc_info["name"]
             if proc.poll() is None:
                 log_messages.append(f"Terminating {name} (PID: {proc.pid})...")
                 try:
-                    # Terminate the entire process group for clean shutdown of child processes
                     if sys.platform != "win32":
                         os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
                     else:
                         proc.terminate()
 
-                    proc.wait(timeout=3)  # Wait for graceful termination
+                    proc.wait(timeout=3)
                     log_messages.append(f"{name} terminated.")
                 except subprocess.TimeoutExpired:
                     log_messages.append(f"{name} did not terminate gracefully, killing...")
@@ -938,12 +832,11 @@ class FoxgloveAppLogic:
                         else:
                             proc.kill()
 
-                        proc.wait(timeout=5)  # Add timeout to prevent hanging
+                        proc.wait(timeout=5)
                         log_messages.append(f"{name} killed.")
                     except subprocess.TimeoutExpired:
                         log_messages.append(f"{name} kill timed out, process may be unresponsive (PID: {proc.pid})")
                     except (ProcessLookupError, PermissionError, OSError):
-                        # Process already died or permission denied
                         log_messages.append(f"{name} process already terminated or inaccessible")
                 except (ProcessLookupError, PermissionError, OSError) as e:
                     log_messages.append(f"Error terminating {name}: {e}")
@@ -952,11 +845,9 @@ class FoxgloveAppLogic:
             else:
                 log_messages.append(f"{name} (PID: {proc.pid}) was already terminated.")
 
-            # Remove from list after processing
             if proc_info in self.running_processes:
                 self.running_processes.remove(proc_info)
 
-        # Cleanup symlink dir if it exists from a multi-bag play
         symlink_dir = "/tmp/selected_bags_symlinks"
         if os.path.exists(symlink_dir):
             try:
@@ -965,10 +856,9 @@ class FoxgloveAppLogic:
             except Exception as e:
                 log_messages.append(f"Error cleaning symlink dir: {e}")
 
-        if not log_messages:  # Should not happen if logic above is correct
+        if not log_messages:
             log_messages.append("Cleanup attempt complete. No active processes found or all terminated.")
 
-        # Add final process status summary
         final_status = self.get_process_status()
         log_messages.append(
             f"Final process status: {final_status['running']} running, {final_status['total']} total tracked"
@@ -977,10 +867,6 @@ class FoxgloveAppLogic:
         return "\n".join(log_messages)
 
     def list_default_subfolders(self):
-        """
-        Lists all subfolders in the default directory (~/data/default).
-        Returns a list of absolute paths to subfolders.
-        """
         default_path = os.path.join(self.local_base_path_absolute, "default")
         if not os.path.isdir(default_path):
             return []
@@ -991,10 +877,6 @@ class FoxgloveAppLogic:
         ]
 
     def list_subfolders_in_path(self, folder_path):
-        """
-        Lists all subfolders in the given folder_path.
-        Returns a list of absolute paths to subfolders.
-        """
         if not os.path.isdir(folder_path):
             return []
         return [
@@ -1002,10 +884,6 @@ class FoxgloveAppLogic:
         ]
 
     def find_parent_default_folder(self, path):
-        """
-        Given a path, walk up the directory tree to find the parent 'default' folder.
-        Returns the absolute path to the parent 'default' folder, or None if not found.
-        """
         if not path:
             return None
         parent_default = path
@@ -1019,9 +897,6 @@ class FoxgloveAppLogic:
         return None
 
     def get_effective_default_folder(self, current_path=None):
-        """
-        Returns the parent 'default' folder of current_path, or ~/data/default if not found.
-        """
         if not current_path:
             current_path = os.path.expanduser("~/data/default")
         parent_default = self.find_parent_default_folder(current_path)
