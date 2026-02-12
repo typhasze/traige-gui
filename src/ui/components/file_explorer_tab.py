@@ -679,29 +679,61 @@ class FileExplorerTab:
             # Skip the header line if it exists
             data_lines = []
             for line in lines:
-                line = line.strip()
-                if line and not line.startswith("current_time"):  # Skip header
-                    data_lines.append(line)
+                raw_line = line.rstrip("\n")
+                if not raw_line.strip():
+                    continue
+                if raw_line.lstrip().startswith("current_time"):
+                    continue
+                data_lines.append(raw_line)
 
-            # Parse each data line
+            # Parse each data line, allowing wrapped/multi-line rows
+            current_parts = None
+            current_start_line = None
+
             for line_num, line in enumerate(data_lines, 1):
                 try:
-                    # Split by tab character
-                    parts = line.split("\t")
-                    if len(parts) >= 5:
-                        # Clean up the parts (remove extra whitespace)
-                        parts = [part.strip() for part in parts]
+                    parts = [part.strip() for part in line.split("\t")]
 
-                        # Store event data
-                        all_events.append(parts[:5])
-
-                        # Insert into treeview
-                        tree.insert("", "end", values=parts[:5])
+                    if current_parts is None:
+                        if len(parts) >= 5:
+                            all_events.append(parts[:5])
+                            tree.insert("", "end", values=parts[:5])
+                        elif parts and (line.startswith("\t") or parts[0] == ""):
+                            # Continuation without a starting line; skip
+                            self.log_message(f"Skipping orphan continuation line {line_num}: {line}", is_error=True)
+                        else:
+                            current_parts = parts
+                            current_start_line = line_num
                     else:
-                        self.log_message(f"Skipping malformed line {line_num}: {line}", is_error=True)
+                        # Continuation line handling
+                        if line.startswith("\t") or (parts and parts[0] == ""):
+                            # Line starts with a tab: remaining columns
+                            if parts and parts[0] == "":
+                                parts = parts[1:]
+                            current_parts.extend(parts)
+                        else:
+                            # Treat as continuation of txt_manual if present
+                            if len(current_parts) >= 3 and parts:
+                                current_parts[2] = (current_parts[2] + " " + parts[0]).strip()
+                                if len(parts) > 1:
+                                    current_parts.extend(parts[1:])
+                            else:
+                                current_parts.extend(parts)
+
+                        if len(current_parts) >= 5:
+                            all_events.append(current_parts[:5])
+                            tree.insert("", "end", values=current_parts[:5])
+                            current_parts = None
+                            current_start_line = None
 
                 except Exception as e:
                     self.log_message(f"Error parsing line {line_num}: {e}", is_error=True)
+
+            if current_parts is not None:
+                self.log_message(
+                    f"Skipping incomplete wrapped line starting at {current_start_line}: {current_parts}",
+                    is_error=True,
+                )
 
         except Exception as e:
             self.log_message(f"Error reading event log file: {e}", is_error=True)
