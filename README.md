@@ -147,12 +147,12 @@ traige-gui/
 └── README.md                           # 📖 This file
 ```
 
-| Component | Required | Purpose |
-|-----------|----------|---------|
-| Python 3.7+ | ✅ Yes | Runtime environment (with tkinter) |
-| Bazel | ✅ Yes | Rosbag GUI and build commands |
-| mpv | 🔷 Optional | Video playback from event logs |
-| NAS Connection | ✅ Yes | Access to rosbag data |
+| Component      | Required   | Purpose                            |
+| -------------- | ---------- | ---------------------------------- |
+| Python 3.7+    | ✅ Yes      | Runtime environment (with tkinter) |
+| Bazel          | ✅ Yes      | Rosbag GUI and build commands      |
+| mpv            | 🔷 Optional | Video playback from event logs     |
+| NAS Connection | ✅ Yes      | Access to rosbag data              |
 
 > **📚 Setup Guides:**
 > - [NAS Setup Guide](https://ventitechnologies.atlassian.net/wiki/spaces/ACH/pages/763953520/Laptop+Set+Up+Guide+for+TE#NAS-SETUP)
@@ -163,6 +163,7 @@ traige-gui/
 - **mpv** (optional, for video playback from event logs)
 
 - **NAS SETUP** https://ventitechnologies.atlassian.net/wiki/spaces/ACH/pages/763953520/Laptop+Set+Up+Guide+for+TE#NAS-SETUP
+
 **Step 1:** Clone the repository
 ```bash
 git clone <repository-url>
@@ -210,6 +211,7 @@ Then reload: `source ~/.bashrc`
 
 **Launch options:**
 
+```bash
 # Option 1: Direct execution
 ./src/main.py
 
@@ -222,22 +224,22 @@ triage_gui
 
 ---
 
-## 📘thon3 src/main.py
-# or📂 Opening MCAP Files
+## 📘 Usage Guide
+
+### 📂 Opening MCAP Files
 
 #### Method 1: File Explorer
-
-## Usage Guide
-
-### Opening MCAP Files
+1. Navigate to your data directory using the File Explorer tab
+2. Files are displayed with icons: 🎥 (MCAP), 📁 (folders), 📄 (text files)
+3. Select one or more MCAP files (Ctrl+Click for multiple)
+4. Click "Rosbag Playback" or press Ctrl+B
 
 #### Method 2: Link Analysis
-1. Navigate to your data directory using the File Explorer tab
-2. Select one or more MCAP files
-3. Click "Rosbag Playback" (Bazel Bag GUI)
-
-**Method 2: Link Analysis**
-1. Copy a file link or URL containing MCAP path information
+1. Copy a file link, URL, or command containing MCAP path information:
+   - Foxglove URLs (with `ds.url` parameter)
+   - Direct file paths (~/data/... or /home/.../data/...)
+   - mpv commands (e.g., `mpv --start=3649 https://...`)
+   - Bazel commands (e.g., `bazel run //tools/bag:gui ~/data/file.mcap`)
 2. Paste into the "Analyze Link" field in File Explorer
 3. Click "Analyze" to navigate to the file location
 4. File will be automatically highlighted in yellow
@@ -246,37 +248,54 @@ triage_gui
 
 1. Navigate to an `event_log_*.txt` file in File Explorer
 2. Double-click to open the Event Log Viewer window
-3. Select an event row to see details
-4. Use action buttons:
-   - **Video Timestamp**: Launch video at exact event timestamp with mpv
-   - **Rosbag Timestamp**: Launch rosbag playback at exact event timestamp with `--start-offset`
-   - **Current Rosbag**: Play the current MCAP file from the beginning
-   - **Rosbag Location**: Navigate to and highlight the corresponding MCAP file
+3. Browse events in the sortable table (shows timestamp, description, criticality, UI mode)
+4. Select an event row to enable action buttons
+5. Use action buttons or keyboard shortcuts:
+   - **Video Timestamp (V)**: Launch video at exact event timestamp with mpv
+   - **Rosbag Timestamp (B)**: Launch rosbag playback at exact event timestamp with `--start-offset`
+   - **Current Rosbag (C)**: Play the current MCAP file from the beginning
+   - **Rosbag Location (L)**: Navigate to and highlight the corresponding MCAP file
+6. Use search filter (Ctrl+F or /) to find specific events
 
 ### 🔨 Building Bazel Workspace
 
-1. Click the "Build" button in the main window
-2. Real-time build output will stream to the console
-3. Animated status indicator shows build progress
+1. Click the "Build..." button in the main window
+2. Real-time build output will stream to the console log
+3. Animated status indicator shows build progress ("Building...", "Building....", etc.)
 4. Build command: `bazel build //...`
+5. Status bar updates on completion or failure
 
 ### 🔄 Managing Processes
 
-- Click "Show Process Status" to view running Foxglove/Bazel instances
-- Each process shows PID and runtime
+- Click "Running Processes" (or press Ctrl+P) to view running Foxglove/Bazel/mpv instances
+- Each process shows:
+  - Status indicator: 🟢 (running) or 🔴 (stopped)
+  - Process name and PID
+  - Runtime duration
+- Background health monitor checks processes every 10 seconds
+- Long-running processes (>2 hours) are logged for awareness
 - Close the application to automatically terminate all spawned processes
 
 ### ⚙️ Configuring Settings
 
 1. Open the Settings tab
 2. Configure:
-   - Bazel commands and working directory
-   - Data directory paths
-   - LOGGING directory (external drive path, default: `/media/{username}/LOGGING`)
-   - Foxglove browser/desktop preference
-   - Single instance mode for video and rosbag players
-   - Playback rates and file limits
+   - **Bazel commands and working directory**
+     - Default working dir: ~/av-system/catkin_ws/src
+   - **Data directory paths**
+     - NAS Directory: Primary data location
+     - Backup NAS Directory: Secondary data location
+   - **LOGGING directory**: External drive path (default: /media/{username}/LOGGING)
+   - **Foxglove browser/desktop preference**
+   - **Single instance mode**: Prevent multiple simultaneous players
+     - Video player (mpv)
+     - Rosbag player (Bazel Bag GUI)
+   - **Playback rates and file limits**
+     - Bazel Bag GUI Rate: Default 1.0
+     - Max Foxglove Files: Default 50
 3. Click "Save Settings" to persist changes
+4. Click "Reset to Defaults" to restore default settings
+5. Settings are stored in: ~/.foxglove_gui_settings.json
 
 ---
 
