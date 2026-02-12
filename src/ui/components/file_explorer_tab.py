@@ -52,7 +52,6 @@ class FileExplorerTab:
         self.explorer_path_var = tk.StringVar(value=self.current_explorer_path)
         self.explorer_path_entry = ttk.Entry(path_frame, textvariable=self.explorer_path_var, state="readonly")
         self.explorer_path_entry.pack(side=tk.LEFT, fill="x", expand=True)
-        # Prevent auto-selection when entry receives focus
         self.explorer_path_entry.bind("<FocusIn>", lambda e: e.widget.selection_clear())
 
         # Navigation buttons
@@ -493,7 +492,7 @@ class FileExplorerTab:
             # Play Video button
             play_video_button = ttk.Button(
                 button_frame,
-                text="Video Playback",
+                text="Video Timestamp",
                 command=lambda: getattr(tree, "play_video_func", lambda: None)(),
                 state="disabled",
                 style="Action.TButton",
@@ -515,7 +514,7 @@ class FileExplorerTab:
 
             play_bazel_button = ttk.Button(
                 button_frame,
-                text="Rosbag Play",
+                text="Rosbag Timestamp",
                 command=play_bazel,
                 state="disabled",
                 style="Action.TButton",
@@ -537,7 +536,7 @@ class FileExplorerTab:
 
             play_bazel_start_button = ttk.Button(
                 button_frame,
-                text="Play from Start",
+                text="Current Rosbag",
                 command=play_bazel_from_start,
                 state="disabled",
                 style="Action.TButton",
@@ -559,7 +558,7 @@ class FileExplorerTab:
 
             show_mcap_button = ttk.Button(
                 button_frame,
-                text="MCAP Location",
+                text="Rosbag Location",
                 command=show_mcap_in_explorer,
                 state="disabled",
                 style="Action.TButton",
@@ -652,6 +651,12 @@ class FileExplorerTab:
             def on_key_s(event):
                 show_mcap_in_explorer()
 
+            def on_key_c(event):
+                play_bazel_from_start()
+
+            def on_key_l(event):
+                show_mcap_in_explorer()
+
             def on_key_f(event):
                 search_entry.focus_set()
 
@@ -662,6 +667,10 @@ class FileExplorerTab:
             viewer_window.bind("<B>", on_key_b)
             viewer_window.bind("<s>", on_key_s)
             viewer_window.bind("<S>", on_key_s)
+            viewer_window.bind("<c>", on_key_c)
+            viewer_window.bind("<C>", on_key_c)
+            viewer_window.bind("<l>", on_key_l)
+            viewer_window.bind("<L>", on_key_l)
             viewer_window.bind("<Control-f>", on_key_f)
             viewer_window.bind("<Control-F>", on_key_f)
             viewer_window.bind("/", on_key_f)  # Vim-style search
@@ -820,6 +829,10 @@ class FileExplorerTab:
             return
 
         self.log_message(f"Mapped local folder: {local_folder}")
+
+        # Clear search filter to ensure file is visible
+        self.explorer_search_var.set("")
+
         self.current_explorer_path = local_folder
         self.refresh_explorer()
         # Highlight the file if present - delay to ensure listbox is fully populated
@@ -1355,6 +1368,9 @@ class FileExplorerTab:
             if not mcap_file:
                 self.log_message("No matching MCAP file found", is_error=True)
                 return
+
+            # Clear search filter to ensure file is visible
+            self.explorer_search_var.set("")
 
             # Navigate to the directory containing the MCAP file
             mcap_dir = os.path.dirname(mcap_file)

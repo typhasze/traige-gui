@@ -70,10 +70,6 @@ class SettingsTab:
         self.logic.update_search_paths(self.settings.get("nas_dir"), self.settings.get("backup_nas_dir"))
 
     def load_settings(self):
-        """
-        Loads settings from a JSON file, or returns defaults if not found.
-        Improved error handling and structure validation.
-        """
         import getpass
 
         username = getpass.getuser()
@@ -103,7 +99,6 @@ class SettingsTab:
                 self.log_message("Settings file corrupted, using defaults", is_error=True)
                 return default_settings
 
-            # Merge defaults with user settings, ensuring all keys are present
             settings = default_settings.copy()
             settings.update(user_settings)
             return settings
@@ -116,23 +111,16 @@ class SettingsTab:
             return default_settings
 
     def save_settings(self, settings_dict=None):
-        """
-        Saves provided settings to the JSON file.
-        Improved error handling and atomic writes.
-        """
         try:
             if settings_dict is not None:
                 self.settings.update(settings_dict)
 
-            # Use atomic write to prevent corruption
             temp_path = self.settings_path + ".tmp"
             with open(temp_path, "w", encoding="utf-8") as f:
                 json.dump(self.settings, f, indent=4, ensure_ascii=False)
 
-            # Atomic rename on Unix systems
             os.replace(temp_path, self.settings_path)
 
-            # After saving, update the logic instance
             self.logic.update_search_paths(self.settings.get("nas_dir"), self.settings.get("backup_nas_dir"))
             return True, None
 
@@ -144,7 +132,6 @@ class SettingsTab:
             return False, f"Unexpected error: {e}"
 
     def reset_settings(self):
-        """Resets settings to their default values and saves them."""
         import getpass
 
         username = getpass.getuser()
@@ -165,7 +152,6 @@ class SettingsTab:
         self.save_settings(self.settings)
 
     def get_setting(self, key):
-        """Gets a specific setting value by key."""
         return self.settings.get(key)
 
     def create_widgets(self):
@@ -187,7 +173,6 @@ class SettingsTab:
                 widget.grid(row=row, column=0, columnspan=2, sticky="w", padx=5, pady=5)
                 self.entries[key] = widget
             else:
-                # Handle string, integer, and float types
                 if config["type"] in ["int", "float"]:
                     var = tk.StringVar(value=str(value) if value is not None else "")
                 else:
@@ -195,7 +180,6 @@ class SettingsTab:
                 ttk.Label(settings_frame, text=config["label"]).grid(row=row, column=0, sticky="w", padx=5, pady=2)
                 entry = ttk.Entry(settings_frame, textvariable=var, width=config.get("width", 40))
                 entry.grid(row=row, column=1, sticky="we", padx=5, pady=2)
-                # Prevent auto-selection when entry receives focus
                 entry.bind("<FocusIn>", lambda e: e.widget.selection_clear())
                 self.entries[key] = entry
             self.vars[key] = var
