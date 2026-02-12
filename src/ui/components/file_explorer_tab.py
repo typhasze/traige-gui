@@ -1,6 +1,5 @@
 import glob
 import os
-import subprocess
 import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog, ttk
@@ -876,14 +875,25 @@ class FileExplorerTab:
                 return
 
             # Launch mpv with the calculated start time
-            cmd = ["mpv", f"--start={start_offset}", video_file]
             self.log_message(f"Playing video: {os.path.basename(video_file)} at {start_offset}s")
 
-            # Run mpv in background
-            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            settings = self._get_runtime_settings()
+            message, error = self.logic.launch_mpv_video(video_file, start_offset, settings)
+            if message:
+                self.log_message(message)
+            if error:
+                self.log_message(error, is_error=True)
 
         except Exception as e:
             self.log_message(f"Error playing video: {e}", is_error=True)
+
+    def _get_runtime_settings(self):
+        settings = getattr(self.logic, "settings", {})
+        if not settings:
+            from ...core_logic import DEFAULT_SETTINGS
+
+            settings = DEFAULT_SETTINGS.copy()
+        return settings
 
     def parse_timestamp(self, timestamp_str):
         """Parse timestamp string to datetime object."""
@@ -1180,15 +1190,8 @@ class FileExplorerTab:
 
             # Get settings from the logic's GUI manager (if available)
             try:
-                # Try to get settings from parent GUI manager
-                settings = getattr(self.logic, "settings", {})
-                if not settings:
-                    # Fallback to default settings
-                    from ...core_logic import DEFAULT_SETTINGS
-
-                    settings = DEFAULT_SETTINGS.copy()
+                settings = self._get_runtime_settings()
             except (AttributeError, ImportError):
-                # Fallback to default settings
                 from ...core_logic import DEFAULT_SETTINGS
 
                 settings = DEFAULT_SETTINGS.copy()
@@ -1233,15 +1236,8 @@ class FileExplorerTab:
 
             # Get settings from the logic's GUI manager (if available)
             try:
-                # Try to get settings from parent GUI manager
-                settings = getattr(self.logic, "settings", {})
-                if not settings:
-                    # Fallback to default settings
-                    from ...core_logic import DEFAULT_SETTINGS
-
-                    settings = DEFAULT_SETTINGS.copy()
+                settings = self._get_runtime_settings()
             except (AttributeError, ImportError):
-                # Fallback to default settings
                 from ...core_logic import DEFAULT_SETTINGS
 
                 settings = DEFAULT_SETTINGS.copy()

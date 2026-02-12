@@ -39,6 +39,18 @@ class SettingsTab:
             "type": "bool",
             "widget": "checkbutton",
         },
+        {
+            "label": "Single instance for Video",
+            "key": "single_instance_video",
+            "type": "bool",
+            "widget": "checkbutton",
+        },
+        {
+            "label": "Single instance for Rosbag",
+            "key": "single_instance_rosbag",
+            "type": "bool",
+            "widget": "checkbutton",
+        },
     ]
 
     def __init__(self, parent, logic, log_message):
@@ -49,6 +61,8 @@ class SettingsTab:
         self.entries = {}
         self.settings_path = os.path.expanduser("~/.foxglove_gui_settings.json")
         self.settings = self.load_settings()
+        if hasattr(self.logic, "set_runtime_settings"):
+            self.logic.set_runtime_settings(self.settings)
         self.on_nas_dir_changed: Optional[Callable[[str], None]] = None
         self.on_logging_dir_changed: Optional[Callable[[str], None]] = None
         self.create_widgets()
@@ -73,6 +87,8 @@ class SettingsTab:
             "max_foxglove_files": 50,  # Reasonable default limit for performance
             "bazel_bag_gui_rate": 1.0,  # Default playback rate for Bazel Bag GUI
             "open_foxglove_in_browser": True,
+            "single_instance_video": True,
+            "single_instance_rosbag": True,
         }
 
         if not os.path.exists(self.settings_path):
@@ -142,6 +158,8 @@ class SettingsTab:
             "max_foxglove_files": 50,  # Reasonable default limit for performance
             "bazel_bag_gui_rate": 1.0,  # Default playback rate for Bazel Bag GUI
             "open_foxglove_in_browser": True,
+            "single_instance_video": True,
+            "single_instance_rosbag": True,
         }
         self.settings = default_settings.copy()
         self.save_settings(self.settings)
@@ -160,7 +178,12 @@ class SettingsTab:
             value = self.get_setting(key)
             if config["type"] == "bool":
                 var = tk.BooleanVar(value=value if value is not None else True)
-                widget = ttk.Checkbutton(settings_frame, text=config["label"], variable=var)
+                widget = ttk.Checkbutton(
+                    settings_frame,
+                    text=config["label"],
+                    variable=var,
+                    command=lambda k=key, v=var: self._on_bool_setting_changed(k, v),
+                )
                 widget.grid(row=row, column=0, columnspan=2, sticky="w", padx=5, pady=5)
                 self.entries[key] = widget
             else:
@@ -191,6 +214,15 @@ class SettingsTab:
             button_frame, text="Reset to Defaults", command=self.reset_settings_button, style="Action.TButton"
         )
         self.reset_button.pack(side=tk.LEFT, padx=5)
+
+    def _on_bool_setting_changed(self, key, var):
+        """Apply boolean settings immediately to runtime logic."""
+        try:
+            self.settings[key] = bool(var.get())
+            if hasattr(self.logic, "set_runtime_settings"):
+                self.logic.set_runtime_settings(self.settings)
+        except Exception as e:
+            self.log_message(f"Failed to apply setting '{key}': {e}", is_error=True)
 
     def save_settings_button(self):
         old_nas_dir = self.settings.get("nas_dir")

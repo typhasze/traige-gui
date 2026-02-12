@@ -21,6 +21,9 @@ DEFAULT_SETTINGS = {
     "bazel_bag_gui_cmd": "bazel run //tools/bag:gui",
     "bazel_working_dir": DEFAULT_BAZEL_WORKING_DIR,
     "bazel_bag_gui_rate": 1.0,
+    "open_foxglove_in_browser": True,
+    "single_instance_video": True,
+    "single_instance_rosbag": True,
 }
 
 # Process names for better consistency
@@ -29,6 +32,7 @@ PROCESS_NAMES = {
     "FOXGLOVE_BROWSER": "Foxglove Studio (Browser)",
     "BAZEL_TOOLS_VIZ": "Bazel Tools Viz",
     "BAZEL_BAG_GUI": "Bazel Bag GUI",
+    "MPV_VIDEO": "MPV Video",
 }
 
 
@@ -44,6 +48,7 @@ class FoxgloveAppLogic:
         self.local_base_path_absolute = DEFAULT_DATA_PATH
         self.backup_base_path_absolute = DEFAULT_BACKUP_PATH
         self.bazel_working_dir = None
+        self.settings = DEFAULT_SETTINGS.copy()
         self.log_callback = log_callback or (lambda *args, **kwargs: None)
 
         # Process health monitoring
@@ -142,6 +147,15 @@ class FoxgloveAppLogic:
             self.local_base_path_absolute = primary_path
         if backup_path:
             self.backup_base_path_absolute = backup_path
+
+    def set_runtime_settings(self, settings):
+        """Update runtime settings used by launchers and playback."""
+        if isinstance(settings, dict):
+            merged = DEFAULT_SETTINGS.copy()
+            merged.update(settings)
+            self.settings = merged
+        else:
+            self.settings = DEFAULT_SETTINGS.copy()
 
     def load_settings(self):
         """
@@ -424,7 +438,7 @@ class FoxgloveAppLogic:
                     return True
         return False
 
-    def _launch_process(self, command, name, cwd=None, mcap_path=None, startup_timeout=10):
+    def _launch_process(self, command, name, cwd=None, mcap_path=None, startup_timeout=10, single_instance=None):
         """
         Enhanced process launcher with better error handling, performance monitoring, and timeout controls.
 
@@ -449,8 +463,13 @@ class FoxgloveAppLogic:
         if name == "Bazel Tools Viz":
             if self._is_process_running_by_name(name):
                 return f"{name} is already running.", None
-        elif name in ["Foxglove Studio", "Bazel Bag GUI"]:
+        elif name == "Foxglove Studio":
             self._terminate_process_by_name(name)
+        elif name in ["Bazel Bag GUI", "MPV Video"]:
+            if single_instance is None:
+                single_instance = True
+            if single_instance:
+                self._terminate_process_by_name(name)
 
         try:
             # Performance monitoring for large commands
@@ -772,6 +791,7 @@ class FoxgloveAppLogic:
         self.bazel_working_dir = self.get_bazel_working_dir(settings)
         base_command = settings.get("bazel_bag_gui_cmd")
         rate = settings.get("bazel_bag_gui_rate", 1.0)
+        single_instance = settings.get("single_instance_rosbag", True)
 
         # Build command with start offset if provided
         if start_time is not None:
@@ -781,7 +801,13 @@ class FoxgloveAppLogic:
         else:
             command = f"{base_command} -- --rate={rate} {mcap_path}"
 
-        return self._launch_process(command, "Bazel Bag GUI", cwd=self.bazel_working_dir, mcap_path=mcap_path)
+        return self._launch_process(
+            command,
+            "Bazel Bag GUI",
+            cwd=self.bazel_working_dir,
+            mcap_path=mcap_path,
+            single_instance=single_instance,
+        )
 
     def play_bazel_bag_gui_with_symlinks(self, mcap_filepaths, settings, start_time=None):
         self.bazel_working_dir = self.get_bazel_working_dir(settings)
@@ -797,6 +823,7 @@ class FoxgloveAppLogic:
         mcap_files_str = " ".join([f'"{f}"' for f in mcap_files])
         base_command = settings.get("bazel_bag_gui_cmd")
         rate = settings.get("bazel_bag_gui_rate", 1.0)
+        single_instance = settings.get("single_instance_rosbag", True)
 
         # Build command with start offset if provided
         if start_time is not None:
@@ -807,9 +834,25 @@ class FoxgloveAppLogic:
 
         # Pass symlink_dir as mcap_path for verification logic
         message, error = self._launch_process(
-            command, "Bazel Bag GUI", cwd=self.bazel_working_dir, mcap_path=symlink_dir
+            command,
+            "Bazel Bag GUI",
+            cwd=self.bazel_working_dir,
+            mcap_path=symlink_dir,
+            single_instance=single_instance,
         )
         return message, error, symlink_dir
+
+    def launch_mpv_video(self, video_filepath, start_offset, settings):
+        """Launch mpv for video playback with optional single-instance behavior."""
+        if not video_filepath:
+            return None, "No video file path provided"
+
+        if not os.path.isfile(video_filepath):
+            return None, f"Video file not found: {os.path.basename(video_filepath)}"
+
+        single_instance = settings.get("single_instance_video", True)
+        command = ["mpv", f"--start={int(start_offset)}", video_filepath]
+        return self._launch_process(command, "MPV Video", mcap_path=video_filepath, single_instance=single_instance)
 
     def check_process_loaded(self, process_name):
         """
@@ -839,13 +882,22 @@ class FoxgloveAppLogic:
             if proc.poll() is None:
                 log_messages.append(f"Terminating {name} (PID: {proc.pid})...")
                 try:
-                    proc.terminate()
+                    # Terminate the entire process group for clean shutdown of child processes
+                    if sys.platform != "win32":
+                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                    else:
+                        proc.terminate()
+
                     proc.wait(timeout=3)  # Wait for graceful termination
                     log_messages.append(f"{name} terminated.")
                 except subprocess.TimeoutExpired:
                     log_messages.append(f"{name} did not terminate gracefully, killing...")
                     try:
-                        proc.kill()
+                        if sys.platform != "win32":
+                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                        else:
+                            proc.kill()
+
                         proc.wait(timeout=5)  # Add timeout to prevent hanging
                         log_messages.append(f"{name} killed.")
                     except subprocess.TimeoutExpired:
@@ -853,6 +905,8 @@ class FoxgloveAppLogic:
                     except (ProcessLookupError, PermissionError, OSError):
                         # Process already died or permission denied
                         log_messages.append(f"{name} process already terminated or inaccessible")
+                except (ProcessLookupError, PermissionError, OSError) as e:
+                    log_messages.append(f"Error terminating {name}: {e}")
                 except Exception as e:
                     log_messages.append(f"Error terminating {name}: {e}")
             else:
