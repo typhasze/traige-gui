@@ -1,5 +1,5 @@
 ```mermaid
-graph TD
+graph LR
     %% Layer 1: Presentation Layer (UI)
     subgraph UI_Layer [Presentation Layer]
         Main[main.py: Entry Point]
