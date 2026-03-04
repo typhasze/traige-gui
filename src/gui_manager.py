@@ -118,6 +118,12 @@ class FoxgloveAppGUIManager:
         # Update status bar initially
         self.update_status_bar("Ready")
 
+        # Lock minimum window size to prevent shrinking, but allow growth for new content
+        self.root.update_idletasks()
+        initial_width = self.root.winfo_width()
+        initial_height = self.root.winfo_height()
+        self.root.minsize(initial_width, initial_height)
+
     def setup_button_styles(self):
         style = ttk.Style()
 
@@ -697,8 +703,12 @@ class FoxgloveAppGUIManager:
 
     def _cache_tab_indices(self):
         """Cache tab indices for performance optimization"""
-        self._explorer_tab_index = 0
-        self._settings_tab_index = 1
+        try:
+            self._explorer_tab_index = self.main_notebook.index(self.file_explorer_tab.frame)
+            self._settings_tab_index = self.main_notebook.index(self.settings_tab.frame)
+        except tk.TclError:
+            self._explorer_tab_index = 0
+            self._settings_tab_index = 1
 
     def _update_button_states(self, states):
         """

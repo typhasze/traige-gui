@@ -40,6 +40,9 @@ class FileExplorerTab:
         # Track event log viewer tabs: {viewer_id: {"frame": ttk.Frame, "processes": []}}
         self.event_log_viewer_tabs = {}
 
+        # Handle clicks on notebook tabs (✕ to close event-log tabs)
+        self.notebook.bind("<Button-1>", self._on_notebook_tab_click, add="+")
+
         # UI Widgets
         self.create_widgets()
         self.bind_events()
@@ -413,14 +416,94 @@ class FileExplorerTab:
 
         self._build_event_log_viewer_ui(tab_frame, file_path, viewer_id, on_close, is_tab=True)
 
-        # Add the tab to the notebook
-        tab_title = f"Event Log - {os.path.basename(file_path)[:20]}"
-        self.notebook.add(tab_frame, text=tab_title)
+        # Add the tab before Settings so Settings remains rightmost
+        tab_title = f"Event Log - {os.path.basename(file_path)[:20]} ✕"
+        settings_tab_index = self._get_settings_tab_index()
+        if settings_tab_index is not None:
+            self.notebook.insert(settings_tab_index, tab_frame, text=tab_title)
+        else:
+            self.notebook.add(tab_frame, text=tab_title)
 
         # Switch to the new tab
         self.notebook.select(tab_frame)
 
         self.log_message(f"Opened event log viewer as tab: {os.path.basename(file_path)}")
+
+    def _get_settings_tab_index(self):
+        """Return index of Settings tab if present."""
+        try:
+            tabs = self.notebook.tabs()
+            for index, tab_id in enumerate(tabs):
+                if self.notebook.tab(tab_id, "text") == "Settings":
+                    return index
+        except Exception:
+            return None
+        return None
+
+    def _on_notebook_tab_click(self, event):
+        """Close event-log tabs when clicking their ✕ area."""
+        try:
+            # Check if we clicked on a tab label
+            elem = self.notebook.identify(event.x, event.y)
+            if elem != "label":
+                return
+
+            # Get the clicked tab
+            tab_index = self.notebook.index(f"@{event.x},{event.y}")
+            tab_id = self.notebook.tabs()[tab_index]
+            tab_text = self.notebook.tab(tab_id, "text")
+
+            # Only handle tabs with ✕ (event log tabs)
+            if not tab_text.endswith("✕"):
+                return
+
+            # Force geometry update
+            self.notebook.update_idletasks()
+
+            # Get bbox
+            bbox = self.notebook.bbox(tab_index)
+
+            if bbox and len(bbox) == 4:
+                x, y, width, height = bbox
+                # If bbox is valid (not all zeros)
+                if width > 0:
+                    # The ✕ is in the rightmost 25% of the tab
+                    close_area_start = x + int(width * 0.75)
+
+                    # If clicking outside the close area, allow normal tab selection
+                    if event.x < close_area_start:
+                        return
+                else:
+                    # Fallback: estimate based on character count
+                    # Each character is roughly 8 pixels
+                    estimated_width = len(tab_text) * 8
+
+                    # Calculate where this tab starts by summing previous tab widths
+                    tab_start = 0
+                    for i in range(tab_index):
+                        prev_text = self.notebook.tab(self.notebook.tabs()[i], "text")
+                        tab_start += len(prev_text) * 8 + 10
+
+                    # Close area is rightmost 25% of estimated tab width
+                    close_area_start = tab_start + int(estimated_width * 0.75)
+
+                    if event.x < close_area_start:
+                        return
+            else:
+                return
+
+            # Close the tab
+            tab_widget = self.notebook.nametowidget(tab_id)
+
+            for viewer_id, viewer_info in list(self.event_log_viewer_tabs.items()):
+                if viewer_info.get("frame") == tab_widget:
+                    self._cleanup_viewer_tab(viewer_id)
+                    return "break"
+
+        except tk.TclError:
+            return
+        except Exception as e:
+            self.log_message(f"Tab close error: {e}", is_error=False)
 
     def _open_event_log_viewer_as_window(self, file_path):
         """Open event log viewer as a new window (original behavior)."""
@@ -750,6 +833,8 @@ class FileExplorerTab:
             tab_frame = viewer_info["frame"]
             try:
                 self.notebook.forget(tab_frame)
+                # Select the File Explorer tab (index 0) after closing
+                self.notebook.select(0)
             except Exception as e:
                 self.log_message(f"Failed to remove event log tab: {e}", is_error=False)
 
