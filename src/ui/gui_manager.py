@@ -6,10 +6,11 @@ import sys
 import tkinter as tk
 from tkinter import ttk
 
-from .core_logic import FoxgloveAppLogic
-from .logic.file_explorer_logic import FileExplorerLogic
-from .ui.components.file_explorer_tab import FileExplorerTab
-from .ui.components.settings_tab import SettingsTab
+from ..logic.core import FoxgloveAppLogic
+from ..logic.file_explorer_logic import FileExplorerLogic
+from ..utils.constants import SETTINGS_FILE_PATH
+from .components.file_explorer_tab import FileExplorerTab
+from .components.settings_tab import SettingsTab
 
 
 class FoxgloveAppGUIManager:
@@ -41,16 +42,15 @@ class FoxgloveAppGUIManager:
 
         self.file_explorer_tab.focus_file_explorer_tab = self.focus_file_explorer_tab
 
-        temp_settings_path = os.path.expanduser("~/.foxglove_gui_settings.json")
-        if os.path.exists(temp_settings_path):
-            with open(temp_settings_path, "r") as f:
+        if os.path.exists(SETTINGS_FILE_PATH):
+            with open(SETTINGS_FILE_PATH, "r") as f:
                 temp_settings = json.load(f)
         else:
             temp_settings = {}
         if not temp_settings.get("nas_dir"):
             initial_path = self.file_explorer_tab.current_explorer_path
             temp_settings["nas_dir"] = initial_path
-            with open(temp_settings_path, "w") as f:
+            with open(SETTINGS_FILE_PATH, "w") as f:
                 json.dump(temp_settings, f, indent=4)
 
         self.settings_tab = SettingsTab(self.main_notebook, self.logic, self.log_message)

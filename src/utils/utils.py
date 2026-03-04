@@ -1,32 +1,6 @@
 import os
 
-# File extension to icon mapping for better performance
-FILE_ICON_MAP = {
-    ".mcap": "🎥",
-    ".txt": "📄",
-    ".log": "📄",
-    ".md": "📄",
-    ".py": "📜",
-    ".js": "📜",
-    ".cpp": "📜",
-    ".h": "📜",
-    ".c": "📜",
-    ".java": "📜",
-    ".jpg": "🖼️",
-    ".png": "🖼️",
-    ".gif": "🖼️",
-    ".bmp": "🖼️",
-    ".jpeg": "🖼️",
-    ".zip": "📦",
-    ".tar": "📦",
-    ".gz": "📦",
-    ".rar": "📦",
-    ".pdf": "📕",
-    ".json": "⚙️",
-    ".xml": "⚙️",
-    ".yaml": "⚙️",
-    ".yml": "⚙️",
-}
+from .constants import DEFAULT_FILE_ICON, FILE_ICON_MAP
 
 
 def format_file_size(size_bytes):
@@ -51,8 +25,9 @@ def format_file_size(size_bytes):
 
 
 def get_file_icon(filepath):
+    """Get an icon for a file based on its extension."""
     ext = os.path.splitext(filepath)[1].lower()
-    return FILE_ICON_MAP.get(ext, "📄")
+    return FILE_ICON_MAP.get(ext, DEFAULT_FILE_ICON)
 
 
 def validate_input(input_data):

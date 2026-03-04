@@ -1,15 +1,17 @@
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
+from ..utils.constants import DEFAULT_DATA_PATH, FILE_INFO_CACHE_SIZE_LIMIT, MCAP_FILE_EXTENSION
+from ..utils.file_operations import open_directory_in_file_manager, open_file_with_default_app
 from ..utils.utils import format_file_size, get_file_icon
 
 
 class FileExplorerLogic:
     def __init__(self, base_path: Optional[str] = None):
-        self.base_path = base_path or os.path.expanduser("~/data")
+        self.base_path = base_path or DEFAULT_DATA_PATH
         # Cache for file info to improve performance
         self._file_info_cache: Dict[str, Dict[str, Any]] = {}
-        self._cache_size_limit = 1000
+        self._cache_size_limit = FILE_INFO_CACHE_SIZE_LIMIT
 
     def _clear_cache_if_needed(self) -> None:
         if len(self._file_info_cache) > self._cache_size_limit:
@@ -31,7 +33,8 @@ class FileExplorerLogic:
         return directories, files
 
     def is_mcap_file(self, filename):
-        return filename.lower().endswith(".mcap")
+        """Check if filename is an MCAP file."""
+        return filename.lower().endswith(MCAP_FILE_EXTENSION)
 
     def get_file_info(self, path):
         if path in self._file_info_cache:
@@ -58,49 +61,11 @@ class FileExplorerLogic:
 
     def open_file(self, file_path):
         """Open a file using the system default application. Returns (success, message)."""
-        import platform
-        import subprocess
-
-        try:
-            system = platform.system()
-            if system == "Linux":
-                subprocess.run(["xdg-open", file_path], check=True, timeout=10)
-            elif system == "Darwin":
-                subprocess.run(["open", file_path], check=True, timeout=10)
-            elif system == "Windows":
-                os.startfile(file_path)
-            else:
-                return False, f"Unsupported system: {system}"
-            return True, f"Opened file: {os.path.basename(file_path)}"
-        except subprocess.TimeoutExpired:
-            return False, f"Timeout opening file: {os.path.basename(file_path)}"
-        except subprocess.CalledProcessError as e:
-            return False, f"Failed to open file: {e}"
-        except Exception as e:
-            return False, f"Error opening file: {e}"
+        return open_file_with_default_app(file_path)
 
     def open_in_file_manager(self, dir_path):
         """Open a directory in the system file manager. Returns (success, message)."""
-        import platform
-        import subprocess
-
-        try:
-            system = platform.system()
-            if system == "Linux":
-                subprocess.run(["xdg-open", dir_path], check=True, timeout=10)
-            elif system == "Darwin":
-                subprocess.run(["open", dir_path], check=True, timeout=10)
-            elif system == "Windows":
-                subprocess.run(["explorer", dir_path], check=True, timeout=10)
-            else:
-                return False, f"Unsupported system: {system}"
-            return True, f"Opened in file manager: {dir_path}"
-        except subprocess.TimeoutExpired:
-            return False, f"Timeout opening file manager for: {dir_path}"
-        except subprocess.CalledProcessError as e:
-            return False, f"Failed to open file manager: {e}"
-        except Exception as e:
-            return False, f"Error opening file manager: {e}"
+        return open_directory_in_file_manager(dir_path)
 
     def copy_to_clipboard(self, root, text):
         try:

@@ -1213,7 +1213,7 @@ class FileExplorerTab:
     def _get_runtime_settings(self):
         settings = getattr(self.logic, "settings", {})
         if not settings:
-            from ...core_logic import DEFAULT_SETTINGS
+            from ...utils.constants import DEFAULT_SETTINGS
 
             settings = DEFAULT_SETTINGS.copy()
         return settings
@@ -1534,7 +1534,7 @@ class FileExplorerTab:
             try:
                 settings = self._get_runtime_settings()
             except (AttributeError, ImportError):
-                from ...core_logic import DEFAULT_SETTINGS
+                from ...utils.constants import DEFAULT_SETTINGS
 
                 settings = DEFAULT_SETTINGS.copy()
 
@@ -1589,7 +1589,7 @@ class FileExplorerTab:
             try:
                 settings = self._get_runtime_settings()
             except (AttributeError, ImportError):
-                from ...core_logic import DEFAULT_SETTINGS
+                from ...utils.constants import DEFAULT_SETTINGS
 
                 settings = DEFAULT_SETTINGS.copy()
 

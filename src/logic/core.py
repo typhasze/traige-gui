@@ -7,35 +7,19 @@ import threading
 import time
 import urllib.parse
 
-from .logic.symlink_playback_logic import SymlinkPlaybackLogic
-
-# Constants for better maintainability
-DEFAULT_DATA_PATH = os.path.expanduser("~/data")
-DEFAULT_BACKUP_PATH = os.path.expanduser("~/data/psa_logs_backup_nas3")
-DEFAULT_BAZEL_WORKING_DIR = os.path.expanduser("~/av-system/catkin_ws/src")
-SYMLINK_DIR = "/tmp/selected_bags_symlinks"
-
-# Default settings
-DEFAULT_SETTINGS = {
-    "bazel_tools_viz_cmd": "bazel run //tools/viz",
-    "bazel_bag_gui_cmd": "bazel run //tools/bag:gui",
-    "bazel_working_dir": DEFAULT_BAZEL_WORKING_DIR,
-    "bazel_bag_gui_rate": 1.0,
-    "open_foxglove_in_browser": True,
-    "single_instance_video": True,
-    "single_instance_rosbag": True,
-    "auto_open_event_log_for_tg": False,
-    "event_log_viewer_as_tab": False,
-}
-
-# Process names for better consistency
-PROCESS_NAMES = {
-    "FOXGLOVE_STUDIO": "Foxglove Studio",
-    "FOXGLOVE_BROWSER": "Foxglove Studio (Browser)",
-    "BAZEL_TOOLS_VIZ": "Bazel Tools Viz",
-    "BAZEL_BAG_GUI": "Bazel Bag GUI",
-    "MPV_VIDEO": "MPV Video",
-}
+from ..utils.constants import (
+    DEFAULT_BACKUP_PATH,
+    DEFAULT_DATA_PATH,
+    DEFAULT_SETTINGS,
+    FOXGLOVE_DS_URL,
+    FOXGLOVE_REMOTE_BASE_URL,
+    LONG_RUNNING_PROCESS_THRESHOLD,
+    PROCESS_MONITOR_INTERVAL,
+    PROCESS_NAMES,
+    PROCESS_SHUTDOWN_TIMEOUT,
+)
+from ..utils.file_operations import open_url_in_browser
+from .symlink_playback_logic import SymlinkPlaybackLogic
 
 
 def perform_operation(data):
@@ -71,7 +55,7 @@ class FoxgloveAppLogic:
         Background process health monitor that periodically checks and cleans up
         dead processes to prevent zombies and hanging states.
         """
-        while not self._monitor_stop_event.wait(10):  # Check every 10 seconds
+        while not self._monitor_stop_event.wait(PROCESS_MONITOR_INTERVAL):
             try:
                 self._cleanup_dead_processes()
             except Exception as e:
@@ -88,10 +72,10 @@ class FoxgloveAppLogic:
             if proc.poll() is not None:  # Process has terminated
                 dead_processes.append(proc_info)
             else:
-                # Check for potentially hanging processes (running for more than 2 hours)
+                # Check for potentially hanging processes
                 start_time = proc_info.get("start_time", current_time)
                 runtime = current_time - start_time
-                if runtime > 7200:  # 2 hours
+                if runtime > LONG_RUNNING_PROCESS_THRESHOLD:
                     self.log_callback(
                         f"Long-running process detected: {proc_info['name']} "
                         f"(PID: {proc.pid}, runtime: {runtime/3600:.1f}h)",
@@ -137,7 +121,7 @@ class FoxgloveAppLogic:
         """Stop the process health monitor."""
         if self._process_monitor_thread and self._process_monitor_thread.is_alive():
             self._monitor_stop_event.set()
-            self._process_monitor_thread.join(timeout=2)  # Wait max 2 seconds
+            self._process_monitor_thread.join(timeout=PROCESS_SHUTDOWN_TIMEOUT)
 
     def update_search_paths(self, primary_path, backup_path):
         """Updates the primary and backup search paths."""
@@ -635,26 +619,19 @@ class FoxgloveAppLogic:
         return selected_files
 
     def launch_foxglove_browser(self, mcap_filepath_absolute):
+        """Launch Foxglove Studio in browser with the specified MCAP file."""
         if not os.path.isfile(mcap_filepath_absolute):
             return None, f"MCAP file not found: {mcap_filepath_absolute}", None
 
         prefix = os.path.expanduser("~/data")
         relative_path = mcap_filepath_absolute.removeprefix(prefix)
-        first_url = (
-            "https://foxglove.data.ventitechnologies.net/?ds=remote-file&"
-            "ds.url=https://rosbag.data.ventitechnologies.net/"
-        )
-        url = f"{first_url}{relative_path}"
+        url = f"{FOXGLOVE_REMOTE_BASE_URL}?ds=remote-file&ds.url={FOXGLOVE_DS_URL}{relative_path}"
 
-        try:
-            subprocess.run(["xdg-open", url], check=True, timeout=10)
+        success, message = open_url_in_browser(url)
+        if success:
             return f"Foxglove Studio launched in browser with {os.path.basename(mcap_filepath_absolute)}.", None, None
-        except subprocess.TimeoutExpired:
-            return None, "Timeout launching browser for Foxglove Studio", None
-        except subprocess.CalledProcessError as e:
-            return None, f"Failed to launch browser: {e}", None
-        except Exception as e:
-            return None, f"Failed to launch Foxglove Studio in browser: {e}", None
+        else:
+            return None, message, None
 
     def launch_bazel_tools_viz(self, settings):
         self.bazel_working_dir = self.get_bazel_working_dir(settings)

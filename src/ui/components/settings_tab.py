@@ -4,6 +4,8 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Optional
 
+from ...utils.constants import DEFAULT_SETTINGS, SETTINGS_FILE_PATH
+
 
 class SettingsTab:
     settings_config = [
@@ -71,7 +73,7 @@ class SettingsTab:
         self.log_message = log_message
         self.vars = {}
         self.entries = {}
-        self.settings_path = os.path.expanduser("~/.foxglove_gui_settings.json")
+        self.settings_path = SETTINGS_FILE_PATH
         self.settings = self.load_settings()
         if hasattr(self.logic, "set_runtime_settings"):
             self.logic.set_runtime_settings(self.settings)
@@ -82,27 +84,9 @@ class SettingsTab:
         self.logic.update_search_paths(self.settings.get("nas_dir"), self.settings.get("backup_nas_dir"))
 
     def load_settings(self):
-        import getpass
-
-        username = getpass.getuser()
-        default_settings = {
-            "bazel_tools_viz_cmd": "bazel run //tools/viz",
-            "bazel_bag_gui_cmd": "bazel run //tools/bag:gui",
-            "bazel_working_dir": os.path.expanduser("~/av-system/catkin_ws/src"),
-            "nas_dir": os.path.expanduser("~/data"),
-            "backup_nas_dir": os.path.expanduser("~/data/psa_logs_backup_nas3"),
-            "logging_dir": f"/media/{username}/LOGGING",
-            "max_foxglove_files": 50,  # Reasonable default limit for performance
-            "bazel_bag_gui_rate": 1.0,  # Default playback rate for Bazel Bag GUI
-            "open_foxglove_in_browser": True,
-            "single_instance_video": True,
-            "single_instance_rosbag": True,
-            "auto_open_event_log_for_tg": False,
-            "event_log_viewer_as_tab": False,
-        }
-
+        """Load settings from file or return defaults."""
         if not os.path.exists(self.settings_path):
-            return default_settings
+            return DEFAULT_SETTINGS.copy()
 
         try:
             with open(self.settings_path, "r", encoding="utf-8") as f:
@@ -111,18 +95,18 @@ class SettingsTab:
             # Validate that user_settings is a dictionary
             if not isinstance(user_settings, dict):
                 self.log_message("Settings file corrupted, using defaults", is_error=True)
-                return default_settings
+                return DEFAULT_SETTINGS.copy()
 
-            settings = default_settings.copy()
+            settings = DEFAULT_SETTINGS.copy()
             settings.update(user_settings)
             return settings
 
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
             self.log_message(f"Error parsing settings file, using defaults: {e}", is_error=True)
-            return default_settings
+            return DEFAULT_SETTINGS.copy()
         except (IOError, OSError) as e:
             self.log_message(f"Error reading settings file, using defaults: {e}", is_error=True)
-            return default_settings
+            return DEFAULT_SETTINGS.copy()
 
     def save_settings(self, settings_dict=None):
         try:
@@ -146,25 +130,8 @@ class SettingsTab:
             return False, f"Unexpected error: {e}"
 
     def reset_settings(self):
-        import getpass
-
-        username = getpass.getuser()
-        default_settings = {
-            "bazel_tools_viz_cmd": "bazel run //tools/viz",
-            "bazel_bag_gui_cmd": "bazel run //tools/bag:gui",
-            "bazel_working_dir": os.path.expanduser("~/av-system/catkin_ws/src"),
-            "nas_dir": os.path.expanduser("~/data"),
-            "backup_nas_dir": os.path.expanduser("~/data/psa_logs_backup_nas3"),
-            "logging_dir": f"/media/{username}/LOGGING",
-            "max_foxglove_files": 50,  # Reasonable default limit for performance
-            "bazel_bag_gui_rate": 1.0,  # Default playback rate for Bazel Bag GUI
-            "open_foxglove_in_browser": True,
-            "single_instance_video": True,
-            "single_instance_rosbag": True,
-            "auto_open_event_log_for_tg": False,
-            "event_log_viewer_as_tab": False,
-        }
-        self.settings = default_settings.copy()
+        """Reset settings to defaults."""
+        self.settings = DEFAULT_SETTINGS.copy()
         self.save_settings(self.settings)
 
     def get_setting(self, key):
