@@ -1,5 +1,6 @@
 import glob
 import os
+import re
 import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog, ttk
@@ -307,6 +308,8 @@ class FileExplorerTab:
             self._add_to_history(self.current_explorer_path)
             self.current_explorer_path = selected_dir
             self.refresh_explorer()
+            # Auto-open event log if enabled
+            self._auto_open_event_log_if_enabled()
 
     def navigate_to_path(self, event=None):
         new_path = self.explorer_path_var.get().strip()
@@ -314,6 +317,8 @@ class FileExplorerTab:
             self._add_to_history(self.current_explorer_path)
             self.current_explorer_path = new_path
             self.refresh_explorer()
+            # Auto-open event log if enabled
+            self._auto_open_event_log_if_enabled()
         else:
             self.log_message(f"Invalid path: {new_path}", is_error=True)
             self.explorer_path_var.set(self.current_explorer_path)
@@ -330,6 +335,8 @@ class FileExplorerTab:
                     self.current_explorer_path = item_path
                     self.refresh_explorer()
                     self.clear_explorer_search()
+                    # Auto-open event log if enabled
+                    self._auto_open_event_log_if_enabled()
                 else:
                     self.open_file(item_path)
 
@@ -748,6 +755,94 @@ class FileExplorerTab:
             self.log_message(f"Error reading event log file: {e}", is_error=True)
 
         return all_events
+
+    def _is_tg_folder(self, folder_name):
+        """Check if a folder name matches TG-XXXX pattern."""
+        return bool(re.match(r"^TG-\d+$", folder_name))
+
+    def _is_vehicle_folder(self, folder_name):
+        """Check if a folder name matches PSAXXXX pattern."""
+        return bool(re.match(r"^PSA\d+$", folder_name))
+
+    def _get_vehicle_folders(self, path):
+        """Get all vehicle folders (PSAXXXX) in the given directory."""
+        try:
+            if not os.path.isdir(path):
+                return []
+            dirs, _ = self.file_explorer_logic.list_directory(path)
+            return [d for d in dirs if self._is_vehicle_folder(d)]
+        except Exception:
+            return []
+
+    def _find_event_log_file(self, base_path):
+        """Find event_log_*.txt file in the logs directory."""
+        try:
+            logs_path = os.path.join(base_path, "logs")
+            if not os.path.isdir(logs_path):
+                return None
+
+            # Look for event_log_*.txt files
+            for file in os.listdir(logs_path):
+                if file.lower().startswith("event_log_") and file.lower().endswith(".txt"):
+                    return os.path.join(logs_path, file)
+            return None
+        except Exception:
+            return None
+
+    def _auto_open_event_log_if_enabled(self):
+        """Auto-open event log for TG folders if the setting is enabled."""
+        try:
+            # Check if the setting is enabled
+            settings = self._get_runtime_settings()
+            if not settings.get("auto_open_event_log_for_tg", False):
+                return
+
+            current_folder_name = os.path.basename(self.current_explorer_path)
+
+            # Case 1: We're in a TG-XXXX folder
+            if self._is_tg_folder(current_folder_name):
+                vehicle_folders = self._get_vehicle_folders(self.current_explorer_path)
+
+                # If there's only one vehicle folder, auto-navigate to it and open event log
+                if len(vehicle_folders) == 1:
+                    vehicle_path = os.path.join(self.current_explorer_path, vehicle_folders[0])
+                    event_log_file = self._find_event_log_file(vehicle_path)
+
+                    if event_log_file:
+                        self.log_message(f"Auto-opening event log for {vehicle_folders[0]}...")
+                        # Navigate to the logs directory
+                        logs_path = os.path.dirname(event_log_file)
+                        self._add_to_history(self.current_explorer_path)
+                        self.current_explorer_path = logs_path
+                        self.refresh_explorer()
+                        # Open the event log file after a short delay to ensure UI is updated
+                        self.root.after(100, lambda: self.open_event_log_viewer(event_log_file))
+                        return True
+
+            # Case 2: We're in a vehicle folder (PSAXXXX) inside a TG-XXXX folder
+            elif self._is_vehicle_folder(current_folder_name):
+                parent_path = os.path.dirname(self.current_explorer_path)
+                parent_folder_name = os.path.basename(parent_path)
+
+                # Check if parent is a TG folder
+                if self._is_tg_folder(parent_folder_name):
+                    event_log_file = self._find_event_log_file(self.current_explorer_path)
+
+                    if event_log_file:
+                        self.log_message(f"Auto-opening event log for {current_folder_name}...")
+                        # Navigate to the logs directory
+                        logs_path = os.path.dirname(event_log_file)
+                        self._add_to_history(self.current_explorer_path)
+                        self.current_explorer_path = logs_path
+                        self.refresh_explorer()
+                        # Open the event log file after a short delay to ensure UI is updated
+                        self.root.after(100, lambda: self.open_event_log_viewer(event_log_file))
+                        return True
+
+            return False
+        except Exception as e:
+            self.log_message(f"Error in auto-open event log: {e}", is_error=True)
+            return False
 
     def on_explorer_select(self, event=None, suppress_log=False):
         selection = self.explorer_listbox.curselection()

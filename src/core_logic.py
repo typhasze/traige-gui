@@ -24,6 +24,7 @@ DEFAULT_SETTINGS = {
     "open_foxglove_in_browser": True,
     "single_instance_video": True,
     "single_instance_rosbag": True,
+    "auto_open_event_log_for_tg": False,
 }
 
 # Process names for better consistency

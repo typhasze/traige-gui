@@ -51,6 +51,12 @@ class SettingsTab:
             "type": "bool",
             "widget": "checkbutton",
         },
+        {
+            "label": "Auto-open event log for TG folders",
+            "key": "auto_open_event_log_for_tg",
+            "type": "bool",
+            "widget": "checkbutton",
+        },
     ]
 
     def __init__(self, parent, logic, log_message):
@@ -85,6 +91,7 @@ class SettingsTab:
             "open_foxglove_in_browser": True,
             "single_instance_video": True,
             "single_instance_rosbag": True,
+            "auto_open_event_log_for_tg": False,
         }
 
         if not os.path.exists(self.settings_path):
@@ -147,6 +154,7 @@ class SettingsTab:
             "open_foxglove_in_browser": True,
             "single_instance_video": True,
             "single_instance_rosbag": True,
+            "auto_open_event_log_for_tg": False,
         }
         self.settings = default_settings.copy()
         self.save_settings(self.settings)
