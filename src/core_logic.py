@@ -25,6 +25,7 @@ DEFAULT_SETTINGS = {
     "single_instance_video": True,
     "single_instance_rosbag": True,
     "auto_open_event_log_for_tg": False,
+    "event_log_viewer_as_tab": False,
 }
 
 # Process names for better consistency

@@ -9,6 +9,7 @@ from tkinter import filedialog, ttk
 class FileExplorerTab:
     def __init__(self, parent, root, logic, file_explorer_logic, log_message, update_button_states):
         self.frame = ttk.Frame(parent)
+        self.notebook = parent  # Store reference to the main notebook for creating tabs
         self.root = root
         self.logic = logic
         self.file_explorer_logic = file_explorer_logic
@@ -35,6 +36,9 @@ class FileExplorerTab:
         # Track event log viewers and their associated processes
         self.event_log_viewers = {}  # {window_id: {"window": tk.Toplevel, "processes": []}}
         self._next_viewer_id = 0
+
+        # Track event log viewer tabs: {viewer_id: {"frame": ttk.Frame, "processes": []}}
+        self.event_log_viewer_tabs = {}
 
         # UI Widgets
         self.create_widgets()
@@ -378,312 +382,380 @@ class FileExplorerTab:
             self.log_message(msg, is_error=True)
 
     def open_event_log_viewer(self, file_path):
-        """Open a custom viewer for event log files."""
+        """Open a custom viewer for event log files, either as window or tab based on settings."""
         try:
-            # Assign unique ID for this viewer
-            viewer_id = self._next_viewer_id
-            self._next_viewer_id += 1
+            # Check settings to determine if we should open as tab
+            settings = self._get_runtime_settings()
+            open_as_tab = settings.get("event_log_viewer_as_tab", False)
 
-            # Create a new window for the event log viewer
-            viewer_window = tk.Toplevel(self.root)
-            viewer_window.title(f"Event Log Viewer - {os.path.basename(file_path)}")
-            viewer_window.geometry("1000x600")
-
-            # Track this viewer
-            self.event_log_viewers[viewer_id] = {"window": viewer_window, "processes": [], "file_path": file_path}
-
-            # Cleanup handler for when viewer closes
-            def on_viewer_close():
-                self._cleanup_viewer_processes(viewer_id)
-                viewer_window.destroy()
-
-            viewer_window.protocol("WM_DELETE_WINDOW", on_viewer_close)
-
-            # Create main frame
-            main_frame = ttk.Frame(viewer_window, padding="10")
-            main_frame.pack(fill="both", expand=True)
-
-            # File info label
-            info_label = ttk.Label(main_frame, text=f"File: {file_path}", font=("Arial", 10, "bold"))
-            info_label.pack(anchor="w", pady=(0, 10))
-
-            # Search/Filter frame
-            search_frame = ttk.Frame(main_frame)
-            search_frame.pack(fill="x", pady=(0, 10))
-
-            search_label = ttk.Label(search_frame, text="Search/Filter:")
-            search_label.pack(side="left", padx=(0, 5))
-
-            search_var = tk.StringVar()
-            search_entry = ttk.Entry(search_frame, textvariable=search_var, width=40)
-            search_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
-            # Add Ctrl+A support for search entry
-            search_entry.bind("<Control-a>", self.select_all_text)
-            search_entry.bind("<Control-A>", self.select_all_text)
-
-            # Filter result label
-            filter_result_label = ttk.Label(search_frame, text="")
-            filter_result_label.pack(side="left", padx=(10, 0))
-
-            # Create scrollbars and treeview with proper layout
-            tree_container = ttk.Frame(main_frame)
-            tree_container.pack(fill="both", expand=True)
-
-            # Define columns
-            columns = ("current_time", "timestamp", "txt_manual", "txt_criticality", "ui_mode")
-
-            # Create treeview
-            tree = ttk.Treeview(tree_container, columns=columns, show="headings", height=20)
-
-            # Configure column headings and widths
-            tree.heading("current_time", text="Current Time")
-            tree.heading("timestamp", text="Timestamp")
-            tree.heading("txt_manual", text="Event Description")
-            tree.heading("txt_criticality", text="Criticality")
-            tree.heading("ui_mode", text="UI Mode")
-
-            # Set column widths
-            tree.column("current_time", width=180, minwidth=150)
-            tree.column("timestamp", width=120, minwidth=100)
-            tree.column("txt_manual", width=300, minwidth=200)
-            tree.column("txt_criticality", width=150, minwidth=100)
-            tree.column("ui_mode", width=100, minwidth=80)
-
-            # Create scrollbars
-            v_scrollbar = ttk.Scrollbar(tree_container, orient="vertical", command=tree.yview)
-            h_scrollbar = ttk.Scrollbar(tree_container, orient="horizontal", command=tree.xview)
-            tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
-
-            # Pack treeview and vertical scrollbar
-            tree.pack(side="left", fill="both", expand=True)
-            v_scrollbar.pack(side="right", fill="y")
-
-            # Pack horizontal scrollbar at bottom of same container
-            h_scrollbar.pack(side="bottom", fill="x", before=tree)
-
-            # Store for all event data (for filtering)
-            all_events = []
-
-            # Parse and load the event log data
-            all_events = self.load_event_log_data(tree, file_path)
-
-            # Add selection handler
-            def on_row_select(event):
-                selected_items = tree.selection()
-                if selected_items:
-                    item = selected_items[0]
-                    values = tree.item(item)["values"]
-                    if values and len(values) >= 1:
-                        current_time = values[0]  # current_time is in column 0
-                        self.log_message(f"Selected event: {values[0]} - {values[2] if len(values) > 2 else ''}")
-
-                        # Add double-click or button to play video
-                        def play_video():
-                            try:
-                                self.play_video_at_timestamp(file_path, current_time, viewer_id=viewer_id)
-                            except Exception as e:
-                                self.log_message(f"Error playing video: {e}", is_error=True)
-
-                        # Store the play_video function for potential button use
-                        tree.play_video_func = play_video
-
-            # Add double-click handler for video playback
-            def on_double_click(event):
-                if hasattr(tree, "play_video_func"):
-                    tree.play_video_func()
-
-            # Add buttons frame
-            button_frame = ttk.Frame(main_frame)
-            button_frame.pack(fill="x", pady=(10, 0))
-
-            # Play Video button
-            play_video_button = ttk.Button(
-                button_frame,
-                text="Video Timestamp",
-                command=lambda: getattr(tree, "play_video_func", lambda: None)(),
-                state="disabled",
-                style="Action.TButton",
-            )
-            play_video_button.pack(side="left", padx=(0, 10))
-
-            # Play Bazel button (at timestamp)
-            def play_bazel():
-                selected_items = tree.selection()
-                if selected_items:
-                    item = selected_items[0]
-                    values = tree.item(item)["values"]
-                    if values and len(values) >= 1:
-                        current_time = values[0]
-                        try:
-                            self.play_bazel_at_timestamp(file_path, current_time, viewer_id=viewer_id)
-                        except Exception as e:
-                            self.log_message(f"Error playing bazel: {e}", is_error=True)
-
-            play_bazel_button = ttk.Button(
-                button_frame,
-                text="Rosbag Timestamp",
-                command=play_bazel,
-                state="disabled",
-                style="Action.TButton",
-            )
-            play_bazel_button.pack(side="left", padx=(0, 10))
-
-            # Play Bazel from Start button
-            def play_bazel_from_start():
-                selected_items = tree.selection()
-                if selected_items:
-                    item = selected_items[0]
-                    values = tree.item(item)["values"]
-                    if values and len(values) >= 1:
-                        current_time = values[0]
-                        try:
-                            self.play_bazel_from_start(file_path, current_time, viewer_id=viewer_id)
-                        except Exception as e:
-                            self.log_message(f"Error playing bazel from start: {e}", is_error=True)
-
-            play_bazel_start_button = ttk.Button(
-                button_frame,
-                text="Current Rosbag",
-                command=play_bazel_from_start,
-                state="disabled",
-                style="Action.TButton",
-            )
-            play_bazel_start_button.pack(side="left", padx=(0, 10))
-
-            # Show MCAP in Explorer button
-            def show_mcap_in_explorer():
-                selected_items = tree.selection()
-                if selected_items:
-                    item = selected_items[0]
-                    values = tree.item(item)["values"]
-                    if values and len(values) >= 1:
-                        current_time = values[0]
-                        try:
-                            self.navigate_to_mcap_from_timestamp(file_path, current_time)
-                        except Exception as e:
-                            self.log_message(f"Error navigating to MCAP: {e}", is_error=True)
-
-            show_mcap_button = ttk.Button(
-                button_frame,
-                text="Rosbag Location",
-                command=show_mcap_in_explorer,
-                state="disabled",
-                style="Action.TButton",
-            )
-            show_mcap_button.pack(side="left", padx=(0, 10))
-
-            # Update play button state based on selection
-            def update_play_button(*args):
-                selected_items = tree.selection()
-                if selected_items:
-                    if hasattr(tree, "play_video_func"):
-                        play_video_button.config(state="normal")
-                    play_bazel_button.config(state="normal")
-                    play_bazel_start_button.config(state="normal")
-                    show_mcap_button.config(state="normal")
-                else:
-                    play_video_button.config(state="disabled")
-                    play_bazel_button.config(state="disabled")
-                    play_bazel_start_button.config(state="disabled")
-                    show_mcap_button.config(state="disabled")
-
-            tree.bind("<<TreeviewSelect>>", lambda e: (on_row_select(e), update_play_button()))
-            tree.bind("<Double-1>", on_double_click)
-
-            close_button = ttk.Button(button_frame, text="Close", command=on_viewer_close, style="Action.TButton")
-            close_button.pack(side="right")
-
-            # Status label showing number of events
-            status_label = ttk.Label(button_frame, text="")
-            status_label.pack(side="left")
-
-            # Filter function
-            def filter_events(*args):
-                search_text = search_var.get().lower().strip()
-
-                # Clear current tree
-                for item in tree.get_children():
-                    tree.delete(item)
-
-                # If no search text, show all events
-                if not search_text:
-                    for event in all_events:
-                        tree.insert("", "end", values=event)
-                    filter_result_label.config(text="")
-                    update_status()
-                    return
-
-                # Filter events - search across all columns
-                filtered_count = 0
-                for event in all_events:
-                    # Check if search text appears in any column
-                    event_text = " ".join(str(col) for col in event).lower()
-                    if search_text in event_text:
-                        tree.insert("", "end", values=event)
-                        filtered_count += 1
-
-                # Update filter result label
-                if filtered_count == 0:
-                    filter_result_label.config(text="No matches found", foreground="red")
-                else:
-                    total = len(all_events)
-                    filter_result_label.config(text=f"Showing {filtered_count} of {total}", foreground="blue")
-
-                update_status()
-
-            # Bind search to text changes
-            search_var.trace_add("write", filter_events)
-
-            # Add clear search button
-            clear_search_button = ttk.Button(
-                search_frame, text="Clear", command=lambda: search_var.set(""), style="Action.TButton"
-            )
-            clear_search_button.pack(side="left", padx=(5, 0))
-
-            # Update status with row count
-            def update_status():
-                row_count = len(tree.get_children())
-                status_label.config(text=f"Total events: {row_count}")
-
-            viewer_window.after(100, update_status)  # Update after data is loaded
-
-            # Keyboard shortcuts for event log viewer
-            def on_key_v(event):
-                if hasattr(tree, "play_video_func"):
-                    tree.play_video_func()
-
-            def on_key_b(event):
-                play_bazel()
-
-            def on_key_s(event):
-                show_mcap_in_explorer()
-
-            def on_key_c(event):
-                play_bazel_from_start()
-
-            def on_key_l(event):
-                show_mcap_in_explorer()
-
-            def on_key_f(event):
-                search_entry.focus_set()
-
-            # Bind keyboard shortcuts
-            viewer_window.bind("<v>", on_key_v)
-            viewer_window.bind("<V>", on_key_v)
-            viewer_window.bind("<b>", on_key_b)
-            viewer_window.bind("<B>", on_key_b)
-            viewer_window.bind("<s>", on_key_s)
-            viewer_window.bind("<S>", on_key_s)
-            viewer_window.bind("<c>", on_key_c)
-            viewer_window.bind("<C>", on_key_c)
-            viewer_window.bind("<l>", on_key_l)
-            viewer_window.bind("<L>", on_key_l)
-            viewer_window.bind("<Control-f>", on_key_f)
-            viewer_window.bind("<Control-F>", on_key_f)
-            viewer_window.bind("/", on_key_f)  # Vim-style search
+            if open_as_tab:
+                self._open_event_log_viewer_as_tab(file_path)
+            else:
+                self._open_event_log_viewer_as_window(file_path)
 
         except Exception as e:
             self.log_message(f"Error opening event log viewer: {e}", is_error=True)
+
+    def _open_event_log_viewer_as_tab(self, file_path):
+        """Open event log viewer as a new tab in the main notebook."""
+        viewer_id = self._next_viewer_id
+        self._next_viewer_id += 1
+
+        # Create a new frame for the tab
+        tab_frame = ttk.Frame(self.notebook, padding="10")
+
+        # Track this viewer tab
+        self.event_log_viewer_tabs[viewer_id] = {"frame": tab_frame, "processes": [], "file_path": file_path}
+
+        # Build the viewer UI in the frame
+        def on_close():
+            self._cleanup_viewer_tab(viewer_id)
+
+        self._build_event_log_viewer_ui(tab_frame, file_path, viewer_id, on_close, is_tab=True)
+
+        # Add the tab to the notebook
+        tab_title = f"Event Log - {os.path.basename(file_path)[:20]}"
+        self.notebook.add(tab_frame, text=tab_title)
+
+        # Switch to the new tab
+        self.notebook.select(tab_frame)
+
+        self.log_message(f"Opened event log viewer as tab: {os.path.basename(file_path)}")
+
+    def _open_event_log_viewer_as_window(self, file_path):
+        """Open event log viewer as a new window (original behavior)."""
+        viewer_id = self._next_viewer_id
+        self._next_viewer_id += 1
+
+        # Create a new window for the event log viewer
+        viewer_window = tk.Toplevel(self.root)
+        viewer_window.title(f"Event Log Viewer - {os.path.basename(file_path)}")
+        viewer_window.geometry("1000x600")
+
+        # Track this viewer
+        self.event_log_viewers[viewer_id] = {"window": viewer_window, "processes": [], "file_path": file_path}
+
+        # Cleanup handler for when viewer closes
+        def on_viewer_close():
+            self._cleanup_viewer_processes(viewer_id)
+            viewer_window.destroy()
+
+        viewer_window.protocol("WM_DELETE_WINDOW", on_viewer_close)
+
+        # Build the viewer UI in the window
+        self._build_event_log_viewer_ui(viewer_window, file_path, viewer_id, on_viewer_close, is_tab=False)
+
+    def _build_event_log_viewer_ui(self, parent, file_path, viewer_id, on_close_callback, is_tab=False):
+        """Build the event log viewer UI. Works for both window and tab modes."""
+        # Create main frame
+        main_frame = ttk.Frame(parent, padding="10")
+        main_frame.pack(fill="both", expand=True)
+
+        # File info label
+        info_label = ttk.Label(main_frame, text=f"File: {file_path}", font=("Arial", 10, "bold"))
+        info_label.pack(anchor="w", pady=(0, 10))
+
+        # Search/Filter frame
+        search_frame = ttk.Frame(main_frame)
+        search_frame.pack(fill="x", pady=(0, 10))
+
+        search_label = ttk.Label(search_frame, text="Search/Filter:")
+        search_label.pack(side="left", padx=(0, 5))
+
+        search_var = tk.StringVar()
+        search_entry = ttk.Entry(search_frame, textvariable=search_var, width=40)
+        search_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        # Add Ctrl+A support for search entry
+        search_entry.bind("<Control-a>", self.select_all_text)
+        search_entry.bind("<Control-A>", self.select_all_text)
+
+        # Filter result label
+        filter_result_label = ttk.Label(search_frame, text="")
+        filter_result_label.pack(side="left", padx=(10, 0))
+
+        # Create scrollbars and treeview with proper layout
+        tree_container = ttk.Frame(main_frame)
+        tree_container.pack(fill="both", expand=True)
+
+        # Define columns
+        columns = ("current_time", "timestamp", "txt_manual", "txt_criticality", "ui_mode")
+
+        # Create treeview
+        tree = ttk.Treeview(tree_container, columns=columns, show="headings", height=20)
+
+        # Configure column headings and widths
+        tree.heading("current_time", text="Current Time")
+        tree.heading("timestamp", text="Timestamp")
+        tree.heading("txt_manual", text="Event Description")
+        tree.heading("txt_criticality", text="Criticality")
+        tree.heading("ui_mode", text="UI Mode")
+
+        # Set column widths
+        tree.column("current_time", width=180, minwidth=150)
+        tree.column("timestamp", width=120, minwidth=100)
+        tree.column("txt_manual", width=300, minwidth=200)
+        tree.column("txt_criticality", width=150, minwidth=100)
+        tree.column("ui_mode", width=100, minwidth=80)
+
+        # Create scrollbars
+        v_scrollbar = ttk.Scrollbar(tree_container, orient="vertical", command=tree.yview)
+        h_scrollbar = ttk.Scrollbar(tree_container, orient="horizontal", command=tree.xview)
+        tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+
+        # Pack treeview and vertical scrollbar
+        tree.pack(side="left", fill="both", expand=True)
+        v_scrollbar.pack(side="right", fill="y")
+
+        # Pack horizontal scrollbar at bottom of same container
+        h_scrollbar.pack(side="bottom", fill="x", before=tree)
+
+        # Store for all event data (for filtering)
+        all_events = []
+
+        # Parse and load the event log data
+        all_events = self.load_event_log_data(tree, file_path)
+
+        # Add selection handler
+        def on_row_select(event):
+            selected_items = tree.selection()
+            if selected_items:
+                item = selected_items[0]
+                values = tree.item(item)["values"]
+                if values and len(values) >= 1:
+                    current_time = values[0]  # current_time is in column 0
+                    self.log_message(f"Selected event: {values[0]} - {values[2] if len(values) > 2 else ''}")
+
+                    # Add double-click or button to play video
+                    def play_video():
+                        try:
+                            self.play_video_at_timestamp(file_path, current_time, viewer_id=viewer_id)
+                        except Exception as e:
+                            self.log_message(f"Error playing video: {e}", is_error=True)
+
+                    # Store the play_video function for potential button use
+                    tree.play_video_func = play_video
+
+        # Add double-click handler for video playback
+        def on_double_click(event):
+            if hasattr(tree, "play_video_func"):
+                tree.play_video_func()
+
+        # Add buttons frame
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill="x", pady=(10, 0))
+
+        # Play Video button
+        play_video_button = ttk.Button(
+            button_frame,
+            text="Video Timestamp",
+            command=lambda: getattr(tree, "play_video_func", lambda: None)(),
+            state="disabled",
+            style="Action.TButton",
+        )
+        play_video_button.pack(side="left", padx=(0, 10))
+
+        # Play Bazel button (at timestamp)
+        def play_bazel():
+            selected_items = tree.selection()
+            if selected_items:
+                item = selected_items[0]
+                values = tree.item(item)["values"]
+                if values and len(values) >= 1:
+                    current_time = values[0]
+                    try:
+                        self.play_bazel_at_timestamp(file_path, current_time, viewer_id=viewer_id)
+                    except Exception as e:
+                        self.log_message(f"Error playing bazel: {e}", is_error=True)
+
+        play_bazel_button = ttk.Button(
+            button_frame,
+            text="Rosbag Timestamp",
+            command=play_bazel,
+            state="disabled",
+            style="Action.TButton",
+        )
+        play_bazel_button.pack(side="left", padx=(0, 10))
+
+        # Play Bazel from Start button
+        def play_bazel_from_start():
+            selected_items = tree.selection()
+            if selected_items:
+                item = selected_items[0]
+                values = tree.item(item)["values"]
+                if values and len(values) >= 1:
+                    current_time = values[0]
+                    try:
+                        self.play_bazel_from_start(file_path, current_time, viewer_id=viewer_id)
+                    except Exception as e:
+                        self.log_message(f"Error playing bazel from start: {e}", is_error=True)
+
+        play_bazel_start_button = ttk.Button(
+            button_frame,
+            text="Current Rosbag",
+            command=play_bazel_from_start,
+            state="disabled",
+            style="Action.TButton",
+        )
+        play_bazel_start_button.pack(side="left", padx=(0, 10))
+
+        # Show MCAP in Explorer button
+        def show_mcap_in_explorer():
+            selected_items = tree.selection()
+            if selected_items:
+                item = selected_items[0]
+                values = tree.item(item)["values"]
+                if values and len(values) >= 1:
+                    current_time = values[0]
+                    try:
+                        self.navigate_to_mcap_from_timestamp(file_path, current_time)
+                    except Exception as e:
+                        self.log_message(f"Error navigating to MCAP: {e}", is_error=True)
+
+        show_mcap_button = ttk.Button(
+            button_frame,
+            text="Rosbag Location",
+            command=show_mcap_in_explorer,
+            state="disabled",
+            style="Action.TButton",
+        )
+        show_mcap_button.pack(side="left", padx=(0, 10))
+
+        # Update play button state based on selection
+        def update_play_button(*args):
+            selected_items = tree.selection()
+            if selected_items:
+                if hasattr(tree, "play_video_func"):
+                    play_video_button.config(state="normal")
+                play_bazel_button.config(state="normal")
+                play_bazel_start_button.config(state="normal")
+                show_mcap_button.config(state="normal")
+            else:
+                play_video_button.config(state="disabled")
+                play_bazel_button.config(state="disabled")
+                play_bazel_start_button.config(state="disabled")
+                show_mcap_button.config(state="disabled")
+
+        tree.bind("<<TreeviewSelect>>", lambda e: (on_row_select(e), update_play_button()))
+        tree.bind("<Double-1>", on_double_click)
+
+        # Close button (with different text for tabs vs windows)
+        close_text = "Close Tab" if is_tab else "Close"
+        close_button = ttk.Button(button_frame, text=close_text, command=on_close_callback, style="Action.TButton")
+        close_button.pack(side="right")
+
+        # Status label showing number of events
+        status_label = ttk.Label(button_frame, text="")
+        status_label.pack(side="left")
+
+        # Filter function
+        def filter_events(*args):
+            search_text = search_var.get().lower().strip()
+
+            # Clear current tree
+            for item in tree.get_children():
+                tree.delete(item)
+
+            # If no search text, show all events
+            if not search_text:
+                for event in all_events:
+                    tree.insert("", "end", values=event)
+                filter_result_label.config(text="")
+                update_status()
+                return
+
+            # Filter events - search across all columns
+            filtered_count = 0
+            for event in all_events:
+                # Check if search text appears in any column
+                event_text = " ".join(str(col) for col in event).lower()
+                if search_text in event_text:
+                    tree.insert("", "end", values=event)
+                    filtered_count += 1
+
+            # Update filter result label
+            if filtered_count == 0:
+                filter_result_label.config(text="No matches found", foreground="red")
+            else:
+                total = len(all_events)
+                filter_result_label.config(text=f"Showing {filtered_count} of {total}", foreground="blue")
+
+            update_status()
+
+        # Bind search to text changes
+        search_var.trace_add("write", filter_events)
+
+        # Add clear search button
+        clear_search_button = ttk.Button(
+            search_frame, text="Clear", command=lambda: search_var.set(""), style="Action.TButton"
+        )
+        clear_search_button.pack(side="left", padx=(5, 0))
+
+        # Update status with row count
+        def update_status():
+            row_count = len(tree.get_children())
+            status_label.config(text=f"Total events: {row_count}")
+
+        parent.after(100, update_status)  # Update after data is loaded
+
+        # Keyboard shortcuts for event log viewer
+        def on_key_v(event):
+            if hasattr(tree, "play_video_func"):
+                tree.play_video_func()
+
+        def on_key_b(event):
+            play_bazel()
+
+        def on_key_s(event):
+            show_mcap_in_explorer()
+
+        def on_key_c(event):
+            play_bazel_from_start()
+
+        def on_key_l(event):
+            show_mcap_in_explorer()
+
+        def on_key_f(event):
+            search_entry.focus_set()
+
+        # Bind keyboard shortcuts
+        parent.bind("<v>", on_key_v)
+        parent.bind("<V>", on_key_v)
+        parent.bind("<b>", on_key_b)
+        parent.bind("<B>", on_key_b)
+        parent.bind("<s>", on_key_s)
+        parent.bind("<S>", on_key_s)
+        parent.bind("<c>", on_key_c)
+        parent.bind("<C>", on_key_c)
+        parent.bind("<l>", on_key_l)
+        parent.bind("<L>", on_key_l)
+        parent.bind("<Control-f>", on_key_f)
+        parent.bind("<Control-F>", on_key_f)
+        parent.bind("/", on_key_f)  # Vim-style search
+
+    def _cleanup_viewer_tab(self, viewer_id):
+        """Cleanup processes and remove a tab-based event log viewer."""
+        if viewer_id in self.event_log_viewer_tabs:
+            viewer_info = self.event_log_viewer_tabs[viewer_id]
+
+            # Kill any associated processes
+            for proc in viewer_info.get("processes", []):
+                try:
+                    if proc.poll() is None:  # Process is still running
+                        proc.terminate()
+                        proc.wait(timeout=2)
+                except Exception as e:
+                    self.log_message(f"Failed to terminate viewer process cleanly: {e}", is_error=False)
+
+            # Remove the tab from the notebook
+            tab_frame = viewer_info["frame"]
+            try:
+                self.notebook.forget(tab_frame)
+            except Exception as e:
+                self.log_message(f"Failed to remove event log tab: {e}", is_error=False)
+
+            # Remove from tracking
+            del self.event_log_viewer_tabs[viewer_id]
+            self.log_message("Closed event log viewer tab")
 
     def load_event_log_data(self, tree, file_path):
         """Parse and load event log data into the treeview. Returns list of all events."""
@@ -1038,10 +1110,12 @@ class FileExplorerTab:
             settings = self._get_runtime_settings()
             message, error, proc_id = self.logic.launch_mpv_video(video_file, start_offset, settings)
 
-            # Track the process for this viewer
+            # Track the process for this viewer (works for both windows and tabs)
             if viewer_id is not None and proc_id is not None:
                 if viewer_id in self.event_log_viewers:
                     self.event_log_viewers[viewer_id]["processes"].append(proc_id)
+                elif viewer_id in self.event_log_viewer_tabs:
+                    self.event_log_viewer_tabs[viewer_id]["processes"].append(proc_id)
 
             if message:
                 self.log_message(message)
@@ -1395,10 +1469,12 @@ class FileExplorerTab:
                     mcap_files[0], settings, start_time=start_offset
                 )
 
-            # Track the process for this viewer
+            # Track the process for this viewer (works for both windows and tabs)
             if viewer_id is not None and proc_id is not None:
                 if viewer_id in self.event_log_viewers:
                     self.event_log_viewers[viewer_id]["processes"].append(proc_id)
+                elif viewer_id in self.event_log_viewer_tabs:
+                    self.event_log_viewer_tabs[viewer_id]["processes"].append(proc_id)
 
             if message:
                 self.log_message(message)
@@ -1436,10 +1512,12 @@ class FileExplorerTab:
             self.log_message(f"Launching Bazel Bag GUI with {os.path.basename(mcap_file)} from start...")
             message, error, proc_id = self.logic.launch_bazel_bag_gui(mcap_file, settings, start_time=None)
 
-            # Track the process for this viewer
+            # Track the process for this viewer (works for both windows and tabs)
             if viewer_id is not None and proc_id is not None:
                 if viewer_id in self.event_log_viewers:
                     self.event_log_viewers[viewer_id]["processes"].append(proc_id)
+                elif viewer_id in self.event_log_viewer_tabs:
+                    self.event_log_viewer_tabs[viewer_id]["processes"].append(proc_id)
 
             if message:
                 self.log_message(message)

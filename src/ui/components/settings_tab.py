@@ -57,6 +57,12 @@ class SettingsTab:
             "type": "bool",
             "widget": "checkbutton",
         },
+        {
+            "label": "Open event log viewer as tab",
+            "key": "event_log_viewer_as_tab",
+            "type": "bool",
+            "widget": "checkbutton",
+        },
     ]
 
     def __init__(self, parent, logic, log_message):
@@ -92,6 +98,7 @@ class SettingsTab:
             "single_instance_video": True,
             "single_instance_rosbag": True,
             "auto_open_event_log_for_tg": False,
+            "event_log_viewer_as_tab": False,
         }
 
         if not os.path.exists(self.settings_path):
@@ -155,6 +162,7 @@ class SettingsTab:
             "single_instance_video": True,
             "single_instance_rosbag": True,
             "auto_open_event_log_for_tg": False,
+            "event_log_viewer_as_tab": False,
         }
         self.settings = default_settings.copy()
         self.save_settings(self.settings)
@@ -167,20 +175,39 @@ class SettingsTab:
         settings_frame.pack(fill="x", padx=10, pady=10)
 
         row = 0
+        checkbox_col = 0  # Track column position for checkboxes
+        max_checkbox_cols = 3  # Maximum checkboxes per row
+        checkbox_row_frame = None
+
         for config in self.settings_config:
             key = config["key"]
             value = self.get_setting(key)
             if config["type"] == "bool":
+                if checkbox_col == 0:
+                    checkbox_row_frame = ttk.Frame(settings_frame)
+                    checkbox_row_frame.grid(row=row, column=0, columnspan=2, sticky="w", padx=5, pady=5)
+
                 var = tk.BooleanVar(value=value if value is not None else True)
                 widget = ttk.Checkbutton(
-                    settings_frame,
+                    checkbox_row_frame,
                     text=config["label"],
                     variable=var,
                     command=lambda k=key, v=var: self._on_bool_setting_changed(k, v),
                 )
-                widget.grid(row=row, column=0, columnspan=2, sticky="w", padx=5, pady=5)
+                # Place checkboxes horizontally with consistent gap, wrapping to next row when needed
+                widget.pack(side=tk.LEFT, padx=(0, 18))
                 self.entries[key] = widget
+
+                checkbox_col += 1
+                if checkbox_col >= max_checkbox_cols:
+                    checkbox_col = 0
+                    row += 1
             else:
+                # For non-checkbox items, start on a new row if we're mid-checkbox-row
+                if checkbox_col > 0:
+                    checkbox_col = 0
+                    row += 1
+
                 if config["type"] in ["int", "float"]:
                     var = tk.StringVar(value=str(value) if value is not None else "")
                 else:
@@ -190,8 +217,8 @@ class SettingsTab:
                 entry.grid(row=row, column=1, sticky="we", padx=5, pady=2)
                 entry.bind("<FocusIn>", lambda e: e.widget.selection_clear())
                 self.entries[key] = entry
+                row += 1
             self.vars[key] = var
-            row += 1
 
         settings_frame.columnconfigure(1, weight=1)
 
