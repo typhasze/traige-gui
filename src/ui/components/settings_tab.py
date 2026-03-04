@@ -202,9 +202,20 @@ class SettingsTab:
         self.reset_button.pack(side=tk.LEFT, padx=5)
 
     def _on_bool_setting_changed(self, key, var):
-        """Apply boolean settings immediately to runtime logic."""
+        """Apply boolean settings immediately to runtime logic and save to disk."""
         try:
-            self.settings[key] = bool(var.get())
+            new_value = bool(var.get())
+            self.settings[key] = new_value
+
+            # Create readable setting name
+            readable_name = key.replace("_", " ").title()
+            status = "enabled" if new_value else "disabled"
+            self.log_message(f"✓ {readable_name}: {status}")
+
+            # Save to disk immediately
+            self.save_settings(self.settings)
+
+            # Update runtime settings in logic
             if hasattr(self.logic, "set_runtime_settings"):
                 self.logic.set_runtime_settings(self.settings)
         except Exception as e:

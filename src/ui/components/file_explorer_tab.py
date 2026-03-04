@@ -40,6 +40,10 @@ class FileExplorerTab:
         # Track event log viewer tabs: {viewer_id: {"frame": ttk.Frame, "processes": []}}
         self.event_log_viewer_tabs = {}
 
+        # Cache for MCAP file search to avoid repeated os.walk (performance optimization)
+        self._mcap_cache = {}  # {rosbags_dir: (timestamp, mcap_files_list)}
+        self._mcap_cache_ttl = 60  # Cache for 60 seconds
+
         # Handle clicks on notebook tabs (✕ to close event-log tabs)
         self.notebook.bind("<Button-1>", self._on_notebook_tab_click, add="+")
 
@@ -149,7 +153,13 @@ class FileExplorerTab:
     def refresh_explorer(self, event=None):
         """
         Refresh the file explorer with optimized batch operations.
+        Shows busy cursor during operation.
         """
+        # Show busy cursor
+        original_cursor = self.root.cget("cursor")
+        self.root.config(cursor="watch")
+        self.root.update_idletasks()
+
         try:
             # Store current state for comparison
             current_path = self.current_explorer_path
@@ -178,20 +188,18 @@ class FileExplorerTab:
                 dirs = [d for d in dirs if search_lower in d.lower()]
                 files = [f for f in files if search_lower in f.lower()]
 
-            # Prepare batch items for insertion with pre-allocated list
-            total_items = len(dirs) + len(files)
+            # Prepare batch items for insertion
             batch_items = []
-            batch_items.reserve(total_items) if hasattr(batch_items, "reserve") else None
 
-            # Add directories first with folder icon
+            # Add directories first with folder icon (no stat needed)
             for d in dirs:
                 batch_items.append((f"📁 {d}", d))
 
-            # Add files with appropriate icons
+            # Add files with lazy icon loading (get icon but skip slow stat operations)
             for f in files:
                 item_path = os.path.join(current_path, f)
-                info = self.file_explorer_logic.get_file_info(item_path)
-                icon = info.get("icon", "📄")
+                # Only get icon based on extension, skip stat() for now
+                icon = self._get_quick_icon(item_path)
                 batch_items.append((f"{icon} {f}", f))
 
             # Batch insert all items efficiently
@@ -206,6 +214,15 @@ class FileExplorerTab:
             self.log_message(f"Permission denied: {self.current_explorer_path}", is_error=True)
         except Exception as e:
             self.log_message(f"Error refreshing explorer: {e}", is_error=True)
+        finally:
+            # Always restore cursor
+            self.root.config(cursor=original_cursor)
+
+    def _get_quick_icon(self, filepath):
+        """Get file icon based on extension only (no stat call for performance)."""
+        from ...utils.utils import get_file_icon
+
+        return get_file_icon(filepath)
 
     def get_selected_explorer_mcap_paths(self):
         """
@@ -231,6 +248,9 @@ class FileExplorerTab:
 
     def go_back(self):
         if self.explorer_history:
+            # Clear search filter when navigating back
+            self.explorer_search_var.set("")
+
             # Pop from history and also from the set for consistency
             previous_path = self.explorer_history.pop()
             if previous_path in self._history_set:
@@ -273,6 +293,9 @@ class FileExplorerTab:
 
     def go_home_directory(self):
         """Navigate to the home directory, adding the current path to history if it's different."""
+        # Clear search filter when going home
+        self.explorer_search_var.set("")
+
         # Add the current valid path to history if it's not the destination (home)
         if self.current_explorer_path != self._data_root:
             self._add_to_history(self.current_explorer_path)
@@ -289,6 +312,9 @@ class FileExplorerTab:
 
     def go_logging_directory(self):
         """Navigate to the LOGGING directory."""
+        # Clear search filter when navigating to LOGGING
+        self.explorer_search_var.set("")
+
         # Check if the LOGGING directory is configured
         if not self._logging_root:
             self.log_message("LOGGING directory not configured. Please check Settings.", is_error=True)
@@ -390,6 +416,7 @@ class FileExplorerTab:
             # Check settings to determine if we should open as tab
             settings = self._get_runtime_settings()
             open_as_tab = settings.get("event_log_viewer_as_tab", False)
+            self.log_message(f"Opening event log viewer (as_tab={open_as_tab})")
 
             if open_as_tab:
                 self._open_event_log_viewer_as_tab(file_path)
@@ -528,18 +555,9 @@ class FileExplorerTab:
         # Build the viewer UI in the window
         self._build_event_log_viewer_ui(viewer_window, file_path, viewer_id, on_viewer_close, is_tab=False)
 
-    def _build_event_log_viewer_ui(self, parent, file_path, viewer_id, on_close_callback, is_tab=False):
-        """Build the event log viewer UI. Works for both window and tab modes."""
-        # Create main frame
-        main_frame = ttk.Frame(parent, padding="10")
-        main_frame.pack(fill="both", expand=True)
-
-        # File info label
-        info_label = ttk.Label(main_frame, text=f"File: {file_path}", font=("Arial", 10, "bold"))
-        info_label.pack(anchor="w", pady=(0, 10))
-
-        # Search/Filter frame
-        search_frame = ttk.Frame(main_frame)
+    def _create_viewer_search_frame(self, parent):
+        """Create search/filter frame for event log viewer."""
+        search_frame = ttk.Frame(parent)
         search_frame.pack(fill="x", pady=(0, 10))
 
         search_label = ttk.Label(search_frame, text="Search/Filter:")
@@ -548,6 +566,7 @@ class FileExplorerTab:
         search_var = tk.StringVar()
         search_entry = ttk.Entry(search_frame, textvariable=search_var, width=40)
         search_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+
         # Add Ctrl+A support for search entry
         search_entry.bind("<Control-a>", self.select_all_text)
         search_entry.bind("<Control-A>", self.select_all_text)
@@ -556,8 +575,17 @@ class FileExplorerTab:
         filter_result_label = ttk.Label(search_frame, text="")
         filter_result_label.pack(side="left", padx=(10, 0))
 
-        # Create scrollbars and treeview with proper layout
-        tree_container = ttk.Frame(main_frame)
+        # Add clear search button
+        clear_search_button = ttk.Button(
+            search_frame, text="Clear", command=lambda: search_var.set(""), style="Action.TButton"
+        )
+        clear_search_button.pack(side="left", padx=(5, 0))
+
+        return search_frame, search_var, search_entry, filter_result_label
+
+    def _create_viewer_event_tree(self, parent):
+        """Create treeview with scrollbars for event log viewer."""
+        tree_container = ttk.Frame(parent)
         tree_container.pack(fill="both", expand=True)
 
         # Define columns
@@ -585,59 +613,27 @@ class FileExplorerTab:
         h_scrollbar = ttk.Scrollbar(tree_container, orient="horizontal", command=tree.xview)
         tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
 
-        # Pack treeview and vertical scrollbar
+        # Pack treeview and scrollbars
         tree.pack(side="left", fill="both", expand=True)
         v_scrollbar.pack(side="right", fill="y")
-
-        # Pack horizontal scrollbar at bottom of same container
         h_scrollbar.pack(side="bottom", fill="x", before=tree)
 
-        # Store for all event data (for filtering)
-        all_events = []
+        return tree
 
-        # Parse and load the event log data
-        all_events = self.load_event_log_data(tree, file_path)
+    def _create_viewer_action_buttons(self, parent, tree, file_path, viewer_id, on_close_callback, is_tab):
+        """Create action buttons for event log viewer."""
+        button_frame = ttk.Frame(parent)
+        button_frame.pack(fill="x", pady=(10, 0))
 
-        # Add selection handler
-        def on_row_select(event):
-            selected_items = tree.selection()
-            if selected_items:
-                item = selected_items[0]
-                values = tree.item(item)["values"]
-                if values and len(values) >= 1:
-                    current_time = values[0]  # current_time is in column 0
-                    self.log_message(f"Selected event: {values[0]} - {values[2] if len(values) > 2 else ''}")
+        # Status label showing number of events
+        status_label = ttk.Label(button_frame, text="")
+        status_label.pack(side="left")
 
-                    # Add double-click or button to play video
-                    def play_video():
-                        try:
-                            self.play_video_at_timestamp(file_path, current_time, viewer_id=viewer_id)
-                        except Exception as e:
-                            self.log_message(f"Error playing video: {e}", is_error=True)
-
-                    # Store the play_video function for potential button use
-                    tree.play_video_func = play_video
-
-        # Add double-click handler for video playback
-        def on_double_click(event):
+        # Helper functions for button actions
+        def play_video():
             if hasattr(tree, "play_video_func"):
                 tree.play_video_func()
 
-        # Add buttons frame
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill="x", pady=(10, 0))
-
-        # Play Video button
-        play_video_button = ttk.Button(
-            button_frame,
-            text="Video Timestamp",
-            command=lambda: getattr(tree, "play_video_func", lambda: None)(),
-            state="disabled",
-            style="Action.TButton",
-        )
-        play_video_button.pack(side="left", padx=(0, 10))
-
-        # Play Bazel button (at timestamp)
         def play_bazel():
             selected_items = tree.selection()
             if selected_items:
@@ -650,16 +646,6 @@ class FileExplorerTab:
                     except Exception as e:
                         self.log_message(f"Error playing bazel: {e}", is_error=True)
 
-        play_bazel_button = ttk.Button(
-            button_frame,
-            text="Rosbag Timestamp",
-            command=play_bazel,
-            state="disabled",
-            style="Action.TButton",
-        )
-        play_bazel_button.pack(side="left", padx=(0, 10))
-
-        # Play Bazel from Start button
         def play_bazel_from_start():
             selected_items = tree.selection()
             if selected_items:
@@ -672,16 +658,6 @@ class FileExplorerTab:
                     except Exception as e:
                         self.log_message(f"Error playing bazel from start: {e}", is_error=True)
 
-        play_bazel_start_button = ttk.Button(
-            button_frame,
-            text="Current Rosbag",
-            command=play_bazel_from_start,
-            state="disabled",
-            style="Action.TButton",
-        )
-        play_bazel_start_button.pack(side="left", padx=(0, 10))
-
-        # Show MCAP in Explorer button
         def show_mcap_in_explorer():
             selected_items = tree.selection()
             if selected_items:
@@ -694,6 +670,34 @@ class FileExplorerTab:
                     except Exception as e:
                         self.log_message(f"Error navigating to MCAP: {e}", is_error=True)
 
+        # Create buttons
+        play_video_button = ttk.Button(
+            button_frame,
+            text="Video Timestamp",
+            command=play_video,
+            state="disabled",
+            style="Action.TButton",
+        )
+        play_video_button.pack(side="left", padx=(0, 10))
+
+        play_bazel_button = ttk.Button(
+            button_frame,
+            text="Rosbag Timestamp",
+            command=play_bazel,
+            state="disabled",
+            style="Action.TButton",
+        )
+        play_bazel_button.pack(side="left", padx=(0, 10))
+
+        play_bazel_start_button = ttk.Button(
+            button_frame,
+            text="Current Rosbag",
+            command=play_bazel_from_start,
+            state="disabled",
+            style="Action.TButton",
+        )
+        play_bazel_start_button.pack(side="left", padx=(0, 10))
+
         show_mcap_button = ttk.Button(
             button_frame,
             text="Rosbag Location",
@@ -703,34 +707,76 @@ class FileExplorerTab:
         )
         show_mcap_button.pack(side="left", padx=(0, 10))
 
-        # Update play button state based on selection
-        def update_play_button(*args):
-            selected_items = tree.selection()
-            if selected_items:
-                if hasattr(tree, "play_video_func"):
-                    play_video_button.config(state="normal")
-                play_bazel_button.config(state="normal")
-                play_bazel_start_button.config(state="normal")
-                show_mcap_button.config(state="normal")
-            else:
-                play_video_button.config(state="disabled")
-                play_bazel_button.config(state="disabled")
-                play_bazel_start_button.config(state="disabled")
-                show_mcap_button.config(state="disabled")
-
-        tree.bind("<<TreeviewSelect>>", lambda e: (on_row_select(e), update_play_button()))
-        tree.bind("<Double-1>", on_double_click)
-
         # Close button (with different text for tabs vs windows)
         close_text = "Close Tab" if is_tab else "Close"
         close_button = ttk.Button(button_frame, text=close_text, command=on_close_callback, style="Action.TButton")
         close_button.pack(side="right")
 
-        # Status label showing number of events
-        status_label = ttk.Label(button_frame, text="")
-        status_label.pack(side="left")
+        # Store button references and functions
+        buttons = {
+            "play_video": play_video_button,
+            "play_bazel": play_bazel_button,
+            "play_bazel_start": play_bazel_start_button,
+            "show_mcap": show_mcap_button,
+        }
 
-        # Filter function
+        functions = {
+            "play_video": play_video,
+            "play_bazel": play_bazel,
+            "play_bazel_from_start": play_bazel_from_start,
+            "show_mcap": show_mcap_in_explorer,
+        }
+
+        return button_frame, buttons, functions, status_label
+
+    def _setup_viewer_event_handlers(self, tree, file_path, viewer_id, buttons):
+        """Setup event selection and double-click handlers for event tree."""
+
+        def on_row_select(event):
+            selected_items = tree.selection()
+            if selected_items:
+                item = selected_items[0]
+                values = tree.item(item)["values"]
+                if values and len(values) >= 1:
+                    current_time = values[0]
+                    self.log_message(f"Selected event: {values[0]} - {values[2] if len(values) > 2 else ''}")
+
+                    # Create play_video function for this event
+                    def play_video():
+                        try:
+                            self.play_video_at_timestamp(file_path, current_time, viewer_id=viewer_id)
+                        except Exception as e:
+                            self.log_message(f"Error playing video: {e}", is_error=True)
+
+                    tree.play_video_func = play_video
+
+        def on_double_click(event):
+            if hasattr(tree, "play_video_func"):
+                tree.play_video_func()
+
+        def update_button_states(*args):
+            selected_items = tree.selection()
+            state = "normal" if selected_items else "disabled"
+
+            for button in buttons.values():
+                button.config(state=state)
+
+            # Video button needs play_video_func
+            if selected_items and hasattr(tree, "play_video_func"):
+                buttons["play_video"].config(state="normal")
+            elif not selected_items:
+                buttons["play_video"].config(state="disabled")
+
+        tree.bind("<<TreeviewSelect>>", lambda e: (on_row_select(e), update_button_states()))
+        tree.bind("<Double-1>", on_double_click)
+
+    def _setup_viewer_filtering(self, tree, all_events, search_var, filter_result_label, status_label):
+        """Setup search/filter functionality for event tree."""
+
+        def update_status():
+            row_count = len(tree.get_children())
+            status_label.config(text=f"Total events: {row_count}")
+
         def filter_events(*args):
             search_text = search_var.get().lower().strip()
 
@@ -749,7 +795,6 @@ class FileExplorerTab:
             # Filter events - search across all columns
             filtered_count = 0
             for event in all_events:
-                # Check if search text appears in any column
                 event_text = " ".join(str(col) for col in event).lower()
                 if search_text in event_text:
                     tree.insert("", "end", values=event)
@@ -767,35 +812,25 @@ class FileExplorerTab:
         # Bind search to text changes
         search_var.trace_add("write", filter_events)
 
-        # Add clear search button
-        clear_search_button = ttk.Button(
-            search_frame, text="Clear", command=lambda: search_var.set(""), style="Action.TButton"
-        )
-        clear_search_button.pack(side="left", padx=(5, 0))
+        return update_status
 
-        # Update status with row count
-        def update_status():
-            row_count = len(tree.get_children())
-            status_label.config(text=f"Total events: {row_count}")
+    def _bind_viewer_keyboard_shortcuts(self, parent, search_entry, functions):
+        """Bind keyboard shortcuts for event log viewer."""
 
-        parent.after(100, update_status)  # Update after data is loaded
-
-        # Keyboard shortcuts for event log viewer
         def on_key_v(event):
-            if hasattr(tree, "play_video_func"):
-                tree.play_video_func()
+            functions["play_video"]()
 
         def on_key_b(event):
-            play_bazel()
+            functions["play_bazel"]()
 
         def on_key_s(event):
-            show_mcap_in_explorer()
+            functions["show_mcap"]()
 
         def on_key_c(event):
-            play_bazel_from_start()
+            functions["play_bazel_from_start"]()
 
         def on_key_l(event):
-            show_mcap_in_explorer()
+            functions["show_mcap"]()
 
         def on_key_f(event):
             search_entry.focus_set()
@@ -813,7 +848,52 @@ class FileExplorerTab:
         parent.bind("<L>", on_key_l)
         parent.bind("<Control-f>", on_key_f)
         parent.bind("<Control-F>", on_key_f)
-        parent.bind("/", on_key_f)  # Vim-style search
+        parent.bind("/", on_key_f)
+
+    def _build_event_log_viewer_ui(self, parent, file_path, viewer_id, on_close_callback, is_tab=False):
+        """
+        Build the event log viewer UI. Works for both window and tab modes.
+
+        Args:
+            parent: Parent widget (window or tab frame)
+            file_path: Path to event log file
+            viewer_id: Unique identifier for this viewer
+            on_close_callback: Function to call when closing
+            is_tab: Whether viewer is in a tab (vs window)
+        """
+        # Create main frame
+        main_frame = ttk.Frame(parent, padding="10")
+        main_frame.pack(fill="both", expand=True)
+
+        # File info label
+        info_label = ttk.Label(main_frame, text=f"File: {file_path}", font=("Arial", 10, "bold"))
+        info_label.pack(anchor="w", pady=(0, 10))
+
+        # Create search frame
+        search_frame, search_var, search_entry, filter_result_label = self._create_viewer_search_frame(main_frame)
+
+        # Create event treeview
+        tree = self._create_viewer_event_tree(main_frame)
+
+        # Load event data
+        all_events = self.load_event_log_data(tree, file_path)
+
+        # Create action buttons
+        button_frame, buttons, functions, status_label = self._create_viewer_action_buttons(
+            main_frame, tree, file_path, viewer_id, on_close_callback, is_tab
+        )
+
+        # Setup event handlers
+        self._setup_viewer_event_handlers(tree, file_path, viewer_id, buttons)
+
+        # Setup filtering
+        update_status = self._setup_viewer_filtering(tree, all_events, search_var, filter_result_label, status_label)
+
+        # Update status after data is loaded
+        parent.after(100, update_status)
+
+        # Bind keyboard shortcuts
+        self._bind_viewer_keyboard_shortcuts(parent, search_entry, functions)
 
     def _cleanup_viewer_tab(self, viewer_id):
         """Cleanup processes and remove a tab-based event log viewer."""
@@ -843,8 +923,23 @@ class FileExplorerTab:
             self.log_message("Closed event log viewer tab")
 
     def load_event_log_data(self, tree, file_path):
-        """Parse and load event log data into the treeview. Returns list of all events."""
+        """
+        Parse and load event log data into the treeview. Returns list of all events.
+        Optimized for large files with batch processing and progress updates.
+        """
         all_events = []
+
+        # Check file size and warn if large
+        try:
+            file_size = os.path.getsize(file_path)
+            if file_size > 10 * 1024 * 1024:  # 10 MB
+                self.log_message(
+                    f"⚠️ Large event log file ({file_size // (1024*1024)} MB) - loading may take a moment...",
+                    is_error=False,
+                )
+        except Exception:  # nosec B110
+            pass  # Silently ignore file size check errors
+
         try:
             with open(file_path, "r", encoding="utf-8") as file:
                 lines = file.readlines()
@@ -861,7 +956,8 @@ class FileExplorerTab:
 
             # Parse each data line, allowing wrapped/multi-line rows
             current_parts = None
-            current_start_line = None
+            batch_count = 0
+            BATCH_SIZE = 100  # Update UI every 100 rows to keep responsive
 
             for line_num, line in enumerate(data_lines, 1):
                 try:
@@ -871,12 +967,18 @@ class FileExplorerTab:
                         if len(parts) >= 5:
                             all_events.append(parts[:5])
                             tree.insert("", "end", values=parts[:5])
+                            batch_count += 1
+
+                            # Periodic UI update to prevent freezing
+                            if batch_count >= BATCH_SIZE:
+                                tree.update_idletasks()
+                                batch_count = 0
+
                         elif parts and (line.startswith("\t") or parts[0] == ""):
                             # Continuation without a starting line; skip
-                            self.log_message(f"Skipping orphan continuation line {line_num}: {line}", is_error=True)
+                            pass  # Silent skip for performance
                         else:
                             current_parts = parts
-                            current_start_line = line_num
                     else:
                         # Continuation line handling
                         if line.startswith("\t") or (parts and parts[0] == ""):
@@ -897,16 +999,20 @@ class FileExplorerTab:
                             all_events.append(current_parts[:5])
                             tree.insert("", "end", values=current_parts[:5])
                             current_parts = None
-                            current_start_line = None
+                            batch_count += 1
 
-                except Exception as e:
-                    self.log_message(f"Error parsing line {line_num}: {e}", is_error=True)
+                            # Periodic UI update
+                            if batch_count >= BATCH_SIZE:
+                                tree.update_idletasks()
+                                batch_count = 0
+
+                except Exception:  # nosec B110
+                    # Silent errors during parsing to avoid log spam
+                    pass
 
             if current_parts is not None:
-                self.log_message(
-                    f"Skipping incomplete wrapped line starting at {current_start_line}: {current_parts}",
-                    is_error=True,
-                )
+                # Silent skip of incomplete lines
+                pass
 
         except Exception as e:
             self.log_message(f"Error reading event log file: {e}", is_error=True)
@@ -1360,6 +1466,45 @@ class FileExplorerTab:
             self.log_message(f"Error finding video for timestamp: {e}", is_error=True)
             return None, 0
 
+    def _get_mcap_files_cached(self, rosbags_dir):
+        """
+        Get MCAP files from directory with caching to avoid repeated os.walk.
+        Cache expires after _mcap_cache_ttl seconds.
+        """
+        import time
+
+        current_time = time.time()
+
+        # Check cache
+        if rosbags_dir in self._mcap_cache:
+            cache_time, cached_files = self._mcap_cache[rosbags_dir]
+            if current_time - cache_time < self._mcap_cache_ttl:
+                return cached_files
+
+        # Cache miss or expired - scan directory
+        mcap_files = []
+        max_depth = 3
+        base_depth = rosbags_dir.count(os.sep)
+
+        try:
+            for root, dirs, files in os.walk(rosbags_dir):
+                current_depth = root.count(os.sep) - base_depth
+                if current_depth >= max_depth:
+                    dirs[:] = []
+
+                for file in files:
+                    if file.endswith(".mcap"):
+                        mcap_files.append(os.path.join(root, file))
+
+                if len(mcap_files) > 100:
+                    break
+        except Exception:  # nosec B110
+            pass  # Silently ignore walk errors (permissions, etc.)
+
+        # Update cache
+        self._mcap_cache[rosbags_dir] = (current_time, mcap_files)
+        return mcap_files
+
     def find_mcap_for_timestamp(self, event_log_path, event_time):
         """Find the MCAP file that contains the specified timestamp.
         If event_time is None, return the first available MCAP file."""
@@ -1374,13 +1519,8 @@ class FileExplorerTab:
                 self.log_message(f"Rosbags directory not found: {rosbags_dir}", is_error=True)
                 return None, None
 
-            # Find all MCAP files recursively in the rosbags/default directory
-            # Structure: rosbags/default/timestamp_folder/timestamp.mcap
-            mcap_files = []
-            for root, dirs, files in os.walk(rosbags_dir):
-                for file in files:
-                    if file.endswith(".mcap"):
-                        mcap_files.append(os.path.join(root, file))
+            # Use cached MCAP file search for performance
+            mcap_files = self._get_mcap_files_cached(rosbags_dir)
 
             if not mcap_files:
                 self.log_message(f"No MCAP files found in: {rosbags_dir}", is_error=True)
@@ -1444,16 +1584,16 @@ class FileExplorerTab:
                 self.log_message(f"Rosbags directory not found: {rosbags_dir}", is_error=True)
                 return None, None
 
-            # Find all MCAP files and parse their timestamps
+            # Use cached MCAP file search and parse timestamps
+            mcap_files = self._get_mcap_files_cached(rosbags_dir)
             mcap_files_with_times = []
-            for root, dirs, files in os.walk(rosbags_dir):
-                for file in files:
-                    if file.endswith(".mcap"):
-                        mcap_path = os.path.join(root, file)
-                        timestamp_part = file.replace(".mcap", "")
-                        mcap_start_time = self.parse_timestamp(timestamp_part)
-                        if mcap_start_time:
-                            mcap_files_with_times.append((mcap_path, mcap_start_time))
+
+            for mcap_path in mcap_files:
+                file = os.path.basename(mcap_path)
+                timestamp_part = file.replace(".mcap", "")
+                mcap_start_time = self.parse_timestamp(timestamp_part)
+                if mcap_start_time:
+                    mcap_files_with_times.append((mcap_path, mcap_start_time))
 
             if not mcap_files_with_times:
                 self.log_message(f"No MCAP files found in: {rosbags_dir}", is_error=True)

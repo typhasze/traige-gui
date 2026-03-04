@@ -166,17 +166,144 @@ class FoxgloveAppLogic:
             return settings.get("bazel_working_dir")
         return None
 
+    def _normalize_path_to_relative(self, full_path):
+        """
+        Convert absolute path to relative path from /data/ directory.
+
+        Args:
+            full_path: Absolute file path
+
+        Returns:
+            Relative path from /data/ directory, or original path if no /data/ found
+        """
+        if "/data/" in full_path:
+            return "/" + full_path.split("/data/", 1)[1]
+        return full_path
+
+    def _extract_file_info_from_path(self, path):
+        """
+        Extract folder and filename from a file path.
+
+        Args:
+            path: File path to process
+
+        Returns:
+            Tuple of (folder_path, filename) or (None, None) if not a valid file
+        """
+        # Expand ~ to home directory if present
+        if path.startswith("~/"):
+            path = os.path.expanduser(path)
+
+        # Check if it's a supported file type
+        if path.lower().endswith((".mcap", ".mp4")):
+            filename = os.path.basename(path)
+            folder_path = os.path.dirname(path)
+
+            # Convert to relative path from data directory
+            if "/data/" in path:
+                relative_path = self._normalize_path_to_relative(path)
+                folder_path = os.path.dirname(relative_path)
+
+            return folder_path, filename
+
+        return None, None
+
+    def _extract_from_mpv_command(self, link):
+        """
+        Extract URL from mpv command format.
+        Format: mpv --start=3649 https://...
+
+        Args:
+            link: mpv command string
+
+        Returns:
+            Extracted URL or None
+        """
+        parts = link.split()
+        for part in parts:
+            if part.startswith(("http://", "https://")):
+                return part
+        return None
+
+    def _extract_from_bazel_command(self, link):
+        """
+        Extract file path from bazel command format.
+        Format: bazel run //tools/bag:gui <path>
+
+        Args:
+            link: bazel command string
+
+        Returns:
+            Tuple of (folder_path, filename) or (None, None)
+        """
+        parts = link.split()
+
+        # Find the path argument (skip bazel keywords and targets)
+        for part in parts:
+            # Skip bazel targets (start with //) and bazel keywords
+            if part.startswith("//") or part in ("bazel", "run"):
+                continue
+
+            # Look for actual file paths
+            if part.startswith("~/") or part.startswith("/home/") or "/data/" in part:
+                return self._extract_file_info_from_path(part)
+
+        return None, None
+
+    def _extract_from_url(self, link):
+        """
+        Extract path from URL (Foxglove or direct URL).
+
+        Args:
+            link: URL string
+
+        Returns:
+            Tuple of (folder_path, filename) or (path, None) for directories
+        """
+        parsed_url = urllib.parse.urlparse(link)
+        query_params = urllib.parse.parse_qs(parsed_url.query)
+
+        # Foxglove link with ds.url parameter
+        if "ds.url" in query_params and query_params["ds.url"]:
+            mcap_url_str = query_params["ds.url"][0]
+            path_to_check = urllib.parse.urlparse(mcap_url_str).path
+        # Direct link
+        else:
+            path_to_check = parsed_url.path
+
+        if not path_to_check:
+            return None, None
+
+        # Normalize path - remove trailing slash and whitespace
+        path_to_check = path_to_check.strip().rstrip("/")
+
+        # Check if it's a file (.mcap or .mp4)
+        if path_to_check.lower().endswith((".mcap", ".mp4")):
+            folder_path = os.path.dirname(path_to_check)
+            filename = os.path.basename(path_to_check)
+            return folder_path, filename
+
+        # It's a directory path (like /logs)
+        return path_to_check, None
+
     def extract_info_from_link(self, link):
         """
         Extracts the folder path and filename from a Foxglove link,
         a direct URL to a file or folder, or a bazel/mpv command with file path.
         Handles .mcap, .mp4, and /logs directories.
+
         Supports:
         - Foxglove links with ds.url parameter
         - Direct URLs (https://...)
         - Bazel commands (bazel run //tools/bag:gui <path>)
         - mpv commands (mpv --start=<time> <url>)
         - Direct file paths (~/data/... or /home/...)
+
+        Args:
+            link: Link string to parse
+
+        Returns:
+            Tuple of (folder_path, filename) or (None, None) on error
         """
         if not link.strip():
             return None, None
@@ -184,99 +311,28 @@ class FoxgloveAppLogic:
         try:
             link = link.strip()
 
-            # Case 1: mpv command format - extract the URL after mpv command
-            # Format: mpv --start=3649 https://...
+            # Route to appropriate handler based on link type
             if link.startswith("mpv "):
-                # Split by whitespace and find the URL (starts with http)
-                parts = link.split()
-                for part in parts:
-                    if part.startswith(("http://", "https://")):
-                        # Process this URL through the URL handler below
-                        link = part
-                        break
-                else:
-                    # No URL found in mpv command
-                    return None, None
-
-            # Case 2: Bazel command format - extract the file path after bazel command
-            # Format: bazel run //tools/bag:gui <path>
-            elif link.startswith("bazel "):
-                # Split by whitespace and find the path argument (after the bazel command parts)
-                parts = link.split()
-                # Find the path - it's typically after "bazel run //tools/bag:gui" or similar
-                # Look for the first part that looks like a path (starts with ~/ or /home/, or contains /data/)
-                for part in parts:
-                    # Skip bazel targets (start with //) and bazel keywords
-                    if part.startswith("//") or part in ("bazel", "run"):
-                        continue
-
-                    # Look for actual file paths
-                    if part.startswith("~/") or part.startswith("/home/") or "/data/" in part:
-                        # Expand ~ to home directory if present
-                        if part.startswith("~/"):
-                            part = os.path.expanduser(part)
-
-                        # Check if it's a file
-                        if part.lower().endswith((".mcap", ".mp4")):
-                            folder_path = os.path.dirname(part)
-                            filename = os.path.basename(part)
-                            # Convert to relative path from data directory
-                            if "/data/" in part:
-                                # Extract the path after /data/
-                                relative_path = "/" + part.split("/data/", 1)[1]
-                                folder_path = os.path.dirname(relative_path)
-                            return folder_path, filename
-                        return None, None
+                # Extract URL from mpv command and process as URL
+                url = self._extract_from_mpv_command(link)
+                if url:
+                    return self._extract_from_url(url)
                 return None, None
 
-            # Case 3: Direct file path (not a URL or command)
-            # Format: ~/data/... or /home/.../data/...
-            if not link.startswith(("http://", "https://")):
-                # Expand ~ to home directory if present
-                if link.startswith("~/"):
-                    link = os.path.expanduser(link)
+            elif link.startswith("bazel "):
+                return self._extract_from_bazel_command(link)
 
-                # Check if it's a file
-                if link.lower().endswith((".mcap", ".mp4")):
-                    folder_path = link
-                    filename = os.path.basename(link)
-                    # Convert to relative path from data directory
-                    if "/data/" in link:
-                        # Extract the path after /data/
-                        relative_path = "/" + link.split("/data/", 1)[1]
-                        folder_path = os.path.dirname(relative_path)
-                    else:
-                        folder_path = os.path.dirname(link)
-                    return folder_path, filename
+            elif not link.startswith(("http://", "https://")):
+                # Direct file path
+                result = self._extract_file_info_from_path(link)
+                if result[0] is not None:
+                    return result
+                # Not a file, might be a directory path
                 return link, None
 
-            # Case 4: URL-based (Foxglove or direct URL)
-            parsed_url = urllib.parse.urlparse(link)
-            query_params = urllib.parse.parse_qs(parsed_url.query)
-
-            # Foxglove link with ds.url parameter
-            if "ds.url" in query_params and query_params["ds.url"]:
-                mcap_url_str = query_params["ds.url"][0]
-                path_to_check = urllib.parse.urlparse(mcap_url_str).path
-            # Direct link
             else:
-                path_to_check = parsed_url.path
-
-            if not path_to_check:
-                return None, None
-
-            # Normalize path - remove trailing slash and whitespace
-            path_to_check = path_to_check.strip().rstrip("/")
-
-            # Check if it's a file (.mcap or .mp4)
-            lower_path = path_to_check.lower()
-            if lower_path.endswith((".mcap", ".mp4")):
-                folder_path = os.path.dirname(path_to_check)
-                filename = os.path.basename(path_to_check)
-                return folder_path, filename
-
-            # It's a directory path (like /logs)
-            return path_to_check, None
+                # URL-based (Foxglove or direct URL)
+                return self._extract_from_url(link)
 
         except Exception as e:
             self.log_callback(f"Error parsing link: {e}", is_error=True)
