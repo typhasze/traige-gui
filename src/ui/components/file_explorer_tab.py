@@ -4,27 +4,24 @@ import re
 import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog, ttk
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ...utils.logger import get_logger
+from .event_log_viewer import EventLogViewer, parse_timestamp
 
 logger = get_logger(__name__)
 
 
 class FileExplorerTab:
-    # Timestamp formats tried in order during parsing.  Centralised here so
-    # they only need to be updated in one place.
-    _TIMESTAMP_FORMATS = [
-        "%Y-%m-%d %H:%M:%S",  # 2025-09-19 10:50:50
-        "%Y-%m-%d-%H-%M-%S",  # 2025-12-16-08-55-17  (MCAP filename format)
-        "%Y%m%d_%H%M%S",  # 20250919_093523
-        "%Y-%m-%d_%H-%M-%S",  # 2025-09-19_09-35-23
-        "%Y%m%d%H%M%S",  # 20250919093523
-        "%H:%M:%S",  # 09:35:23  (time-only — assumes today's date)
-        "%Y-%m-%d %H:%M:%S.%f",  # 2025-09-19 09:35:23.123456
-        "%Y%m%d%H%M%S%f",  # 20250919093523123456  (with microseconds)
-    ]
-
-    def __init__(self, parent, root, logic, file_explorer_logic, log_message, update_button_states):
+    def __init__(
+        self,
+        parent: ttk.Notebook,
+        root: tk.Tk,
+        logic: Any,
+        file_explorer_logic: Any,
+        log_message: Callable[..., None],
+        update_button_states: Callable[[Dict[str, bool]], None],
+    ) -> None:
         self.frame = ttk.Frame(parent)
         self.notebook = parent  # Store reference to the main notebook for creating tabs
         self.root = root
@@ -70,7 +67,7 @@ class FileExplorerTab:
 
         self.refresh_explorer()
 
-    def create_widgets(self):
+    def create_widgets(self) -> None:
         # Explorer path frame
         path_frame = ttk.Frame(self.frame)
         path_frame.pack(fill="x", padx=5, pady=(5, 1))
@@ -124,7 +121,7 @@ class FileExplorerTab:
         scrollbar.pack(side=tk.RIGHT, fill="y")
         self.explorer_listbox.config(yscrollcommand=scrollbar.set)
 
-    def bind_events(self):
+    def bind_events(self) -> None:
         self.link_entry.bind("<Return>", lambda e: self.analyze_link())
         self.link_entry.bind("<Control-a>", self.select_all_text)
         self.link_entry.bind("<Control-A>", self.select_all_text)
@@ -167,7 +164,7 @@ class FileExplorerTab:
     def on_explorer_search(self, *args):
         self.refresh_explorer()
 
-    def refresh_explorer(self, event=None):
+    def refresh_explorer(self, event: Optional[Any] = None) -> None:
         """
         Refresh the file explorer with optimized batch operations.
         Shows busy cursor during operation.
@@ -269,7 +266,7 @@ class FileExplorerTab:
             )
         ]
 
-    def go_back(self):
+    def go_back(self) -> None:
         if self.explorer_history:
             # Clear search filter when navigating back
             self.explorer_search_var.set("")
@@ -297,7 +294,7 @@ class FileExplorerTab:
             # Rebuild the set from the list to ensure they are always in sync
             self._history_set = set(self.explorer_history)
 
-    def go_up_directory(self):
+    def go_up_directory(self) -> None:
         current = os.path.abspath(self.current_explorer_path)
         if current == self._abs_data_root:
             return
@@ -314,7 +311,7 @@ class FileExplorerTab:
         # Highlight the directory we came from
         self.highlight_directory_in_explorer(current_dir_name)
 
-    def go_home_directory(self):
+    def go_home_directory(self) -> None:
         """Navigate to the home directory, adding the current path to history if it's different."""
         # Clear search filter when going home
         self.explorer_search_var.set("")
@@ -327,7 +324,7 @@ class FileExplorerTab:
         self.current_explorer_path = self._data_root
         self.refresh_explorer()
 
-    def update_logging_root(self, new_logging_root, silent=False):
+    def update_logging_root(self, new_logging_root: Optional[str], silent: bool = False) -> None:
         """Update the logging root directory path."""
         self._logging_root = new_logging_root
         if not silent:
@@ -358,7 +355,7 @@ class FileExplorerTab:
         self.refresh_explorer()
         self.log_message(f"Navigated to LOGGING directory: {self._logging_root}")
 
-    def browse_directory(self):
+    def browse_directory(self) -> None:
         selected_dir = filedialog.askdirectory(initialdir=self.current_explorer_path)
         if selected_dir:
             self._add_to_history(self.current_explorer_path)
@@ -367,7 +364,7 @@ class FileExplorerTab:
             # Auto-open event log if enabled
             self._auto_open_event_log_if_enabled()
 
-    def navigate_to_path(self, event=None):
+    def navigate_to_path(self, event: Optional[Any] = None) -> None:
         new_path = self.explorer_path_var.get().strip()
         if new_path and os.path.isdir(new_path) and new_path != self.current_explorer_path:
             self._add_to_history(self.current_explorer_path)
@@ -414,10 +411,16 @@ class FileExplorerTab:
                 selected_item = self.explorer_files_list[idx]
                 if selected_item != "..":
                     item_path = os.path.join(self.current_explorer_path, selected_item)
-                    if os.path.isfile(item_path):
+                    if os.path.isdir(item_path):
+                        self._add_to_history(self.current_explorer_path)
+                        self.current_explorer_path = item_path
+                        self.refresh_explorer()
+                        self.clear_explorer_search()
+                        self._auto_open_event_log_if_enabled()
+                    elif os.path.isfile(item_path):
                         self.open_file(item_path)
 
-    def open_file(self, file_path):
+    def open_file(self, file_path: str) -> None:
         # Check if this is an event_log_*.txt file
         filename = os.path.basename(file_path).lower()
         if filename.startswith("event_log_") and filename.endswith(".txt"):
@@ -433,7 +436,7 @@ class FileExplorerTab:
         else:
             self.log_message(msg, is_error=True)
 
-    def open_event_log_viewer(self, file_path):
+    def open_event_log_viewer(self, file_path: str) -> None:
         """Open a custom viewer for event log files, either as window or tab based on settings."""
         try:
             # Check settings to determine if we should open as tab
@@ -449,7 +452,7 @@ class FileExplorerTab:
         except Exception as e:
             self.log_message(f"Error opening event log viewer: {e}", is_error=True)
 
-    def _open_event_log_viewer_as_tab(self, file_path):
+    def _open_event_log_viewer_as_tab(self, file_path: str) -> None:
         """Open event log viewer as a new tab in the main notebook."""
         viewer_id = self._next_viewer_id
         self._next_viewer_id += 1
@@ -461,10 +464,21 @@ class FileExplorerTab:
         self.event_log_viewer_tabs[viewer_id] = {"frame": tab_frame, "processes": [], "file_path": file_path}
 
         # Build the viewer UI in the frame
-        def on_close():
+        def on_close() -> None:
             self._cleanup_viewer_tab(viewer_id)
 
-        self._build_event_log_viewer_ui(tab_frame, file_path, viewer_id, on_close, is_tab=True)
+        EventLogViewer(
+            parent=tab_frame,
+            file_path=file_path,
+            viewer_id=viewer_id,
+            on_close=on_close,
+            is_tab=True,
+            log_message=self.log_message,
+            play_video_cb=lambda ts: self.play_video_at_timestamp(file_path, ts, viewer_id=viewer_id),
+            play_bazel_cb=lambda ts: self.play_bazel_at_timestamp(file_path, ts, viewer_id=viewer_id),
+            play_bazel_start_cb=lambda ts: self.play_bazel_from_start(file_path, ts, viewer_id=viewer_id),
+            navigate_mcap_cb=lambda ts: self.navigate_to_mcap_from_timestamp(file_path, ts),
+        ).build_ui()
 
         # Add the tab before Settings so Settings remains rightmost
         tab_title = f"Event Log - {os.path.basename(file_path)[:20]} ✕"
@@ -555,7 +569,7 @@ class FileExplorerTab:
         except Exception as e:
             self.log_message(f"Tab close error: {e}", is_error=False)
 
-    def _open_event_log_viewer_as_window(self, file_path):
+    def _open_event_log_viewer_as_window(self, file_path: str) -> None:
         """Open event log viewer as a new window (original behavior)."""
         viewer_id = self._next_viewer_id
         self._next_viewer_id += 1
@@ -569,354 +583,25 @@ class FileExplorerTab:
         self.event_log_viewers[viewer_id] = {"window": viewer_window, "processes": [], "file_path": file_path}
 
         # Cleanup handler for when viewer closes
-        def on_viewer_close():
+        def on_viewer_close() -> None:
             self._cleanup_viewer_processes(viewer_id)
             viewer_window.destroy()
 
         viewer_window.protocol("WM_DELETE_WINDOW", on_viewer_close)
 
-        # Build the viewer UI in the window
-        self._build_event_log_viewer_ui(viewer_window, file_path, viewer_id, on_viewer_close, is_tab=False)
-
-    def _create_viewer_search_frame(self, parent):
-        """Create search/filter frame for event log viewer."""
-        search_frame = ttk.Frame(parent)
-        search_frame.pack(fill="x", pady=(0, 10))
-
-        search_label = ttk.Label(search_frame, text="Search/Filter:")
-        search_label.pack(side="left", padx=(0, 5))
-
-        search_var = tk.StringVar()
-        search_entry = ttk.Entry(search_frame, textvariable=search_var, width=40)
-        search_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
-
-        # Add Ctrl+A support for search entry
-        search_entry.bind("<Control-a>", self.select_all_text)
-        search_entry.bind("<Control-A>", self.select_all_text)
-
-        # Filter result label
-        filter_result_label = ttk.Label(search_frame, text="")
-        filter_result_label.pack(side="left", padx=(10, 0))
-
-        # Add clear search button
-        clear_search_button = ttk.Button(
-            search_frame, text="Clear", command=lambda: search_var.set(""), style="Action.TButton"
-        )
-        clear_search_button.pack(side="left", padx=(5, 0))
-
-        return search_frame, search_var, search_entry, filter_result_label
-
-    def _create_viewer_event_tree(self, parent):
-        """Create treeview with scrollbars for event log viewer."""
-        tree_container = ttk.Frame(parent)
-        tree_container.pack(fill="both", expand=True)
-
-        # Define columns
-        columns = ("current_time", "timestamp", "txt_manual", "txt_criticality", "ui_mode")
-
-        # Create treeview
-        tree = ttk.Treeview(tree_container, columns=columns, show="headings", height=20)
-
-        # Configure column headings and widths
-        tree.heading("current_time", text="Current Time")
-        tree.heading("timestamp", text="Timestamp")
-        tree.heading("txt_manual", text="Event Description")
-        tree.heading("txt_criticality", text="Criticality")
-        tree.heading("ui_mode", text="UI Mode")
-
-        # Set column widths
-        tree.column("current_time", width=180, minwidth=150)
-        tree.column("timestamp", width=120, minwidth=100)
-        tree.column("txt_manual", width=300, minwidth=200)
-        tree.column("txt_criticality", width=150, minwidth=100)
-        tree.column("ui_mode", width=100, minwidth=80)
-
-        # Create scrollbars
-        v_scrollbar = ttk.Scrollbar(tree_container, orient="vertical", command=tree.yview)
-        h_scrollbar = ttk.Scrollbar(tree_container, orient="horizontal", command=tree.xview)
-        tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
-
-        # Pack treeview and scrollbars
-        tree.pack(side="left", fill="both", expand=True)
-        v_scrollbar.pack(side="right", fill="y")
-        h_scrollbar.pack(side="bottom", fill="x", before=tree)
-
-        return tree
-
-    def _create_viewer_action_buttons(self, parent, tree, file_path, viewer_id, on_close_callback, is_tab):
-        """Create action buttons for event log viewer."""
-        button_frame = ttk.Frame(parent)
-        button_frame.pack(fill="x", pady=(10, 0))
-
-        # Helper functions for button actions
-        def play_video():
-            if hasattr(tree, "play_video_func"):
-                tree.play_video_func()
-
-        def play_bazel():
-            selected_items = tree.selection()
-            if selected_items:
-                item = selected_items[0]
-                values = tree.item(item)["values"]
-                if values and len(values) >= 1:
-                    current_time = values[0]
-                    try:
-                        self.play_bazel_at_timestamp(file_path, current_time, viewer_id=viewer_id)
-                    except Exception as e:
-                        self.log_message(f"Error playing bazel: {e}", is_error=True)
-
-        def play_bazel_from_start():
-            selected_items = tree.selection()
-            if selected_items:
-                item = selected_items[0]
-                values = tree.item(item)["values"]
-                if values and len(values) >= 1:
-                    current_time = values[0]
-                    try:
-                        self.play_bazel_from_start(file_path, current_time, viewer_id=viewer_id)
-                    except Exception as e:
-                        self.log_message(f"Error playing bazel from start: {e}", is_error=True)
-
-        def show_mcap_in_explorer():
-            selected_items = tree.selection()
-            if selected_items:
-                item = selected_items[0]
-                values = tree.item(item)["values"]
-                if values and len(values) >= 1:
-                    current_time = values[0]
-                    try:
-                        self.navigate_to_mcap_from_timestamp(file_path, current_time)
-                    except Exception as e:
-                        self.log_message(f"Error navigating to MCAP: {e}", is_error=True)
-
-        # Create buttons
-        play_video_button = ttk.Button(
-            button_frame,
-            text="Video Timestamp",
-            command=play_video,
-            state="disabled",
-            style="Action.TButton",
-        )
-        play_video_button.pack(side="left", padx=(0, 10))
-
-        play_bazel_button = ttk.Button(
-            button_frame,
-            text="Rosbag Timestamp",
-            command=play_bazel,
-            state="disabled",
-            style="Action.TButton",
-        )
-        play_bazel_button.pack(side="left", padx=(0, 10))
-
-        play_bazel_start_button = ttk.Button(
-            button_frame,
-            text="Current Rosbag",
-            command=play_bazel_from_start,
-            state="disabled",
-            style="Action.TButton",
-        )
-        play_bazel_start_button.pack(side="left", padx=(0, 10))
-
-        show_mcap_button = ttk.Button(
-            button_frame,
-            text="Rosbag Location",
-            command=show_mcap_in_explorer,
-            state="disabled",
-            style="Action.TButton",
-        )
-        show_mcap_button.pack(side="left", padx=(0, 10))
-
-        # Status label showing number of events — sits right after the action buttons
-        status_label = ttk.Label(button_frame, text="")
-        status_label.pack(side="left", padx=(10, 0))
-
-        # Close button (with different text for tabs vs windows)
-        close_text = "Close Tab" if is_tab else "Close"
-        close_button = ttk.Button(button_frame, text=close_text, command=on_close_callback, style="Action.TButton")
-        close_button.pack(side="right")
-
-        # Store button references and functions
-        buttons = {
-            "play_video": play_video_button,
-            "play_bazel": play_bazel_button,
-            "play_bazel_start": play_bazel_start_button,
-            "show_mcap": show_mcap_button,
-        }
-
-        functions = {
-            "play_video": play_video,
-            "play_bazel": play_bazel,
-            "play_bazel_from_start": play_bazel_from_start,
-            "show_mcap": show_mcap_in_explorer,
-        }
-
-        return button_frame, buttons, functions, status_label
-
-    def _setup_viewer_event_handlers(self, tree, file_path, viewer_id, buttons):
-        """Setup event selection and double-click handlers for event tree."""
-
-        def on_row_select(event):
-            selected_items = tree.selection()
-            if selected_items:
-                item = selected_items[0]
-                values = tree.item(item)["values"]
-                if values and len(values) >= 1:
-                    current_time = values[0]
-                    self.log_message(f"Selected event: {values[0]} - {values[2] if len(values) > 2 else ''}")
-
-                    # Create play_video function for this event
-                    def play_video():
-                        try:
-                            self.play_video_at_timestamp(file_path, current_time, viewer_id=viewer_id)
-                        except Exception as e:
-                            self.log_message(f"Error playing video: {e}", is_error=True)
-
-                    tree.play_video_func = play_video
-
-        def on_double_click(event):
-            if hasattr(tree, "play_video_func"):
-                tree.play_video_func()
-
-        def update_button_states(*args):
-            selected_items = tree.selection()
-            state = "normal" if selected_items else "disabled"
-
-            for button in buttons.values():
-                button.config(state=state)
-
-            # Video button needs play_video_func
-            if selected_items and hasattr(tree, "play_video_func"):
-                buttons["play_video"].config(state="normal")
-            elif not selected_items:
-                buttons["play_video"].config(state="disabled")
-
-        tree.bind("<<TreeviewSelect>>", lambda e: (on_row_select(e), update_button_states()))
-        tree.bind("<Double-1>", on_double_click)
-
-    def _setup_viewer_filtering(self, tree, all_events, search_var, filter_result_label, status_label):
-        """Setup search/filter functionality for event tree."""
-
-        def update_status():
-            row_count = len(tree.get_children())
-            status_label.config(text=f"Total events: {row_count}")
-
-        def filter_events(*args):
-            search_text = search_var.get().lower().strip()
-
-            # Clear current tree
-            for item in tree.get_children():
-                tree.delete(item)
-
-            # If no search text, show all events
-            if not search_text:
-                for event in all_events:
-                    tree.insert("", "end", values=event)
-                filter_result_label.config(text="")
-                update_status()
-                return
-
-            # Filter events - search across all columns
-            filtered_count = 0
-            for event in all_events:
-                event_text = " ".join(str(col) for col in event).lower()
-                if search_text in event_text:
-                    tree.insert("", "end", values=event)
-                    filtered_count += 1
-
-            # Update filter result label
-            if filtered_count == 0:
-                filter_result_label.config(text="No matches found", foreground="red")
-            else:
-                total = len(all_events)
-                filter_result_label.config(text=f"Showing {filtered_count} of {total}", foreground="blue")
-
-            update_status()
-
-        # Bind search to text changes
-        search_var.trace_add("write", filter_events)
-
-        return update_status
-
-    def _bind_viewer_keyboard_shortcuts(self, parent, search_entry, functions):
-        """Bind keyboard shortcuts for event log viewer."""
-
-        def on_key_v(event):
-            functions["play_video"]()
-
-        def on_key_b(event):
-            functions["play_bazel"]()
-
-        def on_key_s(event):
-            functions["show_mcap"]()
-
-        def on_key_c(event):
-            functions["play_bazel_from_start"]()
-
-        def on_key_l(event):
-            functions["show_mcap"]()
-
-        def on_key_f(event):
-            search_entry.focus_set()
-
-        # Bind keyboard shortcuts
-        parent.bind("<v>", on_key_v)
-        parent.bind("<V>", on_key_v)
-        parent.bind("<b>", on_key_b)
-        parent.bind("<B>", on_key_b)
-        parent.bind("<s>", on_key_s)
-        parent.bind("<S>", on_key_s)
-        parent.bind("<c>", on_key_c)
-        parent.bind("<C>", on_key_c)
-        parent.bind("<l>", on_key_l)
-        parent.bind("<L>", on_key_l)
-        parent.bind("<Control-f>", on_key_f)
-        parent.bind("<Control-F>", on_key_f)
-        parent.bind("/", on_key_f)
-
-    def _build_event_log_viewer_ui(self, parent, file_path, viewer_id, on_close_callback, is_tab=False):
-        """
-        Build the event log viewer UI. Works for both window and tab modes.
-
-        Args:
-            parent: Parent widget (window or tab frame)
-            file_path: Path to event log file
-            viewer_id: Unique identifier for this viewer
-            on_close_callback: Function to call when closing
-            is_tab: Whether viewer is in a tab (vs window)
-        """
-        # Create main frame
-        main_frame = ttk.Frame(parent, padding="10")
-        main_frame.pack(fill="both", expand=True)
-
-        # File info label
-        info_label = ttk.Label(main_frame, text=f"File: {file_path}", font=("Arial", 10, "bold"))
-        info_label.pack(anchor="w", pady=(0, 10))
-
-        # Create search frame
-        search_frame, search_var, search_entry, filter_result_label = self._create_viewer_search_frame(main_frame)
-
-        # Create event treeview
-        tree = self._create_viewer_event_tree(main_frame)
-
-        # Load event data
-        all_events = self.load_event_log_data(tree, file_path)
-
-        # Create action buttons
-        button_frame, buttons, functions, status_label = self._create_viewer_action_buttons(
-            main_frame, tree, file_path, viewer_id, on_close_callback, is_tab
-        )
-
-        # Setup event handlers
-        self._setup_viewer_event_handlers(tree, file_path, viewer_id, buttons)
-
-        # Setup filtering
-        update_status = self._setup_viewer_filtering(tree, all_events, search_var, filter_result_label, status_label)
-
-        # Update status after data is loaded
-        parent.after(100, update_status)
-
-        # Bind keyboard shortcuts
-        self._bind_viewer_keyboard_shortcuts(parent, search_entry, functions)
+        # Build the viewer UI in the window via the standalone component
+        EventLogViewer(
+            parent=viewer_window,
+            file_path=file_path,
+            viewer_id=viewer_id,
+            on_close=on_viewer_close,
+            is_tab=False,
+            log_message=self.log_message,
+            play_video_cb=lambda ts: self.play_video_at_timestamp(file_path, ts, viewer_id=viewer_id),
+            play_bazel_cb=lambda ts: self.play_bazel_at_timestamp(file_path, ts, viewer_id=viewer_id),
+            play_bazel_start_cb=lambda ts: self.play_bazel_from_start(file_path, ts, viewer_id=viewer_id),
+            navigate_mcap_cb=lambda ts: self.navigate_to_mcap_from_timestamp(file_path, ts),
+        ).build_ui()
 
     def _cleanup_viewer_tab(self, viewer_id):
         """Cleanup processes and remove a tab-based event log viewer."""
@@ -945,136 +630,14 @@ class FileExplorerTab:
             del self.event_log_viewer_tabs[viewer_id]
             self.log_message("Closed event log viewer tab")
 
-    # ------------------------------------------------------------------
-    # Event log data loading helpers
-    # ------------------------------------------------------------------
-
-    def _preprocess_event_log_lines(self, raw_lines: list) -> list:
-        """Strip blank lines and the header row from raw file lines.
-
-        Args:
-            raw_lines: Lines as returned by ``file.readlines()``.
-
-        Returns:
-            A list of stripped, non-empty, non-header lines ready for parsing.
-        """
-        result = []
-        for line in raw_lines:
-            stripped = line.rstrip("\n")
-            if not stripped.strip():
-                continue
-            if stripped.lstrip().startswith("current_time"):
-                continue  # Skip the column-header row
-            result.append(stripped)
-        return result
-
-    def _parse_event_rows(self, data_lines: list, tree) -> list:
-        """Parse tab-delimited event rows (with multi-line continuation support).
-
-        Inserts each completed row into *tree* and returns all parsed events as
-        a list of 5-element tuples.  UI updates are batched every 100 rows to
-        keep the interface responsive.
-
-        Args:
-            data_lines: Pre-processed lines from :meth:`_preprocess_event_log_lines`.
-            tree:       The ``ttk.Treeview`` that receives the parsed rows.
-
-        Returns:
-            A list of ``(current_time, timestamp, txt_manual, criticality, ui_mode)``
-            tuples.
-        """
-        all_events: list = []
-        current_parts = None
-        batch_count = 0
-        BATCH_SIZE = 100
-
-        for line in data_lines:
-            try:
-                parts = [p.strip() for p in line.split("\t")]
-
-                if current_parts is None:
-                    if len(parts) >= 5:
-                        all_events.append(parts[:5])
-                        tree.insert("", "end", values=parts[:5])
-                        batch_count += 1
-                    elif parts and (line.startswith("\t") or parts[0] == ""):
-                        pass  # Orphaned continuation line — skip silently
-                    else:
-                        current_parts = parts
-                else:
-                    # Continuation line
-                    if line.startswith("\t") or (parts and parts[0] == ""):
-                        if parts and parts[0] == "":
-                            parts = parts[1:]
-                        current_parts.extend(parts)
-                    else:
-                        # Treat as continuation of the description column
-                        if len(current_parts) >= 3 and parts:
-                            current_parts[2] = (current_parts[2] + " " + parts[0]).strip()
-                            if len(parts) > 1:
-                                current_parts.extend(parts[1:])
-                        else:
-                            current_parts.extend(parts)
-
-                    if len(current_parts) >= 5:
-                        all_events.append(current_parts[:5])
-                        tree.insert("", "end", values=current_parts[:5])
-                        current_parts = None
-                        batch_count += 1
-
-                # Periodic UI refresh to prevent freezing on large files
-                if batch_count >= BATCH_SIZE:
-                    tree.update_idletasks()
-                    batch_count = 0
-
-            except Exception:  # nosec B110
-                pass  # Silent skip — avoids log spam for individual malformed lines
-
-        return all_events
-
-    def load_event_log_data(self, tree, file_path):
-        """Parse and load event log data into *tree*. Returns a list of all events.
-
-        Large files (>10 MB) emit a warning.  Parsing is batch-processed to
-        keep the UI responsive.  Delegates the heavy lifting to
-        :meth:`_preprocess_event_log_lines` and :meth:`_parse_event_rows`.
-        """
-        all_events: list = []
-
-        # Warn for large files
-        try:
-            file_size = os.path.getsize(file_path)
-            if file_size > 10 * 1024 * 1024:  # 10 MB
-                self.log_message(
-                    f"⚠️ Large event log file ({file_size // (1024 * 1024)} MB) — loading may take a moment...",
-                    is_error=False,
-                )
-        except Exception:  # nosec B110
-            pass
-
-        try:
-            with open(file_path, "r", encoding="utf-8") as fh:
-                raw_lines = fh.readlines()
-
-            data_lines = self._preprocess_event_log_lines(raw_lines)
-            all_events = self._parse_event_rows(data_lines, tree)
-            logger.debug("Loaded %d events from %s", len(all_events), file_path)
-
-        except Exception as e:
-            self.log_message(f"Error reading event log file: {e}", is_error=True)
-            logger.exception("Error reading event log file: %s", file_path)
-
-        return all_events
-
-    def _is_tg_folder(self, folder_name):
-        """Check if a folder name matches TG-XXXX pattern."""
+    def _is_tg_folder(self, folder_name: str) -> bool:
         return bool(re.match(r"^TG-\d+$", folder_name))
 
-    def _is_vehicle_folder(self, folder_name):
+    def _is_vehicle_folder(self, folder_name: str) -> bool:
         """Check if a folder name matches PSAXXXX pattern."""
         return bool(re.match(r"^PSA\d+$", folder_name))
 
-    def _get_vehicle_folders(self, path):
+    def _get_vehicle_folders(self, path: str) -> List[str]:
         """Get all vehicle folders (PSAXXXX) in the given directory."""
         try:
             if not os.path.isdir(path):
@@ -1084,7 +647,7 @@ class FileExplorerTab:
         except Exception:
             return []
 
-    def _find_event_log_file(self, base_path):
+    def _find_event_log_file(self, base_path: str) -> Optional[str]:
         """Find event_log_*.txt file in the logs directory."""
         try:
             logs_path = os.path.join(base_path, "logs")
@@ -1099,13 +662,13 @@ class FileExplorerTab:
         except Exception:
             return None
 
-    def _auto_open_event_log_if_enabled(self):
+    def _auto_open_event_log_if_enabled(self) -> bool:
         """Auto-open event log for TG folders if the setting is enabled."""
         try:
             # Check if the setting is enabled
             settings = self._get_runtime_settings()
             if not settings.get("auto_open_event_log_for_tg", False):
-                return
+                return False
 
             current_folder_name = os.path.basename(self.current_explorer_path)
 
@@ -1154,7 +717,7 @@ class FileExplorerTab:
             self.log_message(f"Error in auto-open event log: {e}", is_error=True)
             return False
 
-    def on_explorer_select(self, event=None, suppress_log=False):
+    def on_explorer_select(self, event: Optional[Any] = None, suppress_log: bool = False) -> None:
         selection = self.explorer_listbox.curselection()
         states = {"open_file": False, "copy_path": False, "open_with_foxglove": False, "open_with_bazel": False}
 
@@ -1251,7 +814,7 @@ class FileExplorerTab:
         self.current_explorer_path = self._data_root
         self.refresh_explorer()
 
-    def highlight_file_in_explorer(self, filename):
+    def highlight_file_in_explorer(self, filename: str) -> None:
         if not filename:
             return
 
@@ -1289,7 +852,7 @@ class FileExplorerTab:
         except Exception as e:
             self.log_message(f"Error highlighting file: {e}", is_error=False)
 
-    def highlight_directory_in_explorer(self, dirname):
+    def highlight_directory_in_explorer(self, dirname: str) -> None:
         """Highlight and select a directory by name in the explorer listbox."""
         if not dirname:
             return
@@ -1332,11 +895,11 @@ class FileExplorerTab:
         except Exception as e:
             self.log_message(f"Error highlighting directory: {e}", is_error=False)
 
-    def play_video_at_timestamp(self, event_log_path, timestamp_str, viewer_id=None):
+    def play_video_at_timestamp(self, event_log_path: str, timestamp_str: str, viewer_id: Optional[int] = None) -> None:
         """Play video at the specified timestamp using mpv."""
         try:
             # Parse the timestamp from the event log
-            event_time = self.parse_timestamp(timestamp_str)
+            event_time = parse_timestamp(timestamp_str, log_fn=self.log_message)
             if not event_time:
                 self.log_message(f"Could not parse timestamp: {timestamp_str}", is_error=True)
                 return
@@ -1368,7 +931,7 @@ class FileExplorerTab:
         except Exception as e:
             self.log_message(f"Error playing video: {e}", is_error=True)
 
-    def _get_runtime_settings(self):
+    def _get_runtime_settings(self) -> Dict[str, Any]:
         settings = getattr(self.logic, "settings", {})
         if not settings:
             from ...utils.constants import DEFAULT_SETTINGS
@@ -1376,7 +939,7 @@ class FileExplorerTab:
             settings = DEFAULT_SETTINGS.copy()
         return settings
 
-    def _cleanup_viewer_processes(self, viewer_id):
+    def _cleanup_viewer_processes(self, viewer_id: int) -> None:
         """Clean up processes associated with a specific event log viewer."""
         if viewer_id not in self.event_log_viewers:
             return
@@ -1395,75 +958,7 @@ class FileExplorerTab:
         # Remove viewer from tracking
         del self.event_log_viewers[viewer_id]
 
-    def _normalize_timestamp_str(self, timestamp_str: str) -> str:
-        """Pre-process a raw timestamp string before format-matching.
-
-        Handles two common edge-cases:
-
-        1. MCAP filename prefixes such as ``PSA8411_2025-12-16-08-55-17_0``
-           — the middle ``_``-separated part is extracted.
-        2. Three-part strings such as ``2025-09-19 10:50:50 430`` (trailing
-           millisecond token) — the trailing token is discarded.
-
-        Args:
-            timestamp_str: The raw string to normalise.
-
-        Returns:
-            A cleaned string ready for :meth:`parse_timestamp`.
-        """
-        # Handle MCAP filename format: PREFIX_TIMESTAMP_SUFFIX
-        if "_" in timestamp_str and timestamp_str.count("_") >= 2:
-            parts = timestamp_str.split("_")
-            if len(parts) >= 3:
-                potential_ts = parts[1]
-                if "-" in potential_ts and len(potential_ts) >= 10:
-                    return potential_ts
-
-        # Handle "2025-09-19 10:50:50 430" (trailing millisecond token)
-        tokens = timestamp_str.split()
-        if len(tokens) == 3:
-            return f"{tokens[0]} {tokens[1]}"
-
-        return timestamp_str
-
-    def parse_timestamp(self, timestamp_str):
-        """Parse *timestamp_str* to a :class:`datetime` object.
-
-        Tries the formats listed in :attr:`_TIMESTAMP_FORMATS` after normalising
-        the raw string with :meth:`_normalize_timestamp_str`.
-
-        Returns ``None`` on failure (error is logged).
-        """
-        try:
-            if not isinstance(timestamp_str, str):
-                timestamp_str = str(timestamp_str)
-
-            timestamp_str = self._normalize_timestamp_str(timestamp_str.strip())
-
-            for fmt in self._TIMESTAMP_FORMATS:
-                try:
-                    if fmt == "%H:%M:%S":
-                        # Time-only: combine with today's date
-                        from datetime import date
-
-                        time_part = datetime.strptime(timestamp_str, fmt).time()
-                        return datetime.combine(date.today(), time_part)
-                    return datetime.strptime(timestamp_str, fmt)
-                except ValueError:
-                    continue
-
-            self.log_message(
-                f"Unknown timestamp format: '{timestamp_str}' (length: {len(timestamp_str)})", is_error=True
-            )
-            logger.warning("Unknown timestamp format: %r", timestamp_str)
-            return None
-
-        except Exception as e:
-            self.log_message(f"Error parsing timestamp '{timestamp_str}': {e}", is_error=True)
-            logger.exception("Error parsing timestamp %r", timestamp_str)
-            return None
-
-    def find_video_for_timestamp(self, event_log_path, event_time):
+    def find_video_for_timestamp(self, event_log_path: str, event_time: datetime) -> Tuple[Optional[str], int]:
         """Find the video file that contains the specified timestamp and calculate offset."""
         try:
             # Extract date from event log path
@@ -1495,7 +990,7 @@ class FileExplorerTab:
                 timestamp_part = filename.replace(".mp4", "")
 
                 # Parse video start time
-                video_start_time = self.parse_timestamp(timestamp_part)
+                video_start_time = parse_timestamp(timestamp_part, log_fn=None)
                 if video_start_time:
                     # Check if event time is after this video's start time
                     if event_time >= video_start_time:
@@ -1558,7 +1053,9 @@ class FileExplorerTab:
         self._mcap_cache[rosbags_dir] = (current_time, mcap_files)
         return mcap_files
 
-    def find_mcap_for_timestamp(self, event_log_path, event_time):
+    def find_mcap_for_timestamp(
+        self, event_log_path: str, event_time: Optional[datetime]
+    ) -> Tuple[Optional[str], Optional[float]]:
         """Find the MCAP file that contains the specified timestamp.
         If event_time is None, return the first available MCAP file."""
         try:
@@ -1597,7 +1094,7 @@ class FileExplorerTab:
                 timestamp_part = filename.replace(".mcap", "")
 
                 # Parse MCAP start time
-                mcap_start_time = self.parse_timestamp(timestamp_part)
+                mcap_start_time = parse_timestamp(timestamp_part, log_fn=None)
                 if mcap_start_time:
                     # Check if event time is after this MCAP's start time
                     if event_time >= mcap_start_time:
@@ -1643,7 +1140,9 @@ class FileExplorerTab:
                 target_idx = idx
         return target_idx
 
-    def find_mcap_with_buffer(self, event_log_path, event_time, buffer_seconds=30):
+    def find_mcap_with_buffer(
+        self, event_log_path: str, event_time: datetime, buffer_seconds: int = 30
+    ) -> Tuple[Optional[List[str]], Optional[float]]:
         """Find MCAP files needed to play with a time buffer before the event.
 
         Returns ``(mcap_files_list, adjusted_offset)`` where *mcap_files_list*
@@ -1666,7 +1165,7 @@ class FileExplorerTab:
             mcap_files_with_times = []
             for mcap_path in mcap_files:
                 filename = os.path.basename(mcap_path)
-                start_time = self.parse_timestamp(filename.replace(".mcap", ""))
+                start_time = parse_timestamp(filename.replace(".mcap", ""), log_fn=None)
                 if start_time:
                     mcap_files_with_times.append((mcap_path, start_time))
 
@@ -1716,12 +1215,12 @@ class FileExplorerTab:
             logger.exception("Error finding MCAP with buffer for %s", event_log_path)
             return None, None
 
-    def play_bazel_at_timestamp(self, event_log_path, timestamp_str, viewer_id=None):
+    def play_bazel_at_timestamp(self, event_log_path: str, timestamp_str: str, viewer_id: Optional[int] = None) -> None:
         """Play rosbag at the specified timestamp using Bazel Bag GUI.
         Starts playback 30 seconds before the event timestamp."""
         try:
             # Parse the timestamp from the event log
-            event_time = self.parse_timestamp(timestamp_str)
+            event_time = parse_timestamp(timestamp_str, log_fn=self.log_message)
             if not event_time:
                 self.log_message(f"Could not parse timestamp: {timestamp_str}", is_error=True)
                 return
@@ -1771,12 +1270,12 @@ class FileExplorerTab:
         except Exception as e:
             self.log_message(f"Error playing bazel at timestamp: {e}", is_error=True)
 
-    def play_bazel_from_start(self, event_log_path, timestamp_str, viewer_id=None):
+    def play_bazel_from_start(self, event_log_path: str, timestamp_str: str, viewer_id: Optional[int] = None) -> None:
         """Play rosbag from the start without seeking to a specific timestamp.
         Uses the timestamp to identify which rosbag file to play."""
         try:
             # Parse the timestamp from the event log to identify the correct MCAP
-            event_time = self.parse_timestamp(timestamp_str)
+            event_time = parse_timestamp(timestamp_str, log_fn=self.log_message)
             if not event_time:
                 self.log_message(f"Could not parse timestamp: {timestamp_str}", is_error=True)
                 return
@@ -1814,11 +1313,11 @@ class FileExplorerTab:
         except Exception as e:
             self.log_message(f"Error playing bazel from start: {e}", is_error=True)
 
-    def navigate_to_mcap_from_timestamp(self, event_log_path, timestamp_str):
+    def navigate_to_mcap_from_timestamp(self, event_log_path: str, timestamp_str: str) -> None:
         """Navigate to the MCAP file in the file explorer based on the timestamp."""
         try:
             # Parse the timestamp from the event log
-            event_time = self.parse_timestamp(timestamp_str)
+            event_time = parse_timestamp(timestamp_str, log_fn=self.log_message)
             if not event_time:
                 self.log_message(f"Could not parse timestamp: {timestamp_str}", is_error=True)
                 return

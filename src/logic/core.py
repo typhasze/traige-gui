@@ -6,6 +6,7 @@ import sys
 import threading
 import time
 import urllib.parse
+from typing import Any, Optional
 
 from ..utils.constants import (
     DEFAULT_BACKUP_PATH,
@@ -128,14 +129,14 @@ class FoxgloveAppLogic:
             self._monitor_stop_event.set()
             self._process_monitor_thread.join(timeout=PROCESS_SHUTDOWN_TIMEOUT)
 
-    def update_search_paths(self, primary_path, backup_path):
+    def update_search_paths(self, primary_path: Optional[str], backup_path: Optional[str]) -> None:
         """Updates the primary and backup search paths."""
         if primary_path:
             self.local_base_path_absolute = primary_path
         if backup_path:
             self.backup_base_path_absolute = backup_path
 
-    def set_runtime_settings(self, settings):
+    def set_runtime_settings(self, settings: dict) -> None:
         """Update runtime settings used by launchers and playback."""
         if isinstance(settings, dict):
             merged = DEFAULT_SETTINGS.copy()
@@ -144,10 +145,10 @@ class FoxgloveAppLogic:
         else:
             self.settings = DEFAULT_SETTINGS.copy()
 
-    def load_settings(self):
+    def load_settings(self) -> dict:
         return DEFAULT_SETTINGS.copy()
 
-    def save_settings(self, settings_dict):
+    def save_settings(self, settings_dict: dict) -> tuple:
         try:
             self.bazel_working_dir = self.get_bazel_working_dir()
             return True, None
@@ -163,7 +164,7 @@ class FoxgloveAppLogic:
         }
         self.save_settings(default_settings)
 
-    def get_setting(self, key):
+    def get_setting(self, key: str) -> Optional[Any]:
         return None
 
     def get_bazel_working_dir(self, settings=None):

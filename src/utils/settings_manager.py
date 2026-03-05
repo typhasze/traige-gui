@@ -25,12 +25,124 @@ Usage::
 
 import json
 import os
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .constants import DEFAULT_SETTINGS, SETTINGS_FILE_PATH
 from .logger import get_logger
 
 logger = get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Settings schema — drives validate_settings()
+# ---------------------------------------------------------------------------
+
+#: Validation schema for each known settings key.
+#: Keys: ``type`` (Python type), ``required`` (bool), ``min_val``/``max_val``
+#: (numeric bounds), ``is_path`` (bool — path should ideally be a directory).
+_SETTINGS_SCHEMA: Dict[str, Any] = {
+    "bazel_tools_viz_cmd": {"type": str, "required": True},
+    "bazel_bag_gui_cmd": {"type": str, "required": True},
+    "bazel_working_dir": {"type": str, "required": False},
+    "nas_dir": {"type": str, "required": False, "is_path": True},
+    "backup_nas_dir": {"type": str, "required": False, "is_path": True},
+    "logging_dir": {"type": str, "required": False, "is_path": True},
+    "max_foxglove_files": {"type": int, "required": False, "min_val": 1, "max_val": 1000},
+    "bazel_bag_gui_rate": {"type": float, "required": False, "min_val": 0.01},
+    "open_foxglove_in_browser": {"type": bool, "required": False},
+    "single_instance_video": {"type": bool, "required": False},
+    "single_instance_rosbag": {"type": bool, "required": False},
+    "auto_open_event_log_for_tg": {"type": bool, "required": False},
+    "event_log_viewer_as_tab": {"type": bool, "required": False},
+}
+
+
+def validate_settings(settings: dict) -> List[Tuple[str, str]]:
+    """Validate *settings* against :data:`_SETTINGS_SCHEMA`.
+
+    Checks:
+    - Required fields are present and non-empty.
+    - Values have the expected Python type.
+    - Numeric values are within their declared :data:`min_val`/:data:`max_val` bounds.
+    - (Informational) Path strings exist on the filesystem when ``is_path`` is
+      set; violations are still returned as errors so callers can warn the user,
+      but the absence of a NAS mount is not considered fatal.
+
+    Args:
+        settings: The settings dict to validate (usually ``SettingsManager.settings``).
+
+    Returns:
+        A list of ``(field_name, human_readable_message)`` tuples, one per
+        issue found.  An empty list means the settings are fully valid.
+    """
+    errors: List[Tuple[str, str]] = []
+
+    for field, rules in _SETTINGS_SCHEMA.items():
+        value = settings.get(field)
+
+        # Required fields must be present and non-empty
+        if rules.get("required"):
+            if value is None or value == "":
+                errors.append((field, f"Required setting '{field}' is missing or empty"))
+                continue
+
+        # Skip absent optional fields
+        if value is None:
+            continue
+
+        # Type check
+        expected_type = rules.get("type")
+        if expected_type is not None:
+            # Allow plain int where float is expected (Python subtype relationship)
+            type_ok = isinstance(value, expected_type)
+            if not type_ok and expected_type is float and isinstance(value, int):
+                type_ok = True
+            if not type_ok:
+                errors.append(
+                    (
+                        field,
+                        f"Setting '{field}' should be {expected_type.__name__}, "
+                        f"got {type(value).__name__} (value: {value!r})",
+                    )
+                )
+                continue  # Skip further checks on wrong-typed value
+
+        # Numeric range checks
+        if "min_val" in rules and isinstance(value, (int, float)):
+            if value < rules["min_val"]:
+                errors.append(
+                    (
+                        field,
+                        f"Setting '{field}' value {value} is below minimum {rules['min_val']}",
+                    )
+                )
+
+        if "max_val" in rules and isinstance(value, (int, float)):
+            if value > rules["max_val"]:
+                errors.append(
+                    (
+                        field,
+                        f"Setting '{field}' value {value} exceeds maximum {rules['max_val']}",
+                    )
+                )
+
+        # Path existence (informational — mount may be absent)
+        if rules.get("is_path") and isinstance(value, str) and value:
+            if not os.path.exists(value):
+                errors.append(
+                    (
+                        field,
+                        f"Path for '{field}' does not exist: {value}",
+                    )
+                )
+            elif not os.path.isdir(value):
+                errors.append(
+                    (
+                        field,
+                        f"Path for '{field}' is not a directory: {value}",
+                    )
+                )
+
+    return errors
 
 
 class SettingsManager:
@@ -76,6 +188,14 @@ class SettingsManager:
             merged = DEFAULT_SETTINGS.copy()
             merged.update(user_settings)
             logger.debug("Settings loaded from %s", self.settings_path)
+
+            # Validate and log any issues (non-fatal — app continues with loaded values)
+            issues = validate_settings(merged)
+            for field, msg in issues:
+                # Path-missing warnings are expected when NAS/LOGGING is unmounted
+                level = "debug" if "does not exist" in msg or "not a directory" in msg else "warning"
+                getattr(logger, level)("Settings validation: %s", msg)
+
             return merged
 
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
@@ -171,3 +291,13 @@ class SettingsManager:
         if not os.access(path, os.R_OK):
             return False, f"Permission denied: {path}"
         return True, ""
+
+    def validate(self) -> List[Tuple[str, str]]:
+        """Validate the current in-memory settings and return all issues found.
+
+        Delegates to the module-level :func:`validate_settings` function.
+
+        Returns:
+            A list of ``(field_name, message)`` tuples; empty on success.
+        """
+        return validate_settings(self.settings)

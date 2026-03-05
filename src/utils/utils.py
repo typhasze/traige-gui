@@ -1,9 +1,10 @@
 import os
+from typing import Any, Callable, List, Optional, Tuple
 
 from .constants import DEFAULT_FILE_ICON, FILE_ICON_MAP
 
 
-def format_file_size(size_bytes):
+def format_file_size(size_bytes: int) -> str:
     if size_bytes == 0:
         return "0 B"
 
@@ -24,17 +25,17 @@ def format_file_size(size_bytes):
             return f"{size:.0f} {SIZE_NAMES[i]}"
 
 
-def get_file_icon(filepath):
+def get_file_icon(filepath: str) -> str:
     """Get an icon for a file based on its extension."""
     ext = os.path.splitext(filepath)[1].lower()
     return FILE_ICON_MAP.get(ext, DEFAULT_FILE_ICON)
 
 
-def validate_input(input_data):
+def validate_input(input_data: Any) -> bool:
     return isinstance(input_data, str) and bool(input_data.strip())
 
 
-def format_output(data):
+def format_output(data: Any) -> str:
     if isinstance(data, str):
         return data
     elif data is None:
@@ -45,14 +46,14 @@ def format_output(data):
         return repr(data)
 
 
-def log_message(message, level="INFO"):
+def log_message(message: str, level: str = "INFO") -> None:
     import datetime
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}] [{level}] {message}")
 
 
-def batch_log_messages(messages, level="INFO"):
+def batch_log_messages(messages: List[str], level: str = "INFO") -> None:
     import datetime
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -60,7 +61,7 @@ def batch_log_messages(messages, level="INFO"):
         print(f"[{timestamp}] [{level}] {message}")
 
 
-def safe_file_operation(operation, *args, **kwargs):
+def safe_file_operation(operation: Callable[..., Any], *args: Any, **kwargs: Any) -> Tuple[bool, Any]:
     try:
         result = operation(*args, **kwargs)
         return True, result
@@ -70,7 +71,11 @@ def safe_file_operation(operation, *args, **kwargs):
         return False, f"Unexpected error: {e}"
 
 
-def efficient_directory_scan(directory_path, extension_filter=None, max_depth=1):
+def efficient_directory_scan(
+    directory_path: str,
+    extension_filter: Optional[str] = None,
+    max_depth: int = 1,
+) -> Tuple[List[str], List[str], Optional[str]]:
     if not os.path.isdir(directory_path):
         return [], [], f"Invalid directory: {directory_path}"
 

@@ -32,11 +32,11 @@ class FileExplorerLogic:
 
         return directories, files
 
-    def is_mcap_file(self, filename):
+    def is_mcap_file(self, filename: str) -> bool:
         """Check if filename is an MCAP file."""
         return filename.lower().endswith(MCAP_FILE_EXTENSION)
 
-    def get_file_info(self, path):
+    def get_file_info(self, path: str) -> Dict[str, Any]:
         if path in self._file_info_cache:
             stat_result = os.stat(path)
             cached_info = self._file_info_cache[path]
@@ -59,15 +59,15 @@ class FileExplorerLogic:
         except (OSError, IOError):
             return {"size": None, "mtime": None, "icon": get_file_icon(path), "size_str": "N/A"}
 
-    def open_file(self, file_path):
+    def open_file(self, file_path: str) -> Tuple[bool, str]:
         """Open a file using the system default application. Returns (success, message)."""
         return open_file_with_default_app(file_path)
 
-    def open_in_file_manager(self, dir_path):
+    def open_in_file_manager(self, dir_path: str) -> Tuple[bool, str]:
         """Open a directory in the system file manager. Returns (success, message)."""
         return open_directory_in_file_manager(dir_path)
 
-    def copy_to_clipboard(self, root, text):
+    def copy_to_clipboard(self, root: Any, text: str) -> Tuple[bool, str]:
         try:
             root.clipboard_clear()
             root.clipboard_append(text)
@@ -75,7 +75,7 @@ class FileExplorerLogic:
         except Exception as e:
             return False, f"Error copying to clipboard: {e}"
 
-    def get_file_action_states(self, selected_paths, is_multiple_selection):
+    def get_file_action_states(self, selected_paths: List[str], is_multiple_selection: bool) -> Dict[str, bool]:
         states = {"open_file": False, "copy_path": False, "open_with_foxglove": False, "open_with_bazel": False}
 
         if not selected_paths:
@@ -84,7 +84,9 @@ class FileExplorerLogic:
         if not is_multiple_selection:
             item_path = selected_paths[0]
             states["copy_path"] = True
-            if os.path.isfile(item_path):
+            if os.path.isdir(item_path):
+                states["open_file"] = True
+            elif os.path.isfile(item_path):
                 is_mcap = self.is_mcap_file(item_path)
                 states["open_file"] = not is_mcap
                 if is_mcap:
