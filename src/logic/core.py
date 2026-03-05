@@ -147,99 +147,41 @@ class FoxgloveAppLogic:
         return None
 
     def _normalize_path_to_relative(self, full_path):
-        """
-        Convert absolute path to relative path from /data/ directory.
-
-        Args:
-            full_path: Absolute file path
-
-        Returns:
-            Relative path from /data/ directory, or original path if no /data/ found
-        """
+        """Convert absolute path to relative from /data/ root."""
         if "/data/" in full_path:
             return "/" + full_path.split("/data/", 1)[1]
         return full_path
 
     def _extract_file_info_from_path(self, path):
-        """
-        Extract folder and filename from a file path.
-
-        Args:
-            path: File path to process
-
-        Returns:
-            Tuple of (folder_path, filename) or (None, None) if not a valid file
-        """
-        # Expand ~ to home directory if present
+        """Return (folder, filename) for .mcap/.mp4 paths, else (None, None)."""
         if path.startswith("~/"):
             path = os.path.expanduser(path)
-
-        # Check if it's a supported file type
         if path.lower().endswith((".mcap", ".mp4")):
             filename = os.path.basename(path)
             folder_path = os.path.dirname(path)
-
-            # Convert to relative path from data directory
             if "/data/" in path:
-                relative_path = self._normalize_path_to_relative(path)
-                folder_path = os.path.dirname(relative_path)
-
+                folder_path = os.path.dirname(self._normalize_path_to_relative(path))
             return folder_path, filename
-
         return None, None
 
     def _extract_from_mpv_command(self, link):
-        """
-        Extract URL from mpv command format.
-        Format: mpv --start=3649 https://...
-
-        Args:
-            link: mpv command string
-
-        Returns:
-            Extracted URL or None
-        """
-        parts = link.split()
-        for part in parts:
+        """Extract the URL token from an mpv command string."""
+        for part in link.split():
             if part.startswith(("http://", "https://")):
                 return part
         return None
 
     def _extract_from_bazel_command(self, link):
-        """
-        Extract file path from bazel command format.
-        Format: bazel run //tools/bag:gui <path>
-
-        Args:
-            link: bazel command string
-
-        Returns:
-            Tuple of (folder_path, filename) or (None, None)
-        """
-        parts = link.split()
-
-        # Find the path argument (skip bazel keywords and targets)
-        for part in parts:
-            # Skip bazel targets (start with //) and bazel keywords
+        """Extract (folder, filename) from a bazel run command string."""
+        for part in link.split():
             if part.startswith("//") or part in ("bazel", "run"):
                 continue
-
-            # Look for actual file paths
             if part.startswith("~/") or part.startswith("/home/") or "/data/" in part:
                 return self._extract_file_info_from_path(part)
-
         return None, None
 
     def _extract_from_url(self, link):
-        """
-        Extract path from URL (Foxglove or direct URL).
-
-        Args:
-            link: URL string
-
-        Returns:
-            Tuple of (folder_path, filename) or (path, None) for directories
-        """
+        """Extract (folder, filename) from a Foxglove or direct URL."""
         parsed_url = urllib.parse.urlparse(link)
         query_params = urllib.parse.parse_qs(parsed_url.query)
 
@@ -267,68 +209,30 @@ class FoxgloveAppLogic:
         return path_to_check, None
 
     def extract_info_from_link(self, link):
-        """
-        Extracts the folder path and filename from a Foxglove link,
-        a direct URL to a file or folder, or a bazel/mpv command with file path.
-        Handles .mcap, .mp4, and /logs directories.
+        """Parse a Foxglove URL, direct URL, bazel/mpv command, or file path.
 
-        Supports:
-        - Foxglove links with ds.url parameter
-        - Direct URLs (https://...)
-        - Bazel commands (bazel run //tools/bag:gui <path>)
-        - mpv commands (mpv --start=<time> <url>)
-        - Direct file paths (~/data/... or /home/...)
-
-        Args:
-            link: Link string to parse
-
-        Returns:
-            Tuple of (folder_path, filename) or (None, None) on error
+        Returns (folder_path, filename) or (None, None) on failure.
         """
         if not link.strip():
             return None, None
-
         try:
             link = link.strip()
-
-            # Route to appropriate handler based on link type
             if link.startswith("mpv "):
-                # Extract URL from mpv command and process as URL
                 url = self._extract_from_mpv_command(link)
-                if url:
-                    return self._extract_from_url(url)
-                return None, None
-
-            elif link.startswith("bazel "):
+                return self._extract_from_url(url) if url else (None, None)
+            if link.startswith("bazel "):
                 return self._extract_from_bazel_command(link)
-
-            elif not link.startswith(("http://", "https://")):
-                # Direct file path
+            if not link.startswith(("http://", "https://")):
                 result = self._extract_file_info_from_path(link)
-                if result[0] is not None:
-                    return result
-                # Not a file, might be a directory path
-                return link, None
-
-            else:
-                # URL-based (Foxglove or direct URL)
-                return self._extract_from_url(link)
-
+                return result if result[0] is not None else (link, None)
+            return self._extract_from_url(link)
         except Exception as e:
             self.log_callback(f"Error parsing link: {e}", is_error=True)
             return None, None
 
     def get_local_folder_path(self, extracted_remote_folder):
-        """
-        Constructs the absolute local folder path from the extracted remote folder.
-        It handles paths from URLs that map to a local base directory.
-        Tries the main data path, then a backup path if not found.
-        """
-        # The extracted_remote_folder is already the path segment (e.g., /20250718/PROD/...)
-        if extracted_remote_folder.startswith("/"):
-            relative_path = extracted_remote_folder[1:]
-        else:
-            relative_path = extracted_remote_folder
+        """Map a remote folder path to local; tries main path then backup."""
+        relative_path = extracted_remote_folder.lstrip("/")
 
         main_path = os.path.join(self.local_base_path_absolute, relative_path)
         if os.path.isdir(main_path):
@@ -346,47 +250,30 @@ class FoxgloveAppLogic:
         return main_path
 
     def list_files_in_directory(self, local_folder_path_absolute, file_extension=None):
-        """
-        Lists files in the specified local directory, optionally filtering by a file extension.
-        If file_extension is None, it lists all files and directories.
-        Returns a tuple: (list_of_items, error_message_or_None)
-        Optimized for better performance.
-        """
+        """List files in a directory, optionally filtered by extension. Returns (items, error)."""
         if not os.path.isdir(local_folder_path_absolute):
             return [], f"Local folder not found or is not a directory: {local_folder_path_absolute}"
-
         try:
-            # Use list comprehension for better performance
-            if file_extension:
-                # Pre-compile the extension check for better performance
-                ext_lower = file_extension.lower()
-                items = [item for item in os.listdir(local_folder_path_absolute) if item.lower().endswith(ext_lower)]
-            else:
-                items = list(os.listdir(local_folder_path_absolute))
-
-            items.sort(key=str.lower)  # Case-insensitive sort for better UX
+            ext_lower = file_extension.lower() if file_extension else None
+            items = [
+                item
+                for item in os.listdir(local_folder_path_absolute)
+                if ext_lower is None or item.lower().endswith(ext_lower)
+            ]
+            items.sort(key=str.lower)
             return items, None
-
         except PermissionError:
             return [], f"Permission denied to access folder: {local_folder_path_absolute}"
         except Exception as e:
             return [], f"An unexpected error occurred while listing files: {e}"
 
     def _is_any_viz_running(self):
-        """
-        Returns True if any viz process (Foxglove, Bazel Tools Viz, Bazel Bag GUI) is running.
-        """
         viz_processes = {
             PROCESS_NAMES["FOXGLOVE_STUDIO"],
             PROCESS_NAMES["BAZEL_TOOLS_VIZ"],
             PROCESS_NAMES["BAZEL_BAG_GUI"],
         }
-
-        for proc_info in self.running_processes:
-            proc = proc_info["process"]
-            if proc.poll() is None and proc_info["name"] in viz_processes:
-                return True
-        return False
+        return any(p["process"].poll() is None and p["name"] in viz_processes for p in self.running_processes)
 
     def _terminate_process_by_name(self, name: str) -> None:
         for proc_info in list(self.running_processes):
@@ -548,97 +435,49 @@ class FoxgloveAppLogic:
         if not mcap_filepaths:
             return None, "No MCAP files provided", None
 
-        validation_results = self._batch_validate_files(mcap_filepaths)
-        if validation_results["missing_files"]:
-            missing_count = len(validation_results["missing_files"])
-            if missing_count <= 3:
-                missing_names = [os.path.basename(f) for f in validation_results["missing_files"]]
-                return None, f"MCAP files not found: {', '.join(missing_names)}", None
-            else:
-                return None, f"{missing_count} MCAP files not found", None
-
-        valid_files = validation_results["valid_files"]
+        valid_files = [f for f in mcap_filepaths if os.path.isfile(f)]
+        missing = [f for f in mcap_filepaths if not os.path.isfile(f)]
+        if missing:
+            if len(missing) <= 3:
+                return None, f"MCAP files not found: {', '.join(os.path.basename(f) for f in missing)}", None
+            return None, f"{len(missing)} MCAP files not found", None
         if not valid_files:
             return None, "No valid MCAP files found", None
 
-        # Apply user-configured file limit for performance
-        max_files = getattr(self, "_max_foxglove_files", 50)  # Default fallback
+        max_files = getattr(self, "_max_foxglove_files", 50)
         if len(valid_files) > max_files:
-            self.log_callback(
-                f"Too many files selected ({len(valid_files)}). Limiting to {max_files} files for performance."
-            )
+            self.log_callback(f"Too many files selected ({len(valid_files)}). Limiting to {max_files} files.")
             valid_files = valid_files[:max_files]
 
-        # Check command line length limits to prevent system errors
-        max_cmd_length = self._get_max_command_length()
         command_base = ["foxglove-studio", "open"]
+        max_cmd_length = self._get_max_command_length()
+        base_length = sum(len(arg) + 1 for arg in command_base)
+        if base_length + sum(len(f) + 3 for f in valid_files) > max_cmd_length:
+            limited = self._limit_files_by_command_length(valid_files, max_cmd_length - base_length)
+            if len(limited) < len(valid_files):
+                self.log_callback(f"Command too long, limiting to {len(limited)} files (system limit)")
+            valid_files = limited
 
-        # Estimate command length (conservative approach)
-        base_length = sum(len(arg) + 1 for arg in command_base)  # +1 for spaces
-        files_length = sum(len(f) + 3 for f in valid_files)  # +3 for quotes and space
-
-        if base_length + files_length > max_cmd_length:
-            # Fallback: use file list approach or limit files
-            limited_files = self._limit_files_by_command_length(valid_files, max_cmd_length - base_length)
-            if len(limited_files) < len(valid_files):
-                self.log_callback(f"Command too long, limiting to {len(limited_files)} files (system limit)")
-            valid_files = limited_files
-
-        # Build optimized command
-        command = command_base + valid_files
-
-        # Use the first file path for tracking purposes
-        primary_mcap_path = valid_files[0]
-
-        return self._launch_process(command, "Foxglove Studio", mcap_path=primary_mcap_path)
-
-    def _batch_validate_files(self, filepaths):
-        """
-        Efficiently validate multiple files in batch.
-        Returns dict with 'valid_files' and 'missing_files' lists.
-        """
-        valid_files = []
-        missing_files = []
-
-        # Use os.path.isfile directly for better performance than try/catch
-        for filepath in filepaths:
-            if os.path.isfile(filepath):
-                valid_files.append(filepath)
-            else:
-                missing_files.append(filepath)
-
-        return {"valid_files": valid_files, "missing_files": missing_files}
+        return self._launch_process(command_base + valid_files, "Foxglove Studio", mcap_path=valid_files[0])
 
     def _get_max_command_length(self):
         try:
-            import subprocess
-
             result = subprocess.run(["getconf", "ARG_MAX"], capture_output=True, text=True, timeout=1)
             if result.returncode == 0:
                 return int(int(result.stdout.strip()) * 0.8)
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError, ValueError, OSError):
             pass
-
         return 32768
 
     def _limit_files_by_command_length(self, filepaths, max_length):
-        if not filepaths:
-            return []
-
-        sorted_files = sorted(filepaths, key=len)
-
-        selected_files = []
-        current_length = 0
-
-        for filepath in sorted_files:
-            file_length = len(filepath) + 3
-            if current_length + file_length <= max_length:
-                selected_files.append(filepath)
-                current_length += file_length
-            else:
+        selected, total = [], 0
+        for fp in sorted(filepaths, key=len):
+            cost = len(fp) + 3
+            if total + cost > max_length:
                 break
-
-        return selected_files
+            selected.append(fp)
+            total += cost
+        return selected
 
     def launch_foxglove_browser(self, mcap_filepath_absolute):
         """Launch Foxglove Studio in browser with the specified MCAP file."""
@@ -655,10 +494,17 @@ class FoxgloveAppLogic:
         else:
             return None, message, None
 
+    def _build_bazel_bag_cmd(self, base_command, rate, files_str, start_time):
+        """Build the bazel bag GUI shell command string."""
+        if start_time is not None:
+            self.log_callback(f"Starting playback at offset: {int(start_time)}s")
+            return f"{base_command} -- --start-offset {int(start_time)} --rate={rate} {files_str}"
+        return f"{base_command} -- --rate={rate} {files_str}"
+
     def launch_bazel_tools_viz(self, settings):
         self.bazel_working_dir = self.get_bazel_working_dir(settings)
         if not self.bazel_working_dir or not os.path.isdir(self.bazel_working_dir):
-            return None, f"Bazel working directory not found: {self.bazel_working_dir}"
+            return None, f"Bazel working directory not found: {self.bazel_working_dir}", None
         return self._launch_process(settings.get("bazel_tools_viz_cmd"), "Bazel Tools Viz", cwd=self.bazel_working_dir)
 
     def run_bazel_build(self, settings):
@@ -701,22 +547,15 @@ class FoxgloveAppLogic:
 
     def launch_bazel_bag_gui(self, mcap_path, settings, start_time=None):
         self.bazel_working_dir = self.get_bazel_working_dir(settings)
-        base_command = settings.get("bazel_bag_gui_cmd")
-        rate = settings.get("bazel_bag_gui_rate", 1.0)
-        single_instance = settings.get("single_instance_rosbag", True)
-
-        if start_time is not None:
-            command = f"{base_command} -- --start-offset {int(start_time)} --rate={rate} {mcap_path}"
-            self.log_callback(f"Starting playback at offset: {int(start_time)}s")
-        else:
-            command = f"{base_command} -- --rate={rate} {mcap_path}"
-
+        command = self._build_bazel_bag_cmd(
+            settings.get("bazel_bag_gui_cmd"), settings.get("bazel_bag_gui_rate", 1.0), mcap_path, start_time
+        )
         return self._launch_process(
             command,
             "Bazel Bag GUI",
             cwd=self.bazel_working_dir,
             mcap_path=mcap_path,
-            single_instance=single_instance,
+            single_instance=settings.get("single_instance_rosbag", True),
         )
 
     def play_bazel_bag_gui_with_symlinks(self, mcap_filepaths, settings, start_time=None):
@@ -725,28 +564,19 @@ class FoxgloveAppLogic:
         symlink_dir, error = symlink_logic.prepare_symlinks(mcap_filepaths)
         if error:
             return None, error, symlink_dir
-
         mcap_files = symlink_logic.get_symlinked_mcap_files()
         if not mcap_files:
             return None, "No .mcap files found to play.", symlink_dir
-
-        mcap_files_str = " ".join([f'"{f}"' for f in mcap_files])
-        base_command = settings.get("bazel_bag_gui_cmd")
-        rate = settings.get("bazel_bag_gui_rate", 1.0)
-        single_instance = settings.get("single_instance_rosbag", True)
-
-        if start_time is not None:
-            command = f"{base_command} -- --start-offset {int(start_time)} --rate={rate} {mcap_files_str}"
-            self.log_callback(f"Starting playback at offset: {int(start_time)}s")
-        else:
-            command = f"{base_command} -- --rate={rate} {mcap_files_str}"
-
+        files_str = " ".join(f'"{f}"' for f in mcap_files)
+        command = self._build_bazel_bag_cmd(
+            settings.get("bazel_bag_gui_cmd"), settings.get("bazel_bag_gui_rate", 1.0), files_str, start_time
+        )
         message, error, proc_id = self._launch_process(
             command,
             "Bazel Bag GUI",
             cwd=self.bazel_working_dir,
             mcap_path=symlink_dir,
-            single_instance=single_instance,
+            single_instance=settings.get("single_instance_rosbag", True),
         )
         return message, error, symlink_dir, proc_id
 
@@ -787,75 +617,34 @@ class FoxgloveAppLogic:
 
     def terminate_all_processes(self):
         self._stop_process_monitor()
-
-        log_messages = []
+        msgs = []
         if not self.running_processes:
-            log_messages.append("No processes were recorded as running by this application.")
-
+            msgs.append("No processes were recorded as running by this application.")
         for proc_info in list(self.running_processes):
-            proc = proc_info["process"]
-            name = proc_info["name"]
+            proc, name = proc_info["process"], proc_info["name"]
             if proc.poll() is None:
-                log_messages.append(f"Terminating {name} (PID: {proc.pid})...")
+                msgs.append(f"Terminating {name} (PID: {proc.pid})...")
                 try:
-                    if sys.platform != "win32":
-                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                    else:
-                        proc.terminate()
-
-                    proc.wait(timeout=3)
-                    log_messages.append(f"{name} terminated.")
-                except subprocess.TimeoutExpired:
-                    log_messages.append(f"{name} did not terminate gracefully, killing...")
-                    try:
-                        if sys.platform != "win32":
-                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                        else:
-                            proc.kill()
-
-                        proc.wait(timeout=5)
-                        log_messages.append(f"{name} killed.")
-                    except subprocess.TimeoutExpired:
-                        log_messages.append(f"{name} kill timed out, process may be unresponsive (PID: {proc.pid})")
-                    except (ProcessLookupError, PermissionError, OSError):
-                        log_messages.append(f"{name} process already terminated or inaccessible")
-                except (ProcessLookupError, PermissionError, OSError) as e:
-                    log_messages.append(f"Error terminating {name}: {e}")
+                    self._kill_proc(proc, name)
+                    msgs.append(f"{name} terminated.")
                 except Exception as e:
-                    log_messages.append(f"Error terminating {name}: {e}")
+                    msgs.append(f"Error terminating {name}: {e}")
             else:
-                log_messages.append(f"{name} (PID: {proc.pid}) was already terminated.")
-
+                msgs.append(f"{name} (PID: {proc.pid}) was already terminated.")
             if proc_info in self.running_processes:
                 self.running_processes.remove(proc_info)
-
         symlink_dir = "/tmp/selected_bags_symlinks"
         if os.path.exists(symlink_dir):
             try:
                 shutil.rmtree(symlink_dir, ignore_errors=True)
-                log_messages.append(f"Cleaned up symlink dir: {symlink_dir}")
+                msgs.append(f"Cleaned up symlink dir: {symlink_dir}")
             except Exception as e:
-                log_messages.append(f"Error cleaning symlink dir: {e}")
-
-        if not log_messages:
-            log_messages.append("Cleanup attempt complete. No active processes found or all terminated.")
-
-        final_status = self.get_process_status()
-        log_messages.append(
-            f"Final process status: {final_status['running']} running, {final_status['total']} total tracked"
-        )
-
-        return "\n".join(log_messages)
-
-    def list_default_subfolders(self):
-        default_path = os.path.join(self.local_base_path_absolute, "default")
-        if not os.path.isdir(default_path):
-            return []
-        return [
-            os.path.join(default_path, d)
-            for d in os.listdir(default_path)
-            if os.path.isdir(os.path.join(default_path, d))
-        ]
+                msgs.append(f"Error cleaning symlink dir: {e}")
+        if not msgs:
+            msgs.append("Cleanup complete. No active processes found.")
+        final = self.get_process_status()
+        msgs.append(f"Final status: {final['running']} running, {final['total']} total tracked")
+        return "\n".join(msgs)
 
     def list_subfolders_in_path(self, folder_path):
         if not os.path.isdir(folder_path):
@@ -863,6 +652,9 @@ class FoxgloveAppLogic:
         return [
             os.path.join(folder_path, d) for d in os.listdir(folder_path) if os.path.isdir(os.path.join(folder_path, d))
         ]
+
+    def list_default_subfolders(self):
+        return self.list_subfolders_in_path(os.path.join(self.local_base_path_absolute, "default"))
 
     def find_parent_default_folder(self, path):
         if not path:

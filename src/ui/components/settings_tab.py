@@ -92,20 +92,21 @@ class SettingsTab:
         """Reload settings from disc and refresh the in-memory alias."""
         self._manager.settings = self._manager.load()
         self.settings = self._manager.settings
+        if hasattr(self.logic, "set_runtime_settings"):
+            self.logic.set_runtime_settings(self.settings)
         logger.debug("Settings reloaded via SettingsManager")
         return self.settings
 
     def save_settings(self, settings_dict=None) -> tuple:
-        """Save current settings to disc, optionally merging *settings_dict* first.
+        """Save current settings to disc, merging *settings_dict* first if given.
 
         Returns ``(True, None)`` on success or ``(False, error_message)`` on failure.
-        After saving, the logic layer is updated with the new values and the
-        search paths are refreshed.
         """
         success, error = self._manager.save(settings_dict)
         if success:
-            # Keep the alias pointing at the same dict after any mutations
             self.settings = self._manager.settings
+            if hasattr(self.logic, "set_runtime_settings"):
+                self.logic.set_runtime_settings(self.settings)
             self.logic.update_search_paths(self.settings.get("nas_dir"), self.settings.get("backup_nas_dir"))
             logger.debug("Settings persisted successfully")
         else:
@@ -116,6 +117,8 @@ class SettingsTab:
         """Reset all settings to application defaults and persist immediately."""
         self._manager.reset()
         self.settings = self._manager.settings
+        if hasattr(self.logic, "set_runtime_settings"):
+            self.logic.set_runtime_settings(self.settings)
 
     def get_setting(self, key: str):
         """Return the value for *key* from the current settings."""
@@ -191,13 +194,7 @@ class SettingsTab:
             new_value = bool(var.get())
             self.settings[key] = new_value
             logger.debug("Bool setting changed: %s = %s", key, new_value)
-
-            # Save to disk immediately
             self.save_settings(self.settings)
-
-            # Update runtime settings in logic
-            if hasattr(self.logic, "set_runtime_settings"):
-                self.logic.set_runtime_settings(self.settings)
         except Exception as e:
             self.log_message(f"Failed to apply setting '{key}': {e}", is_error=True)
             logger.exception("Failed to apply setting '%s'", key)
@@ -265,5 +262,4 @@ class SettingsTab:
         self.log_message("Settings reset to defaults.")
 
     def get_entry_widgets(self):
-        # Return only entry widgets (not checkbuttons)
         return tuple(self.entries[config["key"]] for config in self.settings_config if config["widget"] == "entry")

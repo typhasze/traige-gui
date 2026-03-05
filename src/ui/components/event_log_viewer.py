@@ -37,10 +37,6 @@ from ...utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# ---------------------------------------------------------------------------
-# Timestamp parsing — module-level so other modules can import them
-# ---------------------------------------------------------------------------
-
 #: Timestamp format strings tried in order during parsing.
 TIMESTAMP_FORMATS: List[str] = [
     "%Y-%m-%d %H:%M:%S",  # 2025-09-19 10:50:50
@@ -57,18 +53,8 @@ TIMESTAMP_FORMATS: List[str] = [
 def normalize_timestamp_str(timestamp_str: str) -> str:
     """Pre-process a raw timestamp string before format-matching.
 
-    Handles two common edge-cases:
-
-    1. MCAP filename prefixes such as ``PSA8411_2025-12-16-08-55-17_0``
-       — the middle ``_``-separated part is extracted.
-    2. Three-part strings such as ``2025-09-19 10:50:50 430`` (trailing
-       millisecond token) — the trailing token is discarded.
-
-    Args:
-        timestamp_str: The raw string to normalise.
-
-    Returns:
-        A cleaned string ready for :func:`parse_timestamp`.
+    Handles MCAP filename prefixes (``PSA8411_2025-12-16-08-55-17_0`` → middle
+    part extracted) and trailing millisecond tokens (``2025-09-19 10:50:50 430``).
     """
     # Handle MCAP filename format: PREFIX_TIMESTAMP_SUFFIX
     if "_" in timestamp_str and timestamp_str.count("_") >= 2:
@@ -90,18 +76,10 @@ def parse_timestamp(
     timestamp_str: str,
     log_fn: Optional[Callable[..., None]] = None,
 ) -> Optional[datetime]:
-    """Parse *timestamp_str* to a :class:`~datetime.datetime` object.
+    """Parse *timestamp_str* → :class:`~datetime.datetime`, or ``None`` on failure.
 
-    Tries the formats listed in :data:`TIMESTAMP_FORMATS` after normalising
-    the raw string with :func:`normalize_timestamp_str`.  Returns ``None`` on
-    failure; errors are forwarded to *log_fn* when supplied.
-
-    Args:
-        timestamp_str: Raw timestamp string from an event log or filename.
-        log_fn:        Optional ``log_message(msg, *, is_error=False)`` callable.
-
-    Returns:
-        Parsed :class:`~datetime.datetime` or ``None``.
+    Tries :data:`TIMESTAMP_FORMATS` after normalising with
+    :func:`normalize_timestamp_str`. Errors are forwarded to *log_fn* when supplied.
     """
     try:
         if not isinstance(timestamp_str, str):
@@ -133,20 +111,9 @@ def parse_timestamp(
         return None
 
 
-# ---------------------------------------------------------------------------
 # Event log data loading — module-level utility functions
-# ---------------------------------------------------------------------------
-
-
 def preprocess_event_log_lines(raw_lines: List[str]) -> List[str]:
-    """Strip blank lines and the header row from raw file lines.
-
-    Args:
-        raw_lines: Lines as returned by ``file.readlines()``.
-
-    Returns:
-        A list of stripped, non-empty, non-header lines ready for parsing.
-    """
+    """Strip blank lines and the header row; return lines ready for parsing."""
     result: List[str] = []
     for line in raw_lines:
         stripped = line.rstrip("\n")
@@ -162,19 +129,9 @@ def parse_event_rows(
     data_lines: List[str],
     tree: ttk.Treeview,
 ) -> List[Tuple[str, ...]]:
-    """Parse tab-delimited event rows (with multi-line continuation support).
+    """Parse tab-delimited event rows (with multi-line continuation) into *tree*.
 
-    Inserts each completed row into *tree* and returns all parsed events as
-    a list of 5-element tuples.  UI updates are batched every 100 rows to
-    keep the interface responsive.
-
-    Args:
-        data_lines: Pre-processed lines from :func:`preprocess_event_log_lines`.
-        tree:       The ``ttk.Treeview`` that receives the parsed rows.
-
-    Returns:
-        A list of ``(current_time, timestamp, txt_manual, criticality, ui_mode)``
-        tuples.
+    UI updates are batched every 100 rows. Returns all events as 5-element tuples.
     """
     all_events: List[Tuple[str, ...]] = []
     current_parts: Optional[List[str]] = None
@@ -231,19 +188,7 @@ def load_events(
     tree: ttk.Treeview,
     log_fn: Optional[Callable[..., None]] = None,
 ) -> List[Tuple[str, ...]]:
-    """Parse and load event log data into *tree*.
-
-    Large files (>10 MB) emit a warning.  Delegates to
-    :func:`preprocess_event_log_lines` and :func:`parse_event_rows`.
-
-    Args:
-        file_path: Absolute path to the ``event_log_*.txt`` file.
-        tree:      The ``ttk.Treeview`` to populate.
-        log_fn:    Optional ``log_message(msg, *, is_error=False) -> None`` callable.
-
-    Returns:
-        A list of parsed event tuples.
-    """
+    """Parse and load *file_path* into *tree*. Large files (>10 MB) emit a warning."""
     all_events: List[Tuple[str, ...]] = []
 
     # Warn for large files
@@ -274,30 +219,12 @@ def load_events(
     return all_events
 
 
-# ---------------------------------------------------------------------------
 # EventLogViewer — self-contained viewer widget
-# ---------------------------------------------------------------------------
-
-
 class EventLogViewer:
-    """Self-contained event log viewer that can be embedded in a window or tab.
+    """Self-contained event log viewer embeddable in a window or notebook tab.
 
-    All viewer state (treeview, search var, events list) is owned by this
-    instance.  Interaction with the rest of the application (playback,
-    navigation, logging) is performed exclusively through the callbacks
-    passed at construction time.
-
-    Args:
-        parent:              Parent Tk widget (window, Toplevel, or tab frame).
-        file_path:           Path to the ``event_log_*.txt`` file.
-        viewer_id:           Unique integer identifier for this viewer instance.
-        on_close:            Callback invoked when the viewer is closed.
-        is_tab:              ``True`` when embedded in a notebook tab.
-        log_message:         ``log_message(msg, *, is_error=False) -> None`` callable.
-        play_video_cb:       ``play_video(timestamp_str) -> None``; optional.
-        play_bazel_cb:       ``play_bazel(timestamp_str) -> None``; optional.
-        play_bazel_start_cb: ``play_bazel_from_start(timestamp_str) -> None``; optional.
-        navigate_mcap_cb:    ``navigate_to_mcap(timestamp_str) -> None``; optional.
+    All state (treeview, search var, events list) is owned by this instance.
+    Interaction with the application is via callbacks passed at construction.
     """
 
     def __init__(
@@ -330,10 +257,7 @@ class EventLogViewer:
         self._search_var: Optional[tk.StringVar] = None
         self._all_events: List[Tuple[str, ...]] = []
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
-
     def build_ui(self) -> None:
         """Construct and pack all viewer widgets into :attr:`parent`."""
         main_frame = ttk.Frame(self.parent, padding="10")
@@ -379,10 +303,7 @@ class EventLogViewer:
         if self._search_var is not None:
             self._search_var.set(search_text)
 
-    # ------------------------------------------------------------------
     # Private UI builders
-    # ------------------------------------------------------------------
-
     def _create_search_frame(
         self,
         parent: tk.Widget,
@@ -574,7 +495,6 @@ class EventLogViewer:
             state = "normal" if sel else "disabled"
             for btn in buttons.values():
                 btn.config(state=state)
-            # Video button is only enabled when a row is selected
             if not sel:
                 buttons["play_video"].config(state="disabled")
 
