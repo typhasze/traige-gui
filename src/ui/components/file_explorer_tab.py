@@ -1,6 +1,7 @@
 import glob
 import os
 import re
+import threading
 import time
 import tkinter as tk
 from datetime import datetime, timedelta
@@ -60,6 +61,9 @@ class FileExplorerTab:
         # Cache for MCAP file search to avoid repeated os.walk (performance optimization)
         self._mcap_cache = {}  # {rosbags_dir: (timestamp, mcap_files_list)}
         self._mcap_cache_ttl = 60  # Cache for 60 seconds
+
+        # Debounce timer id for search-triggered refreshes
+        self._search_debounce_id: Optional[str] = None
 
         # Handle clicks on notebook tabs (✕ to close event-log tabs)
         self.notebook.bind("<Button-1>", self._on_notebook_tab_click, add="+")
@@ -165,81 +169,92 @@ class FileExplorerTab:
         return btn
 
     def on_explorer_search(self, *args):
+        if self._search_debounce_id:
+            self.root.after_cancel(self._search_debounce_id)
+        self._search_debounce_id = self.root.after(150, self._do_search_refresh)
+
+    def _do_search_refresh(self):
+        self._search_debounce_id = None
         self.refresh_explorer()
 
-    def refresh_explorer(self, event: Optional[Any] = None) -> None:
+    def refresh_explorer(self, event: Optional[Any] = None, on_done: Optional[Callable] = None) -> None:
+        """Refresh the file explorer. Directory scan runs in a background thread.
+
+        *on_done* is called on the main thread after the listbox is populated.
         """
-        Refresh the file explorer with optimized batch operations.
-        Shows busy cursor during operation.
-        """
-        # Show busy cursor
-        original_cursor = self.root.cget("cursor")
+        # Cancel any search debounce that might trigger a second refresh
+        if self._search_debounce_id:
+            self.root.after_cancel(self._search_debounce_id)
+            self._search_debounce_id = None
+
         self.root.config(cursor="watch")
-        self.root.update_idletasks()
 
+        # Clear listbox immediately on the main thread
+        self.explorer_listbox.delete(0, tk.END)
+        self.explorer_files_list.clear()
+        self.explorer_listbox.selection_clear(0, tk.END)
+
+        current_path = self.current_explorer_path
+        search_text = self.explorer_search_var.get().strip()
+
+        if not os.path.isdir(current_path):
+            self.log_message(f"Invalid directory: {current_path}", is_error=True)
+            self.root.config(cursor="")
+            return
+
+        self.explorer_path_var.set(current_path)
+
+        def scan():
+            try:
+                dirs, files = self.file_explorer_logic.list_directory(current_path)
+                if search_text:
+                    sl = search_text.lower()
+                    dirs = [d for d in dirs if sl in d.lower()]
+                    files = [f for f in files if sl in f.lower()]
+                batch_items = [(f"📁 {d}", d) for d in dirs] + [
+                    (f"{get_file_icon(os.path.join(current_path, f))} {f}", f) for f in files
+                ]
+                self.root.after(0, lambda: self._apply_refresh_results(batch_items, current_path, on_done))
+            except Exception as e:
+                self.root.after(
+                    0,
+                    lambda err=e: (
+                        self.log_message(f"Error refreshing explorer: {err}", is_error=True),
+                        self.root.config(cursor=""),
+                    ),
+                )
+
+        threading.Thread(target=scan, daemon=True).start()
+
+    def _apply_refresh_results(
+        self,
+        batch_items: list,
+        scanned_path: str,
+        on_done: Optional[Callable] = None,
+    ) -> None:
+        """Apply background scan results to the listbox (runs on main thread)."""
+        # Discard stale results if the user navigated away while scanning
+        if scanned_path != self.current_explorer_path:
+            self.root.config(cursor="")
+            return
         try:
-            # Store current state for comparison
-            current_path = self.current_explorer_path
-            search_text = self.explorer_search_var.get().strip()
+            if batch_items:
+                display_texts = [item[0] for item in batch_items]
+                self.explorer_listbox.insert(tk.END, *display_texts)
+                self.explorer_files_list.extend(item[1] for item in batch_items)
 
-            # Clear previous content efficiently
-            self.explorer_listbox.delete(0, tk.END)
-            self.explorer_files_list.clear()
-
-            # Clear selection state to ensure proper button state management
-            self.explorer_listbox.selection_clear(0, tk.END)
-
-            if not os.path.isdir(current_path):
-                self.log_message(f"Invalid directory: {current_path}", is_error=True)
-                return
-
-            # Update path display
-            self.explorer_path_var.set(current_path)
-
-            # Get directory contents efficiently
-            dirs, files = self.file_explorer_logic.list_directory(current_path)
-
-            # Apply search filter if present
-            if search_text:
-                search_lower = search_text.lower()
-                dirs = [d for d in dirs if search_lower in d.lower()]
-                files = [f for f in files if search_lower in f.lower()]
-
-            # Prepare batch items for insertion
-            batch_items = []
-
-            # Add directories first with folder icon (no stat needed)
-            for d in dirs:
-                batch_items.append((f"📁 {d}", d))
-
-            # Add files with lazy icon loading (get icon but skip slow stat operations)
-            for f in files:
-                item_path = os.path.join(current_path, f)
-                # Only get icon based on extension, skip stat() for now
-                icon = get_file_icon(item_path)
-                batch_items.append((f"{icon} {f}", f))
-
-            # Batch insert all items efficiently
-            for display_text, original_name in batch_items:
-                self.explorer_listbox.insert(tk.END, display_text)
-                self.explorer_files_list.append(original_name)
-
-            # Apply lime green highlight to event log files
-            for idx, original_name in enumerate(self.explorer_files_list):
-                name_lower = original_name.lower()
-                if name_lower.startswith("event_log_") and name_lower.endswith(".txt"):
+            for idx, (_, name) in enumerate(batch_items):
+                nl = name.lower()
+                if nl.startswith("event_log_") and nl.endswith(".txt"):
                     self.explorer_listbox.itemconfig(idx, {"bg": "#90EE90"})
 
-            # Update button states after refreshing content
             self.on_explorer_select(suppress_log=True)
-
-        except PermissionError:
-            self.log_message(f"Permission denied: {self.current_explorer_path}", is_error=True)
         except Exception as e:
             self.log_message(f"Error refreshing explorer: {e}", is_error=True)
         finally:
-            # Always restore cursor
-            self.root.config(cursor=original_cursor)
+            self.root.config(cursor="")
+            if on_done:
+                on_done()
 
     def get_selected_explorer_mcap_paths(self):
         selection = self.explorer_listbox.curselection()
@@ -273,10 +288,7 @@ class FileExplorerTab:
             # Remember the directory we're coming from to highlight it
             current_dir_name = os.path.basename(self.current_explorer_path)
             self.current_explorer_path = previous_path
-            self.refresh_explorer()
-
-            # Highlight the directory we came from
-            self.highlight_directory_in_explorer(current_dir_name)
+            self.refresh_explorer(on_done=lambda n=current_dir_name: self.highlight_directory_in_explorer(n))
 
     def _add_to_history(self, path):
         """Adds a path to the navigation history if it's not already the last one."""
@@ -300,10 +312,7 @@ class FileExplorerTab:
         current_dir_name = os.path.basename(current)
         self._add_to_history(self.current_explorer_path)
         self.current_explorer_path = parent_dir
-        self.refresh_explorer()
-
-        # Highlight the directory we came from
-        self.highlight_directory_in_explorer(current_dir_name)
+        self.refresh_explorer(on_done=lambda n=current_dir_name: self.highlight_directory_in_explorer(n))
 
     def go_home_directory(self) -> None:
         """Navigate to the home directory, adding the current path to history if it's different."""
@@ -380,8 +389,8 @@ class FileExplorerTab:
                 if os.path.isdir(item_path):
                     self._add_to_history(self.current_explorer_path)
                     self.current_explorer_path = item_path
-                    self.refresh_explorer()
                     self.clear_explorer_search()
+                    self.refresh_explorer()
                     # Auto-open event log if enabled
                     self._auto_open_event_log_if_enabled()
                 else:
@@ -394,8 +403,8 @@ class FileExplorerTab:
         self.explorer_navigate_selected()
 
     def on_explorer_backspace_key(self, event):
-        self.go_up_directory()
         self.clear_explorer_search()
+        self.go_up_directory()
 
     def open_selected_file(self):
         selection = self.explorer_listbox.curselection()
@@ -408,8 +417,8 @@ class FileExplorerTab:
                     if os.path.isdir(item_path):
                         self._add_to_history(self.current_explorer_path)
                         self.current_explorer_path = item_path
-                        self.refresh_explorer()
                         self.clear_explorer_search()
+                        self.refresh_explorer()
                         self._auto_open_event_log_if_enabled()
                     elif os.path.isfile(item_path):
                         self.open_file(item_path)
@@ -655,54 +664,67 @@ class FileExplorerTab:
             return None
 
     def _auto_open_event_log_if_enabled(self) -> bool:
-        """Auto-open event log for TG folders if the setting is enabled."""
+        """Auto-open event log for TG folders if the setting is enabled.
+
+        Directory scanning runs in a background thread; all UI changes are
+        dispatched back to the main thread via ``root.after``.
+        """
         try:
-            # Check if the setting is enabled
             settings = self._get_runtime_settings()
             if not settings.get("auto_open_event_log_for_tg", False):
                 return False
 
             current_folder_name = os.path.basename(self.current_explorer_path)
+            current_path = self.current_explorer_path
 
-            # Case 1: We're in a TG-XXXX folder
+            def _navigate_and_open(event_log_file: str) -> None:
+                """Main-thread: navigate to the logs dir and open the viewer."""
+                logs_path = os.path.dirname(event_log_file)
+                self._add_to_history(self.current_explorer_path)
+                self.current_explorer_path = logs_path
+                self.refresh_explorer(on_done=lambda: self.open_event_log_viewer(event_log_file))
+
             if self._is_tg_folder(current_folder_name):
-                vehicle_folders = self._get_vehicle_folders(self.current_explorer_path)
 
-                # If there's only one vehicle folder, auto-navigate to it and open event log
-                if len(vehicle_folders) == 1:
-                    vehicle_path = os.path.join(self.current_explorer_path, vehicle_folders[0])
+                def _scan_tg() -> None:
+                    vehicle_folders = self._get_vehicle_folders(current_path)
+                    if len(vehicle_folders) != 1:
+                        return
+                    vehicle_path = os.path.join(current_path, vehicle_folders[0])
                     event_log_file = self._find_event_log_file(vehicle_path)
+                    if not event_log_file:
+                        return
+                    folder = vehicle_folders[0]
+                    self.root.after(
+                        0,
+                        lambda f=folder, lf=event_log_file: (
+                            self.log_message(f"Auto-opening event log for {f}..."),
+                            _navigate_and_open(lf),
+                        ),
+                    )
 
-                    if event_log_file:
-                        self.log_message(f"Auto-opening event log for {vehicle_folders[0]}...")
-                        # Navigate to the logs directory
-                        logs_path = os.path.dirname(event_log_file)
-                        self._add_to_history(self.current_explorer_path)
-                        self.current_explorer_path = logs_path
-                        self.refresh_explorer()
-                        # Open the event log file after a short delay to ensure UI is updated
-                        self.root.after(100, lambda: self.open_event_log_viewer(event_log_file))
-                        return True
+                threading.Thread(target=_scan_tg, daemon=True).start()
+                return True
 
-            # Case 2: We're in a vehicle folder (PSAXXXX) inside a TG-XXXX folder
             elif self._is_vehicle_folder(current_folder_name):
-                parent_path = os.path.dirname(self.current_explorer_path)
-                parent_folder_name = os.path.basename(parent_path)
+                parent_path = os.path.dirname(current_path)
+                if not self._is_tg_folder(os.path.basename(parent_path)):
+                    return False
 
-                # Check if parent is a TG folder
-                if self._is_tg_folder(parent_folder_name):
-                    event_log_file = self._find_event_log_file(self.current_explorer_path)
+                def _scan_vehicle() -> None:
+                    event_log_file = self._find_event_log_file(current_path)
+                    if not event_log_file:
+                        return
+                    self.root.after(
+                        0,
+                        lambda lf=event_log_file: (
+                            self.log_message(f"Auto-opening event log for {current_folder_name}..."),
+                            _navigate_and_open(lf),
+                        ),
+                    )
 
-                    if event_log_file:
-                        self.log_message(f"Auto-opening event log for {current_folder_name}...")
-                        # Navigate to the logs directory
-                        logs_path = os.path.dirname(event_log_file)
-                        self._add_to_history(self.current_explorer_path)
-                        self.current_explorer_path = logs_path
-                        self.refresh_explorer()
-                        # Open the event log file after a short delay to ensure UI is updated
-                        self.root.after(100, lambda: self.open_event_log_viewer(event_log_file))
-                        return True
+                threading.Thread(target=_scan_vehicle, daemon=True).start()
+                return True
 
             return False
         except Exception as e:
@@ -733,7 +755,6 @@ class FileExplorerTab:
 
     def clear_explorer_search(self, event=None):
         self.explorer_search_var.set("")
-        self.refresh_explorer()
         self.explorer_listbox.focus_set()  # Move focus to the listbox
         return "break"
 
@@ -817,7 +838,7 @@ class FileExplorerTab:
         self.refresh_explorer()
         # Highlight the file if present - delay to ensure listbox is fully populated
         if mcap_filename:
-            self.explorer_listbox.after(150, lambda: self.highlight_file_in_explorer(mcap_filename))
+            self.explorer_listbox.after(300, lambda: self.highlight_file_in_explorer(mcap_filename))
 
     def clear_link_and_list(self):
         self.link_var.set("")
@@ -888,35 +909,35 @@ class FileExplorerTab:
 
     def play_video_at_timestamp(self, event_log_path: str, timestamp_str: str, viewer_id: Optional[int] = None) -> None:
         """Play video at the specified timestamp using mpv."""
-        try:
-            # Parse the timestamp from the event log
-            event_time = parse_timestamp(timestamp_str, log_fn=self.log_message)
-            if not event_time:
-                self.log_message(f"Could not parse timestamp: {timestamp_str}", is_error=True)
-                return
 
-            # Find the corresponding video file and calculate offset
-            video_file, start_offset = self.find_video_for_timestamp(event_log_path, event_time)
-            if not video_file:
-                self.log_message("No matching video file found", is_error=True)
-                return
+        def task():
+            try:
+                event_time = parse_timestamp(timestamp_str, log_fn=self.log_message)
+                if not event_time:
+                    self.log_message(f"Could not parse timestamp: {timestamp_str}", is_error=True)
+                    return
 
-            # Launch mpv with the calculated start time
-            self.log_message(f"Playing video: {os.path.basename(video_file)} at {start_offset}s")
+                video_file, start_offset = self.find_video_for_timestamp(event_log_path, event_time)
+                if not video_file:
+                    self.log_message("No matching video file found", is_error=True)
+                    return
 
-            settings = self._get_runtime_settings()
-            message, error, proc_id = self.logic.launch_mpv_video(video_file, start_offset, settings)
+                settings = self._get_runtime_settings()
 
-            # Track the process for this viewer
-            self._track_viewer_process(viewer_id, proc_id)
+                def launch():
+                    self.log_message(f"Playing video: {os.path.basename(video_file)} at {start_offset}s")
+                    message, error, proc_id = self.logic.launch_mpv_video(video_file, start_offset, settings)
+                    self._track_viewer_process(viewer_id, proc_id)
+                    if message:
+                        self.log_message(message)
+                    if error:
+                        self.log_message(error, is_error=True)
 
-            if message:
-                self.log_message(message)
-            if error:
-                self.log_message(error, is_error=True)
+                self.root.after(0, launch)
+            except Exception as e:
+                self.root.after(0, lambda err=e: self.log_message(f"Error playing video: {err}", is_error=True))
 
-        except Exception as e:
-            self.log_message(f"Error playing video: {e}", is_error=True)
+        threading.Thread(target=task, daemon=True).start()
 
     def _get_runtime_settings(self) -> Dict[str, Any]:
         return getattr(self.logic, "settings", None) or DEFAULT_SETTINGS.copy()
@@ -1195,66 +1216,84 @@ class FileExplorerTab:
 
     def play_bazel_at_timestamp(self, event_log_path: str, timestamp_str: str, viewer_id: Optional[int] = None) -> None:
         """Play rosbag at the specified timestamp using Bazel Bag GUI (30s pre-buffer)."""
-        try:
-            event_time = parse_timestamp(timestamp_str, log_fn=self.log_message)
-            if not event_time:
-                self.log_message(f"Could not parse timestamp: {timestamp_str}", is_error=True)
-                return
 
-            mcap_files, start_offset = self.find_mcap_with_buffer(event_log_path, event_time, buffer_seconds=30)
-            if not mcap_files:
-                self.log_message("No matching MCAP file found", is_error=True)
-                return
+        def task():
+            try:
+                event_time = parse_timestamp(timestamp_str, log_fn=self.log_message)
+                if not event_time:
+                    self.log_message(f"Could not parse timestamp: {timestamp_str}", is_error=True)
+                    return
 
-            settings = self._get_runtime_settings()
+                mcap_files, start_offset = self.find_mcap_with_buffer(event_log_path, event_time, buffer_seconds=30)
+                if not mcap_files:
+                    self.log_message("No matching MCAP file found", is_error=True)
+                    return
 
-            if len(mcap_files) > 1:
-                self.log_message(f"Launching Bazel Bag GUI with combined MCAPs at offset {int(start_offset)}s...")
-                message, error, symlink_dir, proc_id = self.logic.play_bazel_bag_gui_with_symlinks(
-                    mcap_files, settings, start_time=start_offset
+                settings = self._get_runtime_settings()
+
+                def launch():
+                    if len(mcap_files) > 1:
+                        self.log_message(
+                            f"Launching Bazel Bag GUI with combined MCAPs at offset {int(start_offset)}s..."
+                        )
+                        message, error, symlink_dir, proc_id = self.logic.play_bazel_bag_gui_with_symlinks(
+                            mcap_files, settings, start_time=start_offset
+                        )
+                    else:
+                        self.log_message(
+                            f"Launching Bazel Bag GUI with "
+                            f"{os.path.basename(mcap_files[0])} at offset {int(start_offset)}s..."
+                        )
+                        message, error, proc_id = self.logic.launch_bazel_bag_gui(
+                            mcap_files[0], settings, start_time=start_offset
+                        )
+                    self._track_viewer_process(viewer_id, proc_id)
+                    if message:
+                        self.log_message(message)
+                    if error:
+                        self.log_message(error, is_error=True)
+
+                self.root.after(0, launch)
+            except Exception as e:
+                self.root.after(
+                    0, lambda err=e: self.log_message(f"Error playing bazel at timestamp: {err}", is_error=True)
                 )
-            else:
-                self.log_message(
-                    f"Launching Bazel Bag GUI with {os.path.basename(mcap_files[0])} at offset {int(start_offset)}s..."
-                )
-                message, error, proc_id = self.logic.launch_bazel_bag_gui(
-                    mcap_files[0], settings, start_time=start_offset
-                )
 
-            self._track_viewer_process(viewer_id, proc_id)
-            if message:
-                self.log_message(message)
-            if error:
-                self.log_message(error, is_error=True)
-
-        except Exception as e:
-            self.log_message(f"Error playing bazel at timestamp: {e}", is_error=True)
+        threading.Thread(target=task, daemon=True).start()
 
     def play_bazel_from_start(self, event_log_path: str, timestamp_str: str, viewer_id: Optional[int] = None) -> None:
         """Play rosbag from the beginning using the timestamp to identify the correct file."""
-        try:
-            event_time = parse_timestamp(timestamp_str, log_fn=self.log_message)
-            if not event_time:
-                self.log_message(f"Could not parse timestamp: {timestamp_str}", is_error=True)
-                return
 
-            mcap_file, _ = self.find_mcap_for_timestamp(event_log_path, event_time)
-            if not mcap_file:
-                self.log_message("No matching MCAP file found", is_error=True)
-                return
+        def task():
+            try:
+                event_time = parse_timestamp(timestamp_str, log_fn=self.log_message)
+                if not event_time:
+                    self.log_message(f"Could not parse timestamp: {timestamp_str}", is_error=True)
+                    return
 
-            settings = self._get_runtime_settings()
-            self.log_message(f"Launching Bazel Bag GUI with {os.path.basename(mcap_file)} from start...")
-            message, error, proc_id = self.logic.launch_bazel_bag_gui(mcap_file, settings, start_time=None)
+                mcap_file, _ = self.find_mcap_for_timestamp(event_log_path, event_time)
+                if not mcap_file:
+                    self.log_message("No matching MCAP file found", is_error=True)
+                    return
 
-            self._track_viewer_process(viewer_id, proc_id)
-            if message:
-                self.log_message(message)
-            if error:
-                self.log_message(error, is_error=True)
+                settings = self._get_runtime_settings()
 
-        except Exception as e:
-            self.log_message(f"Error playing bazel from start: {e}", is_error=True)
+                def launch():
+                    self.log_message(f"Launching Bazel Bag GUI with {os.path.basename(mcap_file)} from start...")
+                    message, error, proc_id = self.logic.launch_bazel_bag_gui(mcap_file, settings, start_time=None)
+                    self._track_viewer_process(viewer_id, proc_id)
+                    if message:
+                        self.log_message(message)
+                    if error:
+                        self.log_message(error, is_error=True)
+
+                self.root.after(0, launch)
+            except Exception as e:
+                self.root.after(
+                    0, lambda err=e: self.log_message(f"Error playing bazel from start: {err}", is_error=True)
+                )
+
+        threading.Thread(target=task, daemon=True).start()
 
     def navigate_to_mcap_from_timestamp(self, event_log_path: str, timestamp_str: str) -> None:
         """Navigate to the MCAP file in the file explorer based on the timestamp."""
@@ -1285,16 +1324,14 @@ class FileExplorerTab:
             # Add to history
             self._add_to_history(mcap_dir)
 
-            # Refresh the explorer
-            self.refresh_explorer()
+            # Refresh and then highlight/select when done
+            def _on_nav_done():
+                self._select_file_in_listbox(mcap_filename)
+                self.highlight_file_in_explorer(mcap_filename)
+                if self.focus_file_explorer_tab:
+                    self.focus_file_explorer_tab()
 
-            # Select and highlight the MCAP file in the listbox
-            self.explorer_listbox.after(100, lambda: self._select_file_in_listbox(mcap_filename))
-            self.explorer_listbox.after(150, lambda: self.highlight_file_in_explorer(mcap_filename))
-
-            # Switch to file explorer tab
-            if self.focus_file_explorer_tab:
-                self.explorer_listbox.after(200, self.focus_file_explorer_tab)
+            self.refresh_explorer(on_done=_on_nav_done)
 
             self.log_message(f"Navigated to MCAP: {mcap_filename} (offset: ~{start_offset:.1f}s)")
 

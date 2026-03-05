@@ -28,6 +28,7 @@ Typical usage::
 from __future__ import annotations
 
 import os
+import threading
 import tkinter as tk
 from datetime import date, datetime
 from tkinter import ttk
@@ -183,12 +184,60 @@ def parse_event_rows(
     return all_events
 
 
+def _parse_event_file(file_path: str) -> List[Tuple[str, ...]]:
+    """Parse *file_path* into event rows without touching any Tkinter widget.
+
+    Safe to call from a background thread.  Returns a list of 5-element tuples.
+    """
+    all_events: List[Tuple[str, ...]] = []
+    current_parts: Optional[List[str]] = None
+
+    with open(file_path, "r", encoding="utf-8") as fh:
+        raw_lines = fh.readlines()
+
+    for line in preprocess_event_log_lines(raw_lines):
+        try:
+            parts = [p.strip() for p in line.split("\t")]
+            if current_parts is None:
+                if len(parts) >= 5:
+                    all_events.append(tuple(parts[:5]))
+                elif parts and (line.startswith("\t") or parts[0] == ""):
+                    pass
+                else:
+                    current_parts = parts
+            else:
+                if line.startswith("\t") or (parts and parts[0] == ""):
+                    if parts and parts[0] == "":
+                        parts = parts[1:]
+                    current_parts.extend(parts)
+                else:
+                    if len(current_parts) >= 3 and parts:
+                        current_parts[2] = (current_parts[2] + " " + parts[0]).strip()
+                        if len(parts) > 1:
+                            current_parts.extend(parts[1:])
+                    else:
+                        current_parts.extend(parts)
+
+                if len(current_parts) >= 5:
+                    all_events.append(tuple(current_parts[:5]))
+                    current_parts = None
+        except Exception:  # nosec B110
+            pass
+
+    return all_events
+
+
 def load_events(
     file_path: str,
     tree: ttk.Treeview,
     log_fn: Optional[Callable[..., None]] = None,
 ) -> List[Tuple[str, ...]]:
-    """Parse and load *file_path* into *tree*. Large files (>10 MB) emit a warning."""
+    """Parse and load *file_path* into *tree*. Large files (>10 MB) emit a warning.
+
+    .. deprecated::
+        Prefer the async path in :meth:`EventLogViewer.build_ui` which calls
+        :func:`_parse_event_file` from a background thread.
+    """
     all_events: List[Tuple[str, ...]] = []
 
     # Warn for large files
@@ -259,7 +308,11 @@ class EventLogViewer:
 
     # Public API
     def build_ui(self) -> None:
-        """Construct and pack all viewer widgets into :attr:`parent`."""
+        """Construct and pack all viewer widgets into :attr:`parent`.
+
+        All file I/O and parsing run in a background thread so the UI stays
+        responsive.  A "⏳ Loading…" placeholder is shown until events arrive.
+        """
         main_frame = ttk.Frame(self.parent, padding="10")
         main_frame.pack(fill="both", expand=True)
 
@@ -274,25 +327,63 @@ class EventLogViewer:
         _sf, search_var, search_entry, filter_result_label = self._create_search_frame(main_frame)
         self._search_var = search_var
 
-        # Event treeview
+        # Event treeview (empty — data loads in background)
         tree = self._create_event_tree(main_frame)
         self._tree = tree
 
-        # Load data
-        self._all_events = load_events(self.file_path, tree, log_fn=self._log_message)
+        # Placeholder so users see something immediately
+        loading_id = tree.insert("", "end", values=("⏳ Loading events…", "", "", "", ""))
 
         # Action buttons + status label
         _bf, buttons, functions, status_label = self._create_action_buttons(main_frame, tree)
 
-        # Wire up interactions
+        # Wire up interactions immediately — no data dependency
         self._setup_event_handlers(tree, buttons)
         update_status = self._setup_filtering(tree, search_var, filter_result_label, status_label)
 
-        # Defer status update so all events are rendered first
-        self.parent.after(100, update_status)
-
         # Keyboard shortcuts
         self._bind_keyboard_shortcuts(main_frame, search_entry, functions)
+
+        # Warn for large files (fast stat, still on main thread)
+        try:
+            file_size = os.path.getsize(self.file_path)
+            if file_size > 10 * 1024 * 1024 and self._log_message:
+                self._log_message(
+                    f"⚠️ Large event log file ({file_size // (1024 * 1024)} MB) — loading may take a moment...",
+                    is_error=False,
+                )
+        except Exception:  # nosec B110
+            pass
+
+        file_path = self.file_path
+
+        def _apply(events: List[Tuple[str, ...]]) -> None:
+            """Populate treeview on the main thread once parsing is done."""
+            try:
+                tree.delete(loading_id)
+            except Exception:  # nosec B110
+                pass
+            for row in events:
+                tree.insert("", "end", values=row)
+            # Extend the existing list so _setup_filtering's captured reference sees data
+            self._all_events.extend(events)
+            logger.debug("Loaded %d events from %s", len(events), file_path)
+            update_status()
+
+        def _load() -> None:
+            try:
+                events = _parse_event_file(file_path)
+            except Exception as exc:
+                logger.exception("Error reading event log file: %s", file_path)
+                if self._log_message:
+                    self.parent.after(
+                        0,
+                        lambda e=exc: self._log_message(f"Error reading event log file: {e}", is_error=True),
+                    )
+                return
+            self.parent.after(0, lambda: _apply(events))
+
+        threading.Thread(target=_load, daemon=True).start()
 
     def load_events_list(self) -> List[Tuple[str, ...]]:
         """Return the full list of parsed events (empty before :meth:`build_ui`)."""
