@@ -599,30 +599,28 @@ class FileExplorerTab:
 
     def _cleanup_viewer_tab(self, viewer_id):
         """Cleanup processes and remove a tab-based event log viewer."""
-        if viewer_id in self.event_log_viewer_tabs:
-            viewer_info = self.event_log_viewer_tabs[viewer_id]
+        if viewer_id not in self.event_log_viewer_tabs:
+            return
+        viewer_info = self.event_log_viewer_tabs[viewer_id]
 
-            # Kill any associated processes
-            for proc in viewer_info.get("processes", []):
+        process_ids = viewer_info.get("processes", [])
+        if process_ids:
+            self.log_message(f"Closing {len(process_ids)} process(es) for event log viewer tab...")
+            for proc_id in process_ids:
                 try:
-                    if proc.poll() is None:  # Process is still running
-                        proc.terminate()
-                        proc.wait(timeout=2)
+                    self.logic.terminate_process_by_id(proc_id)
                 except Exception as e:
-                    self.log_message(f"Failed to terminate viewer process cleanly: {e}", is_error=False)
+                    self.log_message(f"Error terminating process: {e}", is_error=True)
 
-            # Remove the tab from the notebook
-            tab_frame = viewer_info["frame"]
-            try:
-                self.notebook.forget(tab_frame)
-                # Select the File Explorer tab (index 0) after closing
-                self.notebook.select(0)
-            except Exception as e:
-                self.log_message(f"Failed to remove event log tab: {e}", is_error=False)
+        tab_frame = viewer_info["frame"]
+        try:
+            self.notebook.forget(tab_frame)
+            self.notebook.select(0)
+        except Exception as e:
+            self.log_message(f"Failed to remove event log tab: {e}", is_error=False)
 
-            # Remove from tracking
-            del self.event_log_viewer_tabs[viewer_id]
-            self.log_message("Closed event log viewer tab")
+        del self.event_log_viewer_tabs[viewer_id]
+        self.log_message("Closed event log viewer tab")
 
     def _is_tg_folder(self, folder_name: str) -> bool:
         return bool(re.match(r"^TG-\d+$", folder_name))
