@@ -131,20 +131,29 @@ traige-gui/
 │   ├── __init__.py
 │   ├── main.py                         # 🚀 Application entry point
 │   ├── gui_manager.py                  # 🎨 Main GUI coordinator
-│   ├── core_logic.py                   # ⚙️  Core application logic
 │   ├── logic/
-│   │   ├── file_explorer_logic.py      # 📂 File operations
+│   │   ├── __init__.py
+│   │   ├── core.py                     # ⚙️  Core application logic
+│   │   ├── file_explorer_logic.py      # 📂 File operations & caching
 │   │   └── symlink_playback_logic.py   # 🔗 Symlink management
 │   ├── ui/
+│   │   ├── __init__.py
+│   │   ├── gui_manager.py              # 🎨 GUI orchestration
 │   │   └── components/
+│   │       ├── __init__.py
 │   │       ├── file_explorer_tab.py    # 🗂️  File browser & event viewer
 │   │       └── settings_tab.py         # ⚙️  Settings interface
 │   └── utils/
-│       └── utils.py                    # 🛠️  Utility functions
+│       ├── __init__.py
+│       ├── constants.py                # 🔧 Centralized constants & defaults
+│       ├── file_operations.py          # 📁 Cross-platform file utilities
+│       ├── utils.py                    # 🛠️  Utility functions
+│       └── __pycache__/
 ├── requirements.txt                     # 📦 Dependencies (none needed!)
-├── .pre-commit-config.yaml             # ✅ Code quality hooks
 ├── pyproject.toml                      # 🔧 Tool configurations
-└── README.md                           # 📖 This file
+├── README.md                           # 📖 This file
+├── architecture_v2.md                  # 📐 System architecture
+└── REFACTORING_SUMMARY.md             # ✅ Code improvement documentation
 ```
 
 | Component      | Required   | Purpose                            |
@@ -153,6 +162,33 @@ traige-gui/
 | Bazel          | ✅ Yes      | Rosbag GUI and build commands      |
 | mpv            | 🔷 Optional | Video playback from event logs     |
 | NAS Connection | ✅ Yes      | Access to rosbag data              |
+
+## 🔧 Recent Code Improvements
+
+### Centralized Constants Module
+A new `src/utils/constants.py` module consolidates all configuration values, default settings, and constants. This provides:
+- **Single source of truth** for all configuration values
+- **Default settings dictionary** (paths, file limits, process parameters)
+- **File icon mappings** for consistent UI display
+- **Performance parameters** (cache sizes, timeouts, monitoring intervals)
+- **Cross-platform compatibility** handling
+
+### Extracted Common File Operations
+New `src/utils/file_operations.py` module provides reusable utilities:
+- `open_file_with_default_app()` - Open files with system default application
+- `open_directory_in_file_manager()` - Open directories in file explorer
+- `open_url_in_browser()` - Open URLs in default browser
+- `safe_file_read()` - Safe file reading with error handling
+- `safe_file_write()` - Atomic file writing operations
+
+Benefits include eliminated code duplication, consistent error handling, and improved cross-platform support.
+
+### Improved Settings Management
+Settings loading and defaults are now centralized, making configuration updates simpler and more maintainable:
+- Centralized defaults in `constants.py`
+- Standardized settings file path constant
+- Simplified loading and reset logic
+- All updates in one location
 
 > **📚 Setup Guides:**
 > - [NAS Setup Guide](https://ventitechnologies.atlassian.net/wiki/spaces/ACH/pages/763953520/Laptop+Set+Up+Guide+for+TE#NAS-SETUP)
@@ -423,7 +459,46 @@ triage_gui
 
 ---
 
-## 🔧 Troubleshooting
+## �️ Development & Architecture
+
+### Modular Design
+The codebase follows a layered architecture with clear separation of concerns:
+
+**Presentation Layer** (`src/ui/`)
+- `gui_manager.py` - Orchestrates all UI components
+- `components/file_explorer_tab.py` - File browser and event log viewer
+- `components/settings_tab.py` - Configuration interface
+
+**Logic Layer** (`src/logic/`)
+- `core.py` - Core business logic and process management
+- `file_explorer_logic.py` - File operations, caching, and directory scanning
+- `symlink_playback_logic.py` - Multi-file playback support
+
+**Utilities** (`src/utils/`)
+- `constants.py` - Centralized configuration and constants
+- `file_operations.py` - Cross-platform file utilities and error handling
+- `utils.py` - Miscellaneous helper functions
+
+### Code Organization
+Recently completed refactorings have improved code maintainability:
+- **Constants consolidation**: All configuration in `src/utils/constants.py`
+- **Shared utilities**: Common file operations extracted to prevent duplication
+- **Settings management**: Centralized defaults and loading logic
+- **Type hints**: Improved IDE support and code clarity
+
+### Future Improvements
+See [REFACTORING_SUMMARY.md](REFACTORING_SUMMARY.md) for detailed roadmap including:
+- ✅ [Complete] Centralize constants module
+- ✅ [Complete] Extract file operations utilities
+- ✅ [Complete] Improve settings management
+- 📋 [Planned] Create Settings Manager class
+- 📋 [Planned] Add comprehensive unit tests
+- 📋 [Planned] Extract event log viewer to separate component
+- 📋 [Planned] Implement structured logging
+
+---
+
+## �🔧 Troubleshooting
 
 <details>
 <summary><b>MCAP files not found</b></summary>
@@ -503,9 +578,29 @@ triage_gui
 
 ---
 
-## 📝 Configuration
+## 📝 Configuration & Constants
 
-Settings are stored in `~/.foxglove_gui_settings.json` and include:
+Settings are stored in `~/.foxglove_gui_settings.json` with defaults defined in `src/utils/constants.py`.
+
+### Application Constants
+All constants are centralized in `src/utils/constants.py` for easy maintenance:
+
+**Path Constants:**
+- `DEFAULT_DATA_PATH` - Primary data directory (~/data)
+- `DEFAULT_BACKUP_PATH` - Backup data directory
+- `DEFAULT_BAZEL_WORKING_DIR` - Bazel workspace location
+- `DEFAULT_LOGGING_DIR` - External LOGGING drive (/media/{username}/LOGGING)
+- `SYMLINK_DIR` - Temporary symlink location for multi-file playback (/tmp/selected_bags_symlinks)
+- `SETTINGS_FILE_PATH` - Settings file location (~/.foxglove_gui_settings.json)
+
+**Performance Parameters:**
+- `PROCESS_MONITOR_INTERVAL` - Health check frequency (10 seconds)
+- `LONG_RUNNING_PROCESS_THRESHOLD` - Alert threshold (2 hours)
+- `PROCESS_SHUTDOWN_TIMEOUT` - Termination timeout (2 seconds)
+- `FILE_INFO_CACHE_SIZE_LIMIT` - Maximum cached file entries (1000)
+
+### Persistent Settings
+Settings are stored in `~/.foxglove_gui_settings.json` with the following structure:
 
 **Bazel Configuration:**
 - `bazel_tools_viz_cmd`: Default "bazel run //tools/viz"
@@ -557,3 +652,10 @@ Settings are stored in `~/.foxglove_gui_settings.json` and include:
 - Permission error detection
 - Empty directory detection (unmounted NAS)
 - Settings validation and defaults
+---
+
+## 📚 Documentation & Resources
+
+- [**Refactoring Summary**](REFACTORING_SUMMARY.md) - Comprehensive guide to recent code improvements, architecture decisions, and future roadmap
+- [**Architecture v2**](architecture_v2.md) - System architecture diagram and component interactions
+- [**README**](README.md) - This file; complete user guide and feature documentation

@@ -6,6 +6,11 @@ import tkinter as tk
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
+from src.utils.logger import setup_logging  # noqa: E402
+
+# Initialise logging before any other import so all modules can log to file
+setup_logging()
+
 from src.ui.gui_manager import FoxgloveAppGUIManager  # noqa: E402
 
 

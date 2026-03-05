@@ -1,4 +1,3 @@
-import json
 import os
 import shutil
 import signal
@@ -9,13 +8,23 @@ from tkinter import ttk
 from ..logic.core import FoxgloveAppLogic
 from ..logic.file_explorer_logic import FileExplorerLogic
 from ..utils.constants import SETTINGS_FILE_PATH
+from ..utils.logger import TkinterLogHandler, get_logger, setup_logging
+from ..utils.settings_manager import SettingsManager
 from .components.file_explorer_tab import FileExplorerTab
 from .components.settings_tab import SettingsTab
+
+logger = get_logger(__name__)
 
 
 class FoxgloveAppGUIManager:
     def __init__(self, root):
         self.root = root
+
+        # ── Logging framework ─────────────────────────────────────────────
+        # Set up file-based logging immediately so all subsequent code can log
+        setup_logging()
+        logger.info("FoxgloveAppGUIManager initialising")
+
         self.logic = FoxgloveAppLogic(log_callback=self.log_message)
         self.file_explorer_logic = FileExplorerLogic()
 
@@ -42,16 +51,13 @@ class FoxgloveAppGUIManager:
 
         self.file_explorer_tab.focus_file_explorer_tab = self.focus_file_explorer_tab
 
-        if os.path.exists(SETTINGS_FILE_PATH):
-            with open(SETTINGS_FILE_PATH, "r") as f:
-                temp_settings = json.load(f)
-        else:
-            temp_settings = {}
-        if not temp_settings.get("nas_dir"):
+        # ── Ensure nas_dir is pre-seeded before SettingsTab reads the file ──
+        _bootstrap = SettingsManager(SETTINGS_FILE_PATH)
+        if not _bootstrap.get("nas_dir"):
             initial_path = self.file_explorer_tab.current_explorer_path
-            temp_settings["nas_dir"] = initial_path
-            with open(SETTINGS_FILE_PATH, "w") as f:
-                json.dump(temp_settings, f, indent=4)
+            _bootstrap.set("nas_dir", initial_path)
+            _bootstrap.save()
+            logger.info("Bootstrapped nas_dir to %s", initial_path)
 
         self.settings_tab = SettingsTab(self.main_notebook, self.logic, self.log_message)
 
@@ -185,26 +191,36 @@ class FoxgloveAppGUIManager:
         log_xscrollbar.pack(side="bottom", fill="x")
         self.log_text.pack(side="left", fill="both", expand=True)
 
+        # ── Attach Tkinter handler so Python logging routes to the GUI widget ──
+        import logging
+
+        self._tk_log_handler = TkinterLogHandler(self.log_text)
+        self._tk_log_handler.setLevel(logging.INFO)
+        logging.getLogger("traige_gui").addHandler(self._tk_log_handler)
+        logger.debug("TkinterLogHandler attached to log widget")
+
     def log_message(self, message, is_error=False, clear_first=False):
-        # Check if log_text widget exists yet (it's created after some tabs are initialized)
-        if not hasattr(self, "log_text"):
-            # Silently ignore logging during early initialization
-            return
+        """Route *message* through Python logging so it reaches both the log file
+        and the in-app GUI widget (via :class:`TkinterLogHandler`).
 
-        self.log_text.config(state=tk.NORMAL)
-        if clear_first:
-            self.log_text.delete("1.0", tk.END)
+        During early initialisation (before ``create_shared_log_frame`` has run)
+        the ``TkinterLogHandler`` is not yet attached, so messages are captured
+        only by the rotating file handler.
 
-        tag = "error" if is_error else "info"
-        prefix = "ERROR: " if is_error else "INFO: "
+        Args:
+            message:    Human-readable log text.
+            is_error:   When ``True`` the record is logged at ERROR level and
+                        displayed in red in the GUI widget.
+            clear_first: When ``True``, clears the widget before this message
+                         (delegated to :meth:`TkinterLogHandler.set_clear_pending`).
+        """
+        if clear_first and hasattr(self, "_tk_log_handler"):
+            self._tk_log_handler.set_clear_pending()
 
-        # Split message by newlines to apply tags correctly if needed
-        for line in message.splitlines():
-            self.log_text.insert(tk.END, f"{prefix}{line}\n", tag)
-
-        self.log_text.see(tk.END)
-        self.log_text.update_idletasks()
-        self.log_text.config(state=tk.DISABLED)
+        if is_error:
+            logger.error("%s", message)
+        else:
+            logger.info("%s", message)
 
     def enable_file_specific_action_buttons(self, open_with_foxglove=True, open_with_bazel=True, copy_path=False):
         states = {

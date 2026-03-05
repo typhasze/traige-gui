@@ -88,86 +88,61 @@
 
 ### High Priority
 
-#### 1. Break Down Long Methods in `file_explorer_tab.py`
+#### 1. ✅ Break Down Long Methods in `file_explorer_tab.py` — **DONE**
 
-**Issue**: The `_build_event_log_viewer_ui()` method is ~286 lines long (lines 531-817).
+**What was done**:
+- `_build_event_log_viewer_ui()` extracted into 6 focused helper methods
+- `load_event_log_data()` extracted into `_preprocess_event_log_lines()` + `_parse_event_rows()`
+- `parse_timestamp()` extracted `_normalize_timestamp_str()` + class-level `_TIMESTAMP_FORMATS` constant
+- `find_mcap_with_buffer()` extracted `_find_best_mcap_index()`
 
-**Recommendation**: Extract into smaller methods:
-```python
-def _build_event_log_viewer_ui(self, parent, file_path, viewer_id, on_close_callback, is_tab=False):
-    main_frame = self._create_viewer_main_frame(parent, file_path)
-    search_frame, search_var = self._create_search_frame(main_frame)
-    tree, all_events = self._create_event_tree(main_frame)
-    button_frame = self._create_viewer_button_frame(main_frame, tree, on_close_callback, is_tab)
-    self._bind_viewer_keyboard_shortcuts(parent, tree, search_var)
-    self._setup_event_filtering(tree, all_events, search_var)
-```
-
-**Benefits**:
-- Easier to understand and test
-- Improved code reusability
-- Better separation of concerns
+**Benefits achieved**:
+- All public methods now under 30 lines
+- Timestamp formats centralised in one class constant
+- Extracted helpers are individually testable
+- Better separation of concerns throughout
 
 ---
 
-#### 2. Create a Settings Manager Class
+#### 2. ✅ Create a Settings Manager Class — **DONE**
 
-**Current State**: Settings logic split between `settings_tab.py` and `core_logic.py`.
+**What was done**: Created `src/utils/settings_manager.py` with `SettingsManager`:
+- `load()` — merges user file with defaults, handles corrupt/missing files
+- `save(updates=None)` — atomic write via temp file + `os.replace()`
+- `reset()` — restores all defaults and persists
+- `get(key, default)` / `set(key, value)` / `update(dict)` — in-memory access
+- `as_dict()` — returns a shallow copy
+- `validate_path(key)` — checks a path setting exists and is accessible
 
-**Recommendation**: Create `src/utils/settings_manager.py`:
-```python
-class SettingsManager:
-    def __init__(self, settings_path=SETTINGS_FILE_PATH):
-        self.settings_path = settings_path
-        self.settings = self.load()
+`settings_tab.py` now delegates all persistence to `SettingsManager` via `self._manager`.
 
-    def load(self) -> dict:
-        """Load settings from file with validation"""
-
-    def save(self) -> Tuple[bool, str]:
-        """Atomically save settings to file"""
-
-    def reset(self):
-        """Reset to default settings"""
-
-    def get(self, key, default=None):
-        """Get a setting value"""
-
-    def update(self, updates: dict):
-        """Update multiple settings at once"""
-```
-
-**Benefits**:
-- Centralized settings logic
-- Easier to test
-- Better error handling
-- Type hints for settings keys
+**Benefits achieved**:
+- Single source of persistence logic (no more duplicate JSON read/write)
+- Atomic saves prevent file corruption
+- Fully testable without a GUI
 
 ---
 
-#### 3. Add Logging Framework
+#### 3. ✅ Add Logging Framework — **DONE**
 
-**Current State**: Logging done through callbacks and print statements.
+**What was done**: Created `src/utils/logger.py` with:
+- `setup_logging()` — configures root `traige_gui` logger with rotating file handler
+  (5 MB × 3 files in `~/.traige_gui/logs/`) and WARNING-level console handler
+- `get_logger(name)` — returns a named child logger for any module
+- `TkinterLogHandler` — custom `logging.Handler` that writes records to a `tk.Text`
+  widget (supports `set_clear_pending()` for the `clear_first` use-case)
 
-**Recommendation**: Use Python's `logging` module:
-```python
-import logging
+**Integration**:
+- `main.py` calls `setup_logging()` before any imports
+- `gui_manager.log_message()` routes through `logger.info/error()` → `TkinterLogHandler` → widget
+- `core.py` background thread uses `logger.error/warning()` directly (thread-safe)
+- `settings_tab.py`, `file_explorer_tab.py`, `core.py` all have `logger = get_logger(__name__)`
 
-logger = logging.getLogger('traige_gui')
-logger.setLevel(logging.INFO)
-
-# Replace:
-self.log_message(f"Error: {e}", is_error=True)
-
-# With:
-logger.error(f"Error: {e}")
-```
-
-**Benefits**:
-- Structured logging with levels
-- Log rotation and file output
-- Better debugging capabilities
-- Industry standard approach
+**Benefits achieved**:
+- All log output persisted to rotating file for post-mortem debugging
+- Structured log levels (DEBUG/INFO/WARNING/ERROR)
+- Background threads log safely without crossing Tkinter thread boundary
+- Industry-standard approach — ready for future structured log sinks
 
 ---
 
@@ -370,6 +345,6 @@ These can be implemented quickly with high impact:
 
 ---
 
-**Last Updated**: March 4, 2026
+**Last Updated**: March 5, 2026
 **Author**: Code Refactoring Session
 **Status**: Active Development

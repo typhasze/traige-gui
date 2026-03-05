@@ -19,7 +19,10 @@ from ..utils.constants import (
     PROCESS_SHUTDOWN_TIMEOUT,
 )
 from ..utils.file_operations import open_url_in_browser
+from ..utils.logger import get_logger
 from .symlink_playback_logic import SymlinkPlaybackLogic
+
+logger = get_logger(__name__)
 
 
 def perform_operation(data):
@@ -59,8 +62,9 @@ class FoxgloveAppLogic:
             try:
                 self._cleanup_dead_processes()
             except Exception as e:
-                # Log errors but don't crash the monitor
-                self.log_callback(f"Process monitor error: {e}", is_error=True)
+                # Use module logger for background-thread errors (avoids Tkinter
+                # cross-thread issues and guarantees capture in the log file)
+                logger.error("Process monitor error: %s", e)
 
     def _cleanup_dead_processes(self):
         """Remove dead processes from tracking list to prevent zombie accumulation."""
@@ -76,10 +80,11 @@ class FoxgloveAppLogic:
                 start_time = proc_info.get("start_time", current_time)
                 runtime = current_time - start_time
                 if runtime > LONG_RUNNING_PROCESS_THRESHOLD:
-                    self.log_callback(
-                        f"Long-running process detected: {proc_info['name']} "
-                        f"(PID: {proc.pid}, runtime: {runtime/3600:.1f}h)",
-                        is_error=False,
+                    logger.warning(
+                        "Long-running process detected: %s (PID: %s, runtime: %.1fh)",
+                        proc_info["name"],
+                        proc.pid,
+                        runtime / 3600,
                     )
 
         for proc_info in dead_processes:

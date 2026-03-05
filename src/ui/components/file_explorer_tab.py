@@ -5,8 +5,25 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog, ttk
 
+from ...utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class FileExplorerTab:
+    # Timestamp formats tried in order during parsing.  Centralised here so
+    # they only need to be updated in one place.
+    _TIMESTAMP_FORMATS = [
+        "%Y-%m-%d %H:%M:%S",  # 2025-09-19 10:50:50
+        "%Y-%m-%d-%H-%M-%S",  # 2025-12-16-08-55-17  (MCAP filename format)
+        "%Y%m%d_%H%M%S",  # 20250919_093523
+        "%Y-%m-%d_%H-%M-%S",  # 2025-09-19_09-35-23
+        "%Y%m%d%H%M%S",  # 20250919093523
+        "%H:%M:%S",  # 09:35:23  (time-only — assumes today's date)
+        "%Y-%m-%d %H:%M:%S.%f",  # 2025-09-19 09:35:23.123456
+        "%Y%m%d%H%M%S%f",  # 20250919093523123456  (with microseconds)
+    ]
+
     def __init__(self, parent, root, logic, file_explorer_logic, log_message, update_button_states):
         self.frame = ttk.Frame(parent)
         self.notebook = parent  # Store reference to the main notebook for creating tabs
@@ -206,6 +223,12 @@ class FileExplorerTab:
             for display_text, original_name in batch_items:
                 self.explorer_listbox.insert(tk.END, display_text)
                 self.explorer_files_list.append(original_name)
+
+            # Apply lime green highlight to event log files
+            for idx, original_name in enumerate(self.explorer_files_list):
+                name_lower = original_name.lower()
+                if name_lower.startswith("event_log_") and name_lower.endswith(".txt"):
+                    self.explorer_listbox.itemconfig(idx, {"bg": "#90EE90"})
 
             # Update button states after refreshing content
             self.on_explorer_select(suppress_log=True)
@@ -625,10 +648,6 @@ class FileExplorerTab:
         button_frame = ttk.Frame(parent)
         button_frame.pack(fill="x", pady=(10, 0))
 
-        # Status label showing number of events
-        status_label = ttk.Label(button_frame, text="")
-        status_label.pack(side="left")
-
         # Helper functions for button actions
         def play_video():
             if hasattr(tree, "play_video_func"):
@@ -706,6 +725,10 @@ class FileExplorerTab:
             style="Action.TButton",
         )
         show_mcap_button.pack(side="left", padx=(0, 10))
+
+        # Status label showing number of events — sits right after the action buttons
+        status_label = ttk.Label(button_frame, text="")
+        status_label.pack(side="left", padx=(10, 0))
 
         # Close button (with different text for tabs vs windows)
         close_text = "Close Tab" if is_tab else "Close"
@@ -922,100 +945,124 @@ class FileExplorerTab:
             del self.event_log_viewer_tabs[viewer_id]
             self.log_message("Closed event log viewer tab")
 
-    def load_event_log_data(self, tree, file_path):
-        """
-        Parse and load event log data into the treeview. Returns list of all events.
-        Optimized for large files with batch processing and progress updates.
-        """
-        all_events = []
+    # ------------------------------------------------------------------
+    # Event log data loading helpers
+    # ------------------------------------------------------------------
 
-        # Check file size and warn if large
+    def _preprocess_event_log_lines(self, raw_lines: list) -> list:
+        """Strip blank lines and the header row from raw file lines.
+
+        Args:
+            raw_lines: Lines as returned by ``file.readlines()``.
+
+        Returns:
+            A list of stripped, non-empty, non-header lines ready for parsing.
+        """
+        result = []
+        for line in raw_lines:
+            stripped = line.rstrip("\n")
+            if not stripped.strip():
+                continue
+            if stripped.lstrip().startswith("current_time"):
+                continue  # Skip the column-header row
+            result.append(stripped)
+        return result
+
+    def _parse_event_rows(self, data_lines: list, tree) -> list:
+        """Parse tab-delimited event rows (with multi-line continuation support).
+
+        Inserts each completed row into *tree* and returns all parsed events as
+        a list of 5-element tuples.  UI updates are batched every 100 rows to
+        keep the interface responsive.
+
+        Args:
+            data_lines: Pre-processed lines from :meth:`_preprocess_event_log_lines`.
+            tree:       The ``ttk.Treeview`` that receives the parsed rows.
+
+        Returns:
+            A list of ``(current_time, timestamp, txt_manual, criticality, ui_mode)``
+            tuples.
+        """
+        all_events: list = []
+        current_parts = None
+        batch_count = 0
+        BATCH_SIZE = 100
+
+        for line in data_lines:
+            try:
+                parts = [p.strip() for p in line.split("\t")]
+
+                if current_parts is None:
+                    if len(parts) >= 5:
+                        all_events.append(parts[:5])
+                        tree.insert("", "end", values=parts[:5])
+                        batch_count += 1
+                    elif parts and (line.startswith("\t") or parts[0] == ""):
+                        pass  # Orphaned continuation line — skip silently
+                    else:
+                        current_parts = parts
+                else:
+                    # Continuation line
+                    if line.startswith("\t") or (parts and parts[0] == ""):
+                        if parts and parts[0] == "":
+                            parts = parts[1:]
+                        current_parts.extend(parts)
+                    else:
+                        # Treat as continuation of the description column
+                        if len(current_parts) >= 3 and parts:
+                            current_parts[2] = (current_parts[2] + " " + parts[0]).strip()
+                            if len(parts) > 1:
+                                current_parts.extend(parts[1:])
+                        else:
+                            current_parts.extend(parts)
+
+                    if len(current_parts) >= 5:
+                        all_events.append(current_parts[:5])
+                        tree.insert("", "end", values=current_parts[:5])
+                        current_parts = None
+                        batch_count += 1
+
+                # Periodic UI refresh to prevent freezing on large files
+                if batch_count >= BATCH_SIZE:
+                    tree.update_idletasks()
+                    batch_count = 0
+
+            except Exception:  # nosec B110
+                pass  # Silent skip — avoids log spam for individual malformed lines
+
+        return all_events
+
+    def load_event_log_data(self, tree, file_path):
+        """Parse and load event log data into *tree*. Returns a list of all events.
+
+        Large files (>10 MB) emit a warning.  Parsing is batch-processed to
+        keep the UI responsive.  Delegates the heavy lifting to
+        :meth:`_preprocess_event_log_lines` and :meth:`_parse_event_rows`.
+        """
+        all_events: list = []
+
+        # Warn for large files
         try:
             file_size = os.path.getsize(file_path)
             if file_size > 10 * 1024 * 1024:  # 10 MB
                 self.log_message(
-                    f"⚠️ Large event log file ({file_size // (1024*1024)} MB) - loading may take a moment...",
+                    f"⚠️ Large event log file ({file_size // (1024 * 1024)} MB) — loading may take a moment...",
                     is_error=False,
                 )
         except Exception:  # nosec B110
-            pass  # Silently ignore file size check errors
+            pass
 
         try:
-            with open(file_path, "r", encoding="utf-8") as file:
-                lines = file.readlines()
+            with open(file_path, "r", encoding="utf-8") as fh:
+                raw_lines = fh.readlines()
 
-            # Skip the header line if it exists
-            data_lines = []
-            for line in lines:
-                raw_line = line.rstrip("\n")
-                if not raw_line.strip():
-                    continue
-                if raw_line.lstrip().startswith("current_time"):
-                    continue
-                data_lines.append(raw_line)
-
-            # Parse each data line, allowing wrapped/multi-line rows
-            current_parts = None
-            batch_count = 0
-            BATCH_SIZE = 100  # Update UI every 100 rows to keep responsive
-
-            for line_num, line in enumerate(data_lines, 1):
-                try:
-                    parts = [part.strip() for part in line.split("\t")]
-
-                    if current_parts is None:
-                        if len(parts) >= 5:
-                            all_events.append(parts[:5])
-                            tree.insert("", "end", values=parts[:5])
-                            batch_count += 1
-
-                            # Periodic UI update to prevent freezing
-                            if batch_count >= BATCH_SIZE:
-                                tree.update_idletasks()
-                                batch_count = 0
-
-                        elif parts and (line.startswith("\t") or parts[0] == ""):
-                            # Continuation without a starting line; skip
-                            pass  # Silent skip for performance
-                        else:
-                            current_parts = parts
-                    else:
-                        # Continuation line handling
-                        if line.startswith("\t") or (parts and parts[0] == ""):
-                            # Line starts with a tab: remaining columns
-                            if parts and parts[0] == "":
-                                parts = parts[1:]
-                            current_parts.extend(parts)
-                        else:
-                            # Treat as continuation of txt_manual if present
-                            if len(current_parts) >= 3 and parts:
-                                current_parts[2] = (current_parts[2] + " " + parts[0]).strip()
-                                if len(parts) > 1:
-                                    current_parts.extend(parts[1:])
-                            else:
-                                current_parts.extend(parts)
-
-                        if len(current_parts) >= 5:
-                            all_events.append(current_parts[:5])
-                            tree.insert("", "end", values=current_parts[:5])
-                            current_parts = None
-                            batch_count += 1
-
-                            # Periodic UI update
-                            if batch_count >= BATCH_SIZE:
-                                tree.update_idletasks()
-                                batch_count = 0
-
-                except Exception:  # nosec B110
-                    # Silent errors during parsing to avoid log spam
-                    pass
-
-            if current_parts is not None:
-                # Silent skip of incomplete lines
-                pass
+            data_lines = self._preprocess_event_log_lines(raw_lines)
+            all_events = self._parse_event_rows(data_lines, tree)
+            logger.debug("Loaded %d events from %s", len(all_events), file_path)
 
         except Exception as e:
             self.log_message(f"Error reading event log file: {e}", is_error=True)
+            logger.exception("Error reading event log file: %s", file_path)
 
         return all_events
 
@@ -1213,13 +1260,15 @@ class FileExplorerTab:
             if not hasattr(self, "explorer_files_list") or not self.explorer_files_list:
                 return
 
-            # Clear previous highlights
+            # Clear previous highlights, restoring lime green for event log files
             listbox_size = self.explorer_listbox.size()
             for idx in range(listbox_size):
                 try:
-                    self.explorer_listbox.itemconfig(idx, {"bg": "white"})
+                    name = self.explorer_files_list[idx] if idx < len(self.explorer_files_list) else ""
+                    name_lower = name.lower()
+                    bg = "#90EE90" if (name_lower.startswith("event_log_") and name_lower.endswith(".txt")) else "white"
+                    self.explorer_listbox.itemconfig(idx, {"bg": bg})
                 except tk.TclError:
-                    # Skip if item no longer exists
                     pass
 
             # Try to find and select the file in the explorer listbox
@@ -1250,11 +1299,14 @@ class FileExplorerTab:
             if not hasattr(self, "explorer_files_list") or not self.explorer_files_list:
                 return
 
-            # Clear previous highlights
+            # Clear previous highlights, restoring lime green for event log files
             listbox_size = self.explorer_listbox.size()
             for idx in range(listbox_size):
                 try:
-                    self.explorer_listbox.itemconfig(idx, {"bg": "white"})
+                    name = self.explorer_files_list[idx] if idx < len(self.explorer_files_list) else ""
+                    name_lower = name.lower()
+                    bg = "#90EE90" if (name_lower.startswith("event_log_") and name_lower.endswith(".txt")) else "white"
+                    self.explorer_listbox.itemconfig(idx, {"bg": bg})
                 except tk.TclError:
                     pass
 
@@ -1343,71 +1395,72 @@ class FileExplorerTab:
         # Remove viewer from tracking
         del self.event_log_viewers[viewer_id]
 
+    def _normalize_timestamp_str(self, timestamp_str: str) -> str:
+        """Pre-process a raw timestamp string before format-matching.
+
+        Handles two common edge-cases:
+
+        1. MCAP filename prefixes such as ``PSA8411_2025-12-16-08-55-17_0``
+           — the middle ``_``-separated part is extracted.
+        2. Three-part strings such as ``2025-09-19 10:50:50 430`` (trailing
+           millisecond token) — the trailing token is discarded.
+
+        Args:
+            timestamp_str: The raw string to normalise.
+
+        Returns:
+            A cleaned string ready for :meth:`parse_timestamp`.
+        """
+        # Handle MCAP filename format: PREFIX_TIMESTAMP_SUFFIX
+        if "_" in timestamp_str and timestamp_str.count("_") >= 2:
+            parts = timestamp_str.split("_")
+            if len(parts) >= 3:
+                potential_ts = parts[1]
+                if "-" in potential_ts and len(potential_ts) >= 10:
+                    return potential_ts
+
+        # Handle "2025-09-19 10:50:50 430" (trailing millisecond token)
+        tokens = timestamp_str.split()
+        if len(tokens) == 3:
+            return f"{tokens[0]} {tokens[1]}"
+
+        return timestamp_str
+
     def parse_timestamp(self, timestamp_str):
-        """Parse timestamp string to datetime object."""
+        """Parse *timestamp_str* to a :class:`datetime` object.
+
+        Tries the formats listed in :attr:`_TIMESTAMP_FORMATS` after normalising
+        the raw string with :meth:`_normalize_timestamp_str`.
+
+        Returns ``None`` on failure (error is logged).
+        """
         try:
-            # Convert to string if it's not already
             if not isinstance(timestamp_str, str):
                 timestamp_str = str(timestamp_str)
 
-            # Clean the timestamp string
-            timestamp_str = timestamp_str.strip()
+            timestamp_str = self._normalize_timestamp_str(timestamp_str.strip())
 
-            # Handle MCAP filename format: PSA8411_2025-12-16-08-55-17_0
-            # Extract just the timestamp part (remove prefix and suffix)
-            if "_" in timestamp_str and timestamp_str.count("_") >= 2:
-                parts = timestamp_str.split("_")
-                # Check if this looks like: PREFIX_TIMESTAMP_SUFFIX
-                if len(parts) >= 3:
-                    # Try to parse the middle part as timestamp
-                    potential_timestamp = parts[1]
-                    if "-" in potential_timestamp and len(potential_timestamp) >= 10:
-                        timestamp_str = potential_timestamp
-
-            # Handle the specific format: "2025-09-19 10:50:50 430"
-            # where the last part is milliseconds
-            if len(timestamp_str.split()) == 3:
-                parts = timestamp_str.split()
-                if len(parts) == 3:
-                    date_part = parts[0]  # 2025-09-19
-                    time_part = parts[1]  # 10:50:50
-                    # Ignore milliseconds part for now
-                    timestamp_str = f"{date_part} {time_part}"
-
-            # Common timestamp formats in event logs
-            timestamp_formats = [
-                "%Y-%m-%d %H:%M:%S",  # 2025-09-19 10:50:50
-                "%Y-%m-%d-%H-%M-%S",  # 2025-12-16-08-55-17 (MCAP format)
-                "%Y%m%d_%H%M%S",  # 20250919_093523
-                "%Y-%m-%d_%H-%M-%S",  # 2025-09-19_09-35-23
-                "%Y%m%d%H%M%S",  # 20250919093523
-                "%H:%M:%S",  # 09:35:23 (time only)
-                "%Y-%m-%d %H:%M:%S.%f",  # 2025-09-19 09:35:23.123456
-                "%Y%m%d%H%M%S%f",  # 20250919093523123456 (with microseconds)
-            ]
-
-            # Try each format
-            for fmt in timestamp_formats:
+            for fmt in self._TIMESTAMP_FORMATS:
                 try:
                     if fmt == "%H:%M:%S":
-                        # For time-only format, assume today's date
+                        # Time-only: combine with today's date
                         from datetime import date
 
                         time_part = datetime.strptime(timestamp_str, fmt).time()
                         return datetime.combine(date.today(), time_part)
-                    else:
-                        return datetime.strptime(timestamp_str, fmt)
+                    return datetime.strptime(timestamp_str, fmt)
                 except ValueError:
                     continue
 
-            # If no format matches, log the actual timestamp format for debugging
             self.log_message(
                 f"Unknown timestamp format: '{timestamp_str}' (length: {len(timestamp_str)})", is_error=True
             )
+            logger.warning("Unknown timestamp format: %r", timestamp_str)
             return None
 
         except Exception as e:
             self.log_message(f"Error parsing timestamp '{timestamp_str}': {e}", is_error=True)
+            logger.exception("Error parsing timestamp %r", timestamp_str)
             return None
 
     def find_video_for_timestamp(self, event_log_path, event_time):
@@ -1570,12 +1623,36 @@ class FileExplorerTab:
             self.log_message(f"Error finding MCAP for timestamp: {e}", is_error=True)
             return None, None
 
+    def _find_best_mcap_index(self, mcap_files_with_times: list, event_time) -> int | None:
+        """Return the index of the MCAP that should contain *event_time*.
+
+        Iterates *mcap_files_with_times* (a list of ``(path, start_datetime)``
+        sorted ascending by start time) and returns the index of the last entry
+        whose start time is <= *event_time*, or ``None`` if none qualify.
+
+        Args:
+            mcap_files_with_times: Sorted list of ``(path, datetime)`` pairs.
+            event_time:            The target :class:`datetime` to locate.
+
+        Returns:
+            Integer index into *mcap_files_with_times*, or ``None``.
+        """
+        target_idx = None
+        for idx, (_, start_time) in enumerate(mcap_files_with_times):
+            if event_time >= start_time:
+                target_idx = idx
+        return target_idx
+
     def find_mcap_with_buffer(self, event_log_path, event_time, buffer_seconds=30):
         """Find MCAP files needed to play with a time buffer before the event.
-        Returns (mcap_files_list, adjusted_offset) where mcap_files_list contains
-        files needed and adjusted_offset is the start time within the combined files."""
+
+        Returns ``(mcap_files_list, adjusted_offset)`` where *mcap_files_list*
+        contains the file(s) needed and *adjusted_offset* is the playback start
+        time in seconds within the combined files.
+
+        The buffer look-back is achieved via :meth:`_find_best_mcap_index`.
+        """
         try:
-            # Extract date from event log path
             log_dir = os.path.dirname(event_log_path)
             base_dir = os.path.dirname(log_dir)
             rosbags_dir = os.path.join(base_dir, "rosbags", "default")
@@ -1584,74 +1661,59 @@ class FileExplorerTab:
                 self.log_message(f"Rosbags directory not found: {rosbags_dir}", is_error=True)
                 return None, None
 
-            # Use cached MCAP file search and parse timestamps
+            # Build a sorted list of (path, start_datetime) pairs
             mcap_files = self._get_mcap_files_cached(rosbags_dir)
             mcap_files_with_times = []
-
             for mcap_path in mcap_files:
-                file = os.path.basename(mcap_path)
-                timestamp_part = file.replace(".mcap", "")
-                mcap_start_time = self.parse_timestamp(timestamp_part)
-                if mcap_start_time:
-                    mcap_files_with_times.append((mcap_path, mcap_start_time))
+                filename = os.path.basename(mcap_path)
+                start_time = self.parse_timestamp(filename.replace(".mcap", ""))
+                if start_time:
+                    mcap_files_with_times.append((mcap_path, start_time))
 
             if not mcap_files_with_times:
                 self.log_message(f"No MCAP files found in: {rosbags_dir}", is_error=True)
                 return None, None
 
-            # Sort by start time
             mcap_files_with_times.sort(key=lambda x: x[1])
 
-            # Find the MCAP that contains the event
-            target_mcap_idx = None
-            for idx, (mcap_file, start_time) in enumerate(mcap_files_with_times):
-                if event_time >= start_time:
-                    target_mcap_idx = idx
-
-            if target_mcap_idx is None:
+            # Locate the MCAP that contains the event
+            target_idx = self._find_best_mcap_index(mcap_files_with_times, event_time)
+            if target_idx is None:
                 self.log_message("No suitable MCAP file found for the timestamp", is_error=True)
                 return None, None
 
-            target_mcap, target_start_time = mcap_files_with_times[target_mcap_idx]
+            target_mcap, target_start_time = mcap_files_with_times[target_idx]
 
-            # Calculate the desired playback start time (30 seconds before event)
+            # Calculate the desired playback start time (buffer_seconds before event)
             from datetime import timedelta
 
             buffered_time = event_time - timedelta(seconds=buffer_seconds)
 
-            # Check if buffered time falls into previous MCAP
-            if target_mcap_idx > 0:
-                prev_mcap, prev_start_time = mcap_files_with_times[target_mcap_idx - 1]
+            # If the buffered time falls before the current MCAP, include the previous one
+            if target_idx > 0:
+                prev_mcap, prev_start_time = mcap_files_with_times[target_idx - 1]
+                if buffered_time < target_start_time and buffered_time >= prev_start_time:
+                    offset_seconds = (buffered_time - prev_start_time).total_seconds()
+                    self.log_message(
+                        f"Using MCAPs: {os.path.basename(prev_mcap)} + "
+                        f"{os.path.basename(target_mcap)}, offset: {offset_seconds:.1f}s (30s buffer)"
+                    )
+                    return [prev_mcap, target_mcap], offset_seconds
+                elif buffered_time < prev_start_time:
+                    self.log_message(
+                        f"Buffer time exceeds available data, starting from beginning of "
+                        f"{os.path.basename(target_mcap)}"
+                    )
+                    return [target_mcap], 0
 
-                # If buffered time is before the current MCAP's start, we need the previous MCAP
-                if buffered_time < target_start_time:
-                    # Check if buffered time falls within previous MCAP
-                    if buffered_time >= prev_start_time:
-                        # Need both previous and current MCAP
-                        time_diff = buffered_time - prev_start_time
-                        offset_seconds = time_diff.total_seconds()
-                        self.log_message(
-                            f"Using MCAPs: {os.path.basename(prev_mcap)} + {os.path.basename(target_mcap)}, "
-                            f"offset: {offset_seconds:.1f}s (30s buffer)"
-                        )
-                        return [prev_mcap, target_mcap], offset_seconds
-                    else:
-                        # Buffered time is before previous MCAP, just use current MCAP from start
-                        self.log_message(
-                            f"Buffer time exceeds available data, starting from beginning of "
-                            f"{os.path.basename(target_mcap)}"
-                        )
-                        return [target_mcap], 0
-
-            # Buffered time is within the current MCAP
-            time_diff = buffered_time - target_start_time
-            offset_seconds = max(0, time_diff.total_seconds())  # Don't go negative
-
+            # Buffer lands within the current MCAP
+            offset_seconds = max(0, (buffered_time - target_start_time).total_seconds())
             self.log_message(f"Using MCAP: {os.path.basename(target_mcap)}, offset: {offset_seconds:.1f}s (30s buffer)")
             return [target_mcap], offset_seconds
 
         except Exception as e:
             self.log_message(f"Error finding MCAP with buffer: {e}", is_error=True)
+            logger.exception("Error finding MCAP with buffer for %s", event_log_path)
             return None, None
 
     def play_bazel_at_timestamp(self, event_log_path, timestamp_str, viewer_id=None):

@@ -1,10 +1,12 @@
-import json
-import os
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Optional
 
-from ...utils.constants import DEFAULT_SETTINGS, SETTINGS_FILE_PATH
+from ...utils.constants import SETTINGS_FILE_PATH
+from ...utils.logger import get_logger
+from ...utils.settings_manager import SettingsManager
+
+logger = get_logger(__name__)
 
 
 class SettingsTab:
@@ -73,8 +75,11 @@ class SettingsTab:
         self.log_message = log_message
         self.vars = {}
         self.entries = {}
-        self.settings_path = SETTINGS_FILE_PATH
-        self.settings = self.load_settings()
+
+        # Delegate all persistence to SettingsManager
+        self._manager = SettingsManager(SETTINGS_FILE_PATH)
+        self.settings = self._manager.settings  # convenient alias (same dict object)
+
         if hasattr(self.logic, "set_runtime_settings"):
             self.logic.set_runtime_settings(self.settings)
         self.on_nas_dir_changed: Optional[Callable[[str], None]] = None
@@ -83,59 +88,41 @@ class SettingsTab:
         # Initialize logic with settings after loading them
         self.logic.update_search_paths(self.settings.get("nas_dir"), self.settings.get("backup_nas_dir"))
 
-    def load_settings(self):
-        """Load settings from file or return defaults."""
-        if not os.path.exists(self.settings_path):
-            return DEFAULT_SETTINGS.copy()
+    def load_settings(self) -> dict:
+        """Reload settings from disc and refresh the in-memory alias.
 
-        try:
-            with open(self.settings_path, "r", encoding="utf-8") as f:
-                user_settings = json.load(f)
+        Delegates to :class:`~src.utils.settings_manager.SettingsManager`.
+        """
+        self._manager = SettingsManager(SETTINGS_FILE_PATH)
+        self.settings = self._manager.settings
+        logger.debug("Settings loaded via SettingsManager")
+        return self.settings
 
-            # Validate that user_settings is a dictionary
-            if not isinstance(user_settings, dict):
-                self.log_message("Settings file corrupted, using defaults", is_error=True)
-                return DEFAULT_SETTINGS.copy()
+    def save_settings(self, settings_dict=None) -> tuple:
+        """Save current settings to disc, optionally merging *settings_dict* first.
 
-            settings = DEFAULT_SETTINGS.copy()
-            settings.update(user_settings)
-            return settings
-
-        except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            self.log_message(f"Error parsing settings file, using defaults: {e}", is_error=True)
-            return DEFAULT_SETTINGS.copy()
-        except (IOError, OSError) as e:
-            self.log_message(f"Error reading settings file, using defaults: {e}", is_error=True)
-            return DEFAULT_SETTINGS.copy()
-
-    def save_settings(self, settings_dict=None):
-        try:
-            if settings_dict is not None:
-                self.settings.update(settings_dict)
-
-            temp_path = self.settings_path + ".tmp"
-            with open(temp_path, "w", encoding="utf-8") as f:
-                json.dump(self.settings, f, indent=4, ensure_ascii=False)
-
-            os.replace(temp_path, self.settings_path)
-
+        Returns ``(True, None)`` on success or ``(False, error_message)`` on failure.
+        After saving, the logic layer is updated with the new values and the
+        search paths are refreshed.
+        """
+        success, error = self._manager.save(settings_dict)
+        if success:
+            # Keep the alias pointing at the same dict after any mutations
+            self.settings = self._manager.settings
             self.logic.update_search_paths(self.settings.get("nas_dir"), self.settings.get("backup_nas_dir"))
-            return True, None
+            logger.debug("Settings persisted successfully")
+        else:
+            logger.error("Failed to save settings: %s", error)
+        return success, error
 
-        except (IOError, OSError) as e:
-            return False, f"File error: {e}"
-        except (TypeError, ValueError) as e:
-            return False, f"Data error: {e}"
-        except Exception as e:
-            return False, f"Unexpected error: {e}"
+    def reset_settings(self) -> None:
+        """Reset all settings to application defaults and persist immediately."""
+        self._manager.reset()
+        self.settings = self._manager.settings
 
-    def reset_settings(self):
-        """Reset settings to defaults."""
-        self.settings = DEFAULT_SETTINGS.copy()
-        self.save_settings(self.settings)
-
-    def get_setting(self, key):
-        return self.settings.get(key)
+    def get_setting(self, key: str):
+        """Return the value for *key* from the current settings."""
+        return self._manager.get(key)
 
     def create_widgets(self):
         settings_frame = ttk.LabelFrame(self.frame, text="Configuration")
@@ -206,11 +193,7 @@ class SettingsTab:
         try:
             new_value = bool(var.get())
             self.settings[key] = new_value
-
-            # Create readable setting name
-            readable_name = key.replace("_", " ").title()
-            status = "enabled" if new_value else "disabled"
-            self.log_message(f"✓ {readable_name}: {status}")
+            logger.debug("Bool setting changed: %s = %s", key, new_value)
 
             # Save to disk immediately
             self.save_settings(self.settings)
@@ -220,6 +203,7 @@ class SettingsTab:
                 self.logic.set_runtime_settings(self.settings)
         except Exception as e:
             self.log_message(f"Failed to apply setting '{key}': {e}", is_error=True)
+            logger.exception("Failed to apply setting '%s'", key)
 
     def save_settings_button(self):
         old_nas_dir = self.settings.get("nas_dir")
@@ -269,13 +253,20 @@ class SettingsTab:
 
     def reset_settings_button(self):
         self.reset_settings()
-        for config in self.settings_config:
-            key = config["key"]
-            value = self.get_setting(key)
-            if config["type"] == "bool":
-                self.vars[key].set(value if value is not None else True)
-            else:
-                self.vars[key].set(value)
+        # Temporarily block the bool-change callback (vars.set triggers it)
+        # by patching save_settings to a no-op during the UI refresh loop.
+        _real_save = self.save_settings
+        self.save_settings = lambda *a, **kw: (True, None)  # type: ignore[assignment]
+        try:
+            for config in self.settings_config:
+                key = config["key"]
+                value = self.get_setting(key)
+                if config["type"] == "bool":
+                    self.vars[key].set(value if value is not None else True)
+                else:
+                    self.vars[key].set(value)
+        finally:
+            self.save_settings = _real_save
         self.log_message("Settings reset to defaults.")
 
     def get_entry_widgets(self):
