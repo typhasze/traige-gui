@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Optional
 
-from ...utils.constants import SETTINGS_FILE_PATH
+from ...utils.constants import DEFAULT_SETTINGS, SETTINGS_FILE_PATH
 from ...utils.logger import get_logger
 from ...utils.settings_manager import SettingsManager
 
@@ -89,13 +89,10 @@ class SettingsTab:
         self.logic.update_search_paths(self.settings.get("nas_dir"), self.settings.get("backup_nas_dir"))
 
     def load_settings(self) -> dict:
-        """Reload settings from disc and refresh the in-memory alias.
-
-        Delegates to :class:`~src.utils.settings_manager.SettingsManager`.
-        """
-        self._manager = SettingsManager(SETTINGS_FILE_PATH)
+        """Reload settings from disc and refresh the in-memory alias."""
+        self._manager.settings = self._manager.load()
         self.settings = self._manager.settings
-        logger.debug("Settings loaded via SettingsManager")
+        logger.debug("Settings reloaded via SettingsManager")
         return self.settings
 
     def save_settings(self, settings_dict=None) -> tuple:
@@ -219,15 +216,13 @@ class SettingsTab:
                 try:
                     new_settings[key] = int(var.get())
                 except ValueError:
-                    # Use default value if invalid integer
-                    new_settings[key] = 50 if key == "max_foxglove_files" else 0
+                    new_settings[key] = DEFAULT_SETTINGS.get(key, 0)
                     self.log_message(f"Invalid integer for {config['label']}, using default.", is_error=True)
             elif config["type"] == "float":
                 try:
                     new_settings[key] = float(var.get())
                 except ValueError:
-                    # Use default value if invalid float
-                    new_settings[key] = 1.0 if key == "bazel_bag_gui_rate" else 0.0
+                    new_settings[key] = DEFAULT_SETTINGS.get(key, 0.0)
                     self.log_message(f"Invalid number for {config['label']}, using default.", is_error=True)
             else:
                 new_settings[key] = var.get()

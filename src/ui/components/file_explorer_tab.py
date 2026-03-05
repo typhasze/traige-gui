@@ -1,12 +1,15 @@
 import glob
 import os
 import re
+import time
 import tkinter as tk
-from datetime import datetime
+from datetime import datetime, timedelta
 from tkinter import filedialog, ttk
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from ...utils.constants import DEFAULT_SETTINGS
 from ...utils.logger import get_logger
+from ...utils.utils import get_file_icon
 from .event_log_viewer import EventLogViewer, parse_timestamp
 
 logger = get_logger(__name__)
@@ -213,7 +216,7 @@ class FileExplorerTab:
             for f in files:
                 item_path = os.path.join(current_path, f)
                 # Only get icon based on extension, skip stat() for now
-                icon = self._get_quick_icon(item_path)
+                icon = get_file_icon(item_path)
                 batch_items.append((f"{icon} {f}", f))
 
             # Batch insert all items efficiently
@@ -238,16 +241,7 @@ class FileExplorerTab:
             # Always restore cursor
             self.root.config(cursor=original_cursor)
 
-    def _get_quick_icon(self, filepath):
-        """Get file icon based on extension only (no stat call for performance)."""
-        from ...utils.utils import get_file_icon
-
-        return get_file_icon(filepath)
-
     def get_selected_explorer_mcap_paths(self):
-        """
-        Get selected MCAP file paths with optimized list comprehension.
-        """
         selection = self.explorer_listbox.curselection()
         if not selection:
             return []
@@ -745,6 +739,26 @@ class FileExplorerTab:
         self.explorer_listbox.focus_set()  # Move focus to the listbox
         return "break"
 
+    def _clear_explorer_highlights(self) -> None:
+        """Reset all listbox item backgrounds, preserving event log green highlights."""
+        for idx in range(self.explorer_listbox.size()):
+            try:
+                name = self.explorer_files_list[idx] if idx < len(self.explorer_files_list) else ""
+                name_lower = name.lower()
+                bg = "#90EE90" if name_lower.startswith("event_log_") and name_lower.endswith(".txt") else "white"
+                self.explorer_listbox.itemconfig(idx, {"bg": bg})
+            except tk.TclError:
+                pass
+
+    def _track_viewer_process(self, viewer_id: Optional[int], proc_id: Optional[int]) -> None:
+        """Associate *proc_id* with the given event-log viewer (window or tab)."""
+        if viewer_id is None or proc_id is None:
+            return
+        if viewer_id in self.event_log_viewers:
+            self.event_log_viewers[viewer_id]["processes"].append(proc_id)
+        elif viewer_id in self.event_log_viewer_tabs:
+            self.event_log_viewer_tabs[viewer_id]["processes"].append(proc_id)
+
     def _focus_explorer_listbox_move(self, direction, event=None):
         self.explorer_listbox.focus_set()
         cur = self.explorer_listbox.curselection()
@@ -823,16 +837,8 @@ class FileExplorerTab:
             if not hasattr(self, "explorer_files_list") or not self.explorer_files_list:
                 return
 
-            # Clear previous highlights, restoring lime green for event log files
-            listbox_size = self.explorer_listbox.size()
-            for idx in range(listbox_size):
-                try:
-                    name = self.explorer_files_list[idx] if idx < len(self.explorer_files_list) else ""
-                    name_lower = name.lower()
-                    bg = "#90EE90" if (name_lower.startswith("event_log_") and name_lower.endswith(".txt")) else "white"
-                    self.explorer_listbox.itemconfig(idx, {"bg": bg})
-                except tk.TclError:
-                    pass
+            # Clear previous highlights
+            self._clear_explorer_highlights()
 
             # Try to find and select the file in the explorer listbox
             for idx, fname in enumerate(self.explorer_files_list):
@@ -842,9 +848,7 @@ class FileExplorerTab:
                         self.explorer_listbox.selection_set(idx)
                         self.explorer_listbox.see(idx)
                         self.explorer_listbox.itemconfig(idx, {"bg": "yellow"})
-                        # Trigger selection handler to update button states
                         self.on_explorer_select(suppress_log=True)
-                        # Set focus to listbox for arrow key navigation
                         self.explorer_listbox.focus_set()
                     except tk.TclError as e:
                         self.log_message(f"Warning: Could not highlight file: {e}", is_error=False)
@@ -862,22 +866,13 @@ class FileExplorerTab:
             if not hasattr(self, "explorer_files_list") or not self.explorer_files_list:
                 return
 
-            # Clear previous highlights, restoring lime green for event log files
-            listbox_size = self.explorer_listbox.size()
-            for idx in range(listbox_size):
-                try:
-                    name = self.explorer_files_list[idx] if idx < len(self.explorer_files_list) else ""
-                    name_lower = name.lower()
-                    bg = "#90EE90" if (name_lower.startswith("event_log_") and name_lower.endswith(".txt")) else "white"
-                    self.explorer_listbox.itemconfig(idx, {"bg": bg})
-                except tk.TclError:
-                    pass
+            # Clear previous highlights
+            self._clear_explorer_highlights()
 
             # Try to find and select the directory in the explorer listbox
             dirname_lower = dirname.strip().lower()
             for idx, fname in enumerate(self.explorer_files_list):
                 if fname.lower() == dirname_lower:
-                    # Check if this is actually a directory (should be among the first items)
                     item_path = os.path.join(self.current_explorer_path, fname)
                     if os.path.isdir(item_path):
                         try:
@@ -885,9 +880,7 @@ class FileExplorerTab:
                             self.explorer_listbox.selection_set(idx)
                             self.explorer_listbox.see(idx)
                             self.explorer_listbox.itemconfig(idx, {"bg": "lightblue"})
-                            # Trigger selection handler to update button states
                             self.on_explorer_select(suppress_log=True)
-                            # Set focus to listbox for arrow key navigation
                             self.explorer_listbox.focus_set()
                         except tk.TclError as e:
                             self.log_message(f"Warning: Could not highlight directory: {e}", is_error=False)
@@ -916,12 +909,8 @@ class FileExplorerTab:
             settings = self._get_runtime_settings()
             message, error, proc_id = self.logic.launch_mpv_video(video_file, start_offset, settings)
 
-            # Track the process for this viewer (works for both windows and tabs)
-            if viewer_id is not None and proc_id is not None:
-                if viewer_id in self.event_log_viewers:
-                    self.event_log_viewers[viewer_id]["processes"].append(proc_id)
-                elif viewer_id in self.event_log_viewer_tabs:
-                    self.event_log_viewer_tabs[viewer_id]["processes"].append(proc_id)
+            # Track the process for this viewer
+            self._track_viewer_process(viewer_id, proc_id)
 
             if message:
                 self.log_message(message)
@@ -932,12 +921,7 @@ class FileExplorerTab:
             self.log_message(f"Error playing video: {e}", is_error=True)
 
     def _get_runtime_settings(self) -> Dict[str, Any]:
-        settings = getattr(self.logic, "settings", {})
-        if not settings:
-            from ...utils.constants import DEFAULT_SETTINGS
-
-            settings = DEFAULT_SETTINGS.copy()
-        return settings
+        return getattr(self.logic, "settings", None) or DEFAULT_SETTINGS.copy()
 
     def _cleanup_viewer_processes(self, viewer_id: int) -> None:
         """Clean up processes associated with a specific event log viewer."""
@@ -1019,8 +1003,6 @@ class FileExplorerTab:
         Get MCAP files from directory with caching to avoid repeated os.walk.
         Cache expires after _mcap_cache_ttl seconds.
         """
-        import time
-
         current_time = time.time()
 
         # Check cache
@@ -1184,8 +1166,6 @@ class FileExplorerTab:
             target_mcap, target_start_time = mcap_files_with_times[target_idx]
 
             # Calculate the desired playback start time (buffer_seconds before event)
-            from datetime import timedelta
-
             buffered_time = event_time - timedelta(seconds=buffer_seconds)
 
             # If the buffered time falls before the current MCAP, include the previous one
@@ -1216,38 +1196,26 @@ class FileExplorerTab:
             return None, None
 
     def play_bazel_at_timestamp(self, event_log_path: str, timestamp_str: str, viewer_id: Optional[int] = None) -> None:
-        """Play rosbag at the specified timestamp using Bazel Bag GUI.
-        Starts playback 30 seconds before the event timestamp."""
+        """Play rosbag at the specified timestamp using Bazel Bag GUI (30s pre-buffer)."""
         try:
-            # Parse the timestamp from the event log
             event_time = parse_timestamp(timestamp_str, log_fn=self.log_message)
             if not event_time:
                 self.log_message(f"Could not parse timestamp: {timestamp_str}", is_error=True)
                 return
 
-            # Find the corresponding MCAP files with 30-second buffer
             mcap_files, start_offset = self.find_mcap_with_buffer(event_log_path, event_time, buffer_seconds=30)
             if not mcap_files:
                 self.log_message("No matching MCAP file found", is_error=True)
                 return
 
-            # Get settings from the logic's GUI manager (if available)
-            try:
-                settings = self._get_runtime_settings()
-            except (AttributeError, ImportError):
-                from ...utils.constants import DEFAULT_SETTINGS
+            settings = self._get_runtime_settings()
 
-                settings = DEFAULT_SETTINGS.copy()
-
-            # Launch bazel bag gui with the MCAP file(s) and start offset
             if len(mcap_files) > 1:
-                # Multiple MCAPs - use symlink playback
                 self.log_message(f"Launching Bazel Bag GUI with combined MCAPs at offset {int(start_offset)}s...")
                 message, error, symlink_dir, proc_id = self.logic.play_bazel_bag_gui_with_symlinks(
                     mcap_files, settings, start_time=start_offset
                 )
             else:
-                # Single MCAP - use normal playback
                 self.log_message(
                     f"Launching Bazel Bag GUI with {os.path.basename(mcap_files[0])} at offset {int(start_offset)}s..."
                 )
@@ -1255,13 +1223,7 @@ class FileExplorerTab:
                     mcap_files[0], settings, start_time=start_offset
                 )
 
-            # Track the process for this viewer (works for both windows and tabs)
-            if viewer_id is not None and proc_id is not None:
-                if viewer_id in self.event_log_viewers:
-                    self.event_log_viewers[viewer_id]["processes"].append(proc_id)
-                elif viewer_id in self.event_log_viewer_tabs:
-                    self.event_log_viewer_tabs[viewer_id]["processes"].append(proc_id)
-
+            self._track_viewer_process(viewer_id, proc_id)
             if message:
                 self.log_message(message)
             if error:
@@ -1271,40 +1233,23 @@ class FileExplorerTab:
             self.log_message(f"Error playing bazel at timestamp: {e}", is_error=True)
 
     def play_bazel_from_start(self, event_log_path: str, timestamp_str: str, viewer_id: Optional[int] = None) -> None:
-        """Play rosbag from the start without seeking to a specific timestamp.
-        Uses the timestamp to identify which rosbag file to play."""
+        """Play rosbag from the beginning using the timestamp to identify the correct file."""
         try:
-            # Parse the timestamp from the event log to identify the correct MCAP
             event_time = parse_timestamp(timestamp_str, log_fn=self.log_message)
             if not event_time:
                 self.log_message(f"Could not parse timestamp: {timestamp_str}", is_error=True)
                 return
 
-            # Find the corresponding MCAP file (but we'll play from start, so offset doesn't matter)
             mcap_file, _ = self.find_mcap_for_timestamp(event_log_path, event_time)
             if not mcap_file:
                 self.log_message("No matching MCAP file found", is_error=True)
                 return
 
-            # Get settings from the logic's GUI manager (if available)
-            try:
-                settings = self._get_runtime_settings()
-            except (AttributeError, ImportError):
-                from ...utils.constants import DEFAULT_SETTINGS
-
-                settings = DEFAULT_SETTINGS.copy()
-
-            # Launch bazel bag gui without start offset (play from beginning)
+            settings = self._get_runtime_settings()
             self.log_message(f"Launching Bazel Bag GUI with {os.path.basename(mcap_file)} from start...")
             message, error, proc_id = self.logic.launch_bazel_bag_gui(mcap_file, settings, start_time=None)
 
-            # Track the process for this viewer (works for both windows and tabs)
-            if viewer_id is not None and proc_id is not None:
-                if viewer_id in self.event_log_viewers:
-                    self.event_log_viewers[viewer_id]["processes"].append(proc_id)
-                elif viewer_id in self.event_log_viewer_tabs:
-                    self.event_log_viewer_tabs[viewer_id]["processes"].append(proc_id)
-
+            self._track_viewer_process(viewer_id, proc_id)
             if message:
                 self.log_message(message)
             if error:

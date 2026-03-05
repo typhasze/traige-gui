@@ -6,7 +6,7 @@ import sys
 import threading
 import time
 import urllib.parse
-from typing import Any, Optional
+from typing import Optional
 
 from ..utils.constants import (
     DEFAULT_BACKUP_PATH,
@@ -24,10 +24,6 @@ from ..utils.logger import get_logger
 from .symlink_playback_logic import SymlinkPlaybackLogic
 
 logger = get_logger(__name__)
-
-
-def perform_operation(data):
-    return data
 
 
 class FoxgloveAppLogic:
@@ -144,28 +140,6 @@ class FoxgloveAppLogic:
             self.settings = merged
         else:
             self.settings = DEFAULT_SETTINGS.copy()
-
-    def load_settings(self) -> dict:
-        return DEFAULT_SETTINGS.copy()
-
-    def save_settings(self, settings_dict: dict) -> tuple:
-        try:
-            self.bazel_working_dir = self.get_bazel_working_dir()
-            return True, None
-        except Exception as e:
-            return False, str(e)
-
-    def reset_settings(self):
-        default_settings = {
-            "bazel_tools_viz_cmd": "bazel run //tools/viz",
-            "bazel_bag_gui_cmd": "bazel run //tools/bag:gui",
-            "bazel_working_dir": os.path.expanduser("~/av-system/catkin_ws/src"),
-            "bazel_bag_gui_rate": 1.0,
-        }
-        self.save_settings(default_settings)
-
-    def get_setting(self, key: str) -> Optional[Any]:
-        return None
 
     def get_bazel_working_dir(self, settings=None):
         if settings is not None:
@@ -414,57 +388,43 @@ class FoxgloveAppLogic:
                 return True
         return False
 
-    def _terminate_process_by_name(self, name):
-        """
-        Terminates any running process with the given name and its children.
-        Improved error handling and cross-platform compatibility with timeout protection.
-        """
+    def _terminate_process_by_name(self, name: str) -> None:
         for proc_info in list(self.running_processes):
             if proc_info["name"] == name:
                 proc = proc_info["process"]
-                if proc.poll() is None:  # Process is still running
-                    try:
-                        # Terminate the entire process group
-                        if sys.platform != "win32":
-                            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                        else:
-                            proc.terminate()
-
-                        # Wait for graceful termination with timeout
-                        proc.wait(timeout=3)
-
-                    except subprocess.TimeoutExpired:
-                        # Force kill if graceful termination failed
-                        try:
-                            if sys.platform != "win32":
-                                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                            else:
-                                proc.kill()
-                            # Add timeout to prevent hanging on wait after kill
-                            proc.wait(timeout=5)
-                        except subprocess.TimeoutExpired:
-                            # Process is completely unresponsive, log and continue
-                            self.log_callback(
-                                f"Process {name} (PID: {proc.pid}) is unresponsive to SIGKILL", is_error=True
-                            )
-                        except (ProcessLookupError, PermissionError, OSError):
-                            # Process might have already died or access denied
-                            pass
-                    except (ProcessLookupError, PermissionError, OSError):
-                        # Process already died between poll() and killpg() or permission denied
-                        pass
-
-                # Remove from tracking list
+                if proc.poll() is None:
+                    self._kill_proc(proc, name)
                 if proc_info in self.running_processes:
                     self.running_processes.remove(proc_info)
 
     def _is_process_running_by_name(self, name):
         for proc_info in self.running_processes:
             if proc_info["name"] == name:
-                proc = proc_info["process"]
-                if proc.poll() is None:
+                if proc_info["process"].poll() is None:
                     return True
         return False
+
+    def _kill_proc(self, proc, name: str) -> None:
+        """Send SIGTERM then SIGKILL (if needed) to *proc*."""
+        try:
+            if sys.platform != "win32":
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            else:
+                proc.terminate()
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            try:
+                if sys.platform != "win32":
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                else:
+                    proc.kill()
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.log_callback(f"Process {name} (PID: {proc.pid}) is unresponsive to SIGKILL", is_error=True)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
 
     def _launch_process(self, command, name, cwd=None, mcap_path=None, startup_timeout=10, single_instance=None):
         if name == "Foxglove Studio (Browser)":
@@ -811,35 +771,15 @@ class FoxgloveAppLogic:
                     return False, f"{process_name} has exited unexpectedly"
         return False, f"{process_name} not found in running processes"
 
-    def terminate_process_by_id(self, proc_id):
+    def terminate_process_by_id(self, proc_id: int) -> bool:
         """Terminate a specific process by its ID."""
         for proc_info in list(self.running_processes):
             if proc_info.get("id") == proc_id:
                 proc = proc_info["process"]
                 name = proc_info["name"]
                 if proc.poll() is None:
-                    try:
-                        # Terminate the entire process group
-                        if sys.platform != "win32":
-                            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                        else:
-                            proc.terminate()
-
-                        proc.wait(timeout=3)
-                        self.log_callback(f"{name} terminated (ID: {proc_id}).")
-                    except subprocess.TimeoutExpired:
-                        try:
-                            if sys.platform != "win32":
-                                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                            else:
-                                proc.kill()
-                            proc.wait(timeout=5)
-                            self.log_callback(f"{name} killed (ID: {proc_id}).")
-                        except (subprocess.TimeoutExpired, ProcessLookupError, PermissionError, OSError):
-                            self.log_callback(f"Error killing {name} (ID: {proc_id})", is_error=True)
-                    except (ProcessLookupError, PermissionError, OSError):
-                        pass
-
+                    self._kill_proc(proc, name)
+                    self.log_callback(f"{name} terminated (ID: {proc_id}).")
                 if proc_info in self.running_processes:
                     self.running_processes.remove(proc_info)
                 return True

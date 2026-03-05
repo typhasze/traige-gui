@@ -1,14 +1,16 @@
+import logging
 import os
 import shutil
 import signal
 import sys
+import threading
 import tkinter as tk
 from tkinter import ttk
 
 from ..logic.core import FoxgloveAppLogic
 from ..logic.file_explorer_logic import FileExplorerLogic
 from ..utils.constants import SETTINGS_FILE_PATH
-from ..utils.logger import TkinterLogHandler, get_logger, setup_logging
+from ..utils.logger import TkinterLogHandler, get_logger
 from ..utils.settings_manager import SettingsManager
 from .components.file_explorer_tab import FileExplorerTab
 from .components.settings_tab import SettingsTab
@@ -20,9 +22,6 @@ class FoxgloveAppGUIManager:
     def __init__(self, root):
         self.root = root
 
-        # ── Logging framework ─────────────────────────────────────────────
-        # Set up file-based logging immediately so all subsequent code can log
-        setup_logging()
         logger.info("FoxgloveAppGUIManager initialising")
 
         self.logic = FoxgloveAppLogic(log_callback=self.log_message)
@@ -64,17 +63,9 @@ class FoxgloveAppGUIManager:
         self.main_notebook.add(self.file_explorer_tab.frame, text="File Explorer")
         self.main_notebook.add(self.settings_tab.frame, text="Settings")
 
-        # Register callback for NAS directory changes
-        def nas_dir_callback(new_nas_dir):
-            self.update_file_explorer_nas_dir(new_nas_dir)
-
-        self.settings_tab.on_nas_dir_changed = nas_dir_callback
-
-        # Register callback for LOGGING directory changes
-        def logging_dir_callback(new_logging_dir):
-            self.update_file_explorer_logging_dir(new_logging_dir)
-
-        self.settings_tab.on_logging_dir_changed = logging_dir_callback
+        # Register callbacks for directory changes
+        self.settings_tab.on_nas_dir_changed = self.update_file_explorer_nas_dir
+        self.settings_tab.on_logging_dir_changed = self.update_file_explorer_logging_dir
 
         # Initialize logging directory from settings (silent to avoid logging before log widget exists)
         logging_dir = self.settings_tab.get_setting("logging_dir")
@@ -191,9 +182,7 @@ class FoxgloveAppGUIManager:
         log_xscrollbar.pack(side="bottom", fill="x")
         self.log_text.pack(side="left", fill="both", expand=True)
 
-        # ── Attach Tkinter handler so Python logging routes to the GUI widget ──
-        import logging
-
+        # Attach Tkinter handler so Python logging routes to the GUI widget
         self._tk_log_handler = TkinterLogHandler(self.log_text)
         self._tk_log_handler.setLevel(logging.INFO)
         logging.getLogger("traige_gui").addHandler(self._tk_log_handler)
@@ -222,18 +211,6 @@ class FoxgloveAppGUIManager:
         else:
             logger.info("%s", message)
 
-    def enable_file_specific_action_buttons(self, open_with_foxglove=True, open_with_bazel=True, copy_path=False):
-        states = {
-            "open_with_foxglove": open_with_foxglove,
-            "open_with_bazel": open_with_bazel,
-            "copy_path": copy_path,
-        }
-        self._update_button_states(states)
-
-    def disable_file_specific_action_buttons(self):
-        states = {"open_with_foxglove": False, "open_with_bazel": False, "copy_path": False}
-        self._update_button_states(states)
-
     def launch_bazel_viz(self):
         self.log_message("Launching Bazel Tools Viz...")
         message, error, _ = self.logic.launch_bazel_tools_viz(self.settings_tab.settings)
@@ -249,7 +226,6 @@ class FoxgloveAppGUIManager:
 
         self._building = True
         self._show_building_status()
-        import threading
 
         def build_task():
             message, error = self.logic.run_bazel_build(self.settings_tab.settings)
@@ -283,8 +259,6 @@ class FoxgloveAppGUIManager:
         self.log_message("Running Bazel clean...")
         self.update_status_bar("Cleaning...", "")
         self.show_progress(True)
-
-        import threading
 
         def clean_task():
             message, error = self.logic.run_bazel_clean(self.settings_tab.settings)
@@ -714,8 +688,7 @@ class FoxgloveAppGUIManager:
             # File Explorer tab: update based on explorer selection (suppress logging to avoid spam)
             self.file_explorer_tab.on_explorer_select(None, suppress_log=True)
         else:
-            # Settings or other tabs: disable all file-specific action buttons
-            self.disable_file_specific_action_buttons()
+            self._update_button_states({key: False for key in ("open_with_foxglove", "open_with_bazel", "copy_path")})
 
     def _cache_tab_indices(self):
         """Cache tab indices for performance optimization"""

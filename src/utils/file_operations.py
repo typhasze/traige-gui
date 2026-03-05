@@ -1,9 +1,4 @@
-"""
-Common file operation utilities.
-
-This module provides cross-platform file operations like opening files
-and directories using system default applications.
-"""
+"""Common file operation utilities for opening files, directories, and URLs."""
 
 import os
 import platform
@@ -11,103 +6,56 @@ import subprocess
 from typing import Tuple
 
 
-def open_file_with_default_app(file_path: str, timeout: int = 10) -> Tuple[bool, str]:
-    """
-    Open a file using the system default application.
-
-    Args:
-        file_path: Path to the file to open
-        timeout: Timeout in seconds for the operation
-
-    Returns:
-        Tuple of (success: bool, message: str)
-    """
+def _run_open_cmd(cmd: list, path: str, timeout: int) -> Tuple[bool, str]:
+    """Run a subprocess open command; return (success, error_message)."""
     try:
-        system = platform.system()
-        if system == "Linux":
-            subprocess.run(["xdg-open", file_path], check=True, timeout=timeout)
-        elif system == "Darwin":
-            subprocess.run(["open", file_path], check=True, timeout=timeout)
-        elif system == "Windows":
-            os.startfile(file_path)
-        else:
-            return False, f"Unsupported system: {system}"
-        return True, f"Opened file: {os.path.basename(file_path)}"
+        subprocess.run(cmd, check=True, timeout=timeout)
+        return True, ""
     except subprocess.TimeoutExpired:
-        return False, f"Timeout opening file: {os.path.basename(file_path)}"
+        return False, f"Timeout opening: {os.path.basename(path)}"
     except subprocess.CalledProcessError as e:
-        return False, f"Failed to open file: {e}"
+        return False, f"Failed to open: {e}"
     except Exception as e:
-        return False, f"Error opening file: {e}"
+        return False, f"Error: {e}"
+
+
+def open_file_with_default_app(file_path: str, timeout: int = 10) -> Tuple[bool, str]:
+    """Open a file using the system default application."""
+    system = platform.system()
+    if system == "Windows":
+        try:
+            os.startfile(file_path)
+            return True, f"Opened file: {os.path.basename(file_path)}"
+        except Exception as e:
+            return False, f"Error opening file: {e}"
+    cmd_name = "xdg-open" if system == "Linux" else "open" if system == "Darwin" else None
+    if cmd_name is None:
+        return False, f"Unsupported system: {system}"
+    ok, err = _run_open_cmd([cmd_name, file_path], file_path, timeout)
+    return (True, f"Opened file: {os.path.basename(file_path)}") if ok else (False, err)
 
 
 def open_directory_in_file_manager(dir_path: str, timeout: int = 10) -> Tuple[bool, str]:
-    """
-    Open a directory in the system file manager.
-
-    Args:
-        dir_path: Path to the directory to open
-        timeout: Timeout in seconds for the operation
-
-    Returns:
-        Tuple of (success: bool, message: str)
-    """
-    try:
-        system = platform.system()
-        if system == "Linux":
-            subprocess.run(["xdg-open", dir_path], check=True, timeout=timeout)
-        elif system == "Darwin":
-            subprocess.run(["open", dir_path], check=True, timeout=timeout)
-        elif system == "Windows":
-            subprocess.run(["explorer", dir_path], check=True, timeout=timeout)
-        else:
-            return False, f"Unsupported system: {system}"
-        return True, f"Opened in file manager: {dir_path}"
-    except subprocess.TimeoutExpired:
-        return False, f"Timeout opening file manager for: {dir_path}"
-    except subprocess.CalledProcessError as e:
-        return False, f"Failed to open file manager: {e}"
-    except Exception as e:
-        return False, f"Error opening file manager: {e}"
+    """Open a directory in the system file manager."""
+    system = platform.system()
+    cmd_map = {"Linux": "xdg-open", "Darwin": "open", "Windows": "explorer"}
+    if system not in cmd_map:
+        return False, f"Unsupported system: {system}"
+    ok, err = _run_open_cmd([cmd_map[system], dir_path], dir_path, timeout)
+    return (True, f"Opened in file manager: {dir_path}") if ok else (False, err)
 
 
 def open_url_in_browser(url: str, timeout: int = 10) -> Tuple[bool, str]:
-    """
-    Open a URL in the default web browser.
-
-    Args:
-        url: URL to open
-        timeout: Timeout in seconds for the operation
-
-    Returns:
-        Tuple of (success: bool, message: str)
-    """
-    try:
-        subprocess.run(["xdg-open", url], check=True, timeout=timeout)
-        return True, "Opened URL in browser"
-    except subprocess.TimeoutExpired:
-        return False, "Timeout launching browser"
-    except subprocess.CalledProcessError as e:
-        return False, f"Failed to launch browser: {e}"
-    except Exception as e:
-        return False, f"Error launching browser: {e}"
+    """Open a URL with xdg-open (Linux)."""
+    ok, err = _run_open_cmd(["xdg-open", url], url, timeout)
+    return (True, "Opened URL in browser") if ok else (False, err)
 
 
 def safe_file_read(file_path: str, encoding: str = "utf-8") -> Tuple[bool, str, list]:
-    """
-    Safely read a file and return its lines.
-
-    Args:
-        file_path: Path to the file to read
-        encoding: File encoding (default: utf-8)
-
-    Returns:
-        Tuple of (success: bool, error_message: str, lines: list)
-    """
+    """Safely read a file and return its lines."""
     try:
         with open(file_path, "r", encoding=encoding) as f:
-            lines = f.readlines()
-        return True, "", lines
+            return True, "", f.readlines()
     except FileNotFoundError:
         return False, f"File not found: {file_path}", []
     except PermissionError:
@@ -119,24 +67,11 @@ def safe_file_read(file_path: str, encoding: str = "utf-8") -> Tuple[bool, str, 
 
 
 def safe_file_write(file_path: str, content: str, encoding: str = "utf-8") -> Tuple[bool, str]:
-    """
-    Safely write content to a file with atomic operations.
-
-    Args:
-        file_path: Path to the file to write
-        content: Content to write
-        encoding: File encoding (default: utf-8)
-
-    Returns:
-        Tuple of (success: bool, error_message: str)
-    """
+    """Safely write content to a file atomically."""
     try:
-        # Write to temporary file first for atomic operation
         temp_path = file_path + ".tmp"
         with open(temp_path, "w", encoding=encoding) as f:
             f.write(content)
-
-        # Atomic replace
         os.replace(temp_path, file_path)
         return True, ""
     except PermissionError:
