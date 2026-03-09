@@ -33,8 +33,8 @@ DEFAULT_SETTINGS = {
     "open_foxglove_in_browser": True,
     "single_instance_video": True,
     "single_instance_rosbag": True,
-    "auto_open_event_log_for_tg": False,
-    "event_log_viewer_as_tab": False,
+    "auto_open_event_log_for_tg": True,
+    "event_log_viewer_as_tab": True,
 }
 
 # ============================================================================

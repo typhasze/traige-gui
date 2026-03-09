@@ -69,6 +69,7 @@ class FileExplorerLogic:
         try:
             root.clipboard_clear()
             root.clipboard_append(text)
+            root.update()
             return True, f"Copied to clipboard: {text}"
         except Exception as e:
             return False, f"Error copying to clipboard: {e}"
@@ -79,9 +80,10 @@ class FileExplorerLogic:
         if not selected_paths:
             return states
 
+        states["copy_path"] = True
+
         if not is_multiple_selection:
             item_path = selected_paths[0]
-            states["copy_path"] = True
             if os.path.isdir(item_path):
                 states["open_file"] = True
             elif os.path.isfile(item_path):

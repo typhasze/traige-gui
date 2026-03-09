@@ -46,6 +46,9 @@ class FoxgloveAppGUIManager:
             self.file_explorer_logic,
             self.log_message,
             self._update_button_states,
+            copy_selected_path_cb=self.copy_selected_path,
+            open_with_foxglove_cb=self.open_with_foxglove,
+            open_with_bazel_cb=self.open_with_bazel,
         )
 
         self.file_explorer_tab.focus_file_explorer_tab = self.focus_file_explorer_tab
@@ -125,7 +128,7 @@ class FoxgloveAppGUIManager:
             borderwidth=2,
             focusthickness=3,
             focuscolor="none",
-            padding=(6, 4),
+            padding=(4, 4),
         )
 
         style.map("Action.TButton", background=[("active", "#3498DB"), ("disabled", "#BDC3C7")])
@@ -134,16 +137,16 @@ class FoxgloveAppGUIManager:
         button_frame = ttk.Frame(parent_frame)
         button_frame.pack(fill="x", padx=10, pady=5)
 
-        self.open_file_button = self._create_button(button_frame, "Open File", self.open_selected_file)
-        self.copy_path_button = self._create_button(button_frame, "Copy Path", self.copy_selected_path)
-        self.open_in_manager_button = self._create_button(button_frame, "File Manager", self.open_in_file_manager)
+        self.open_file_button = self._create_button(button_frame, "Open", self.open_selected_file)
+        self.copy_path_button = self._create_button(button_frame, "Copy", self.copy_selected_path)
+        self.open_in_manager_button = self._create_button(button_frame, "Manager", self.open_in_file_manager)
         self.open_foxglove_button = self._create_button(button_frame, "Foxglove", self.open_with_foxglove)
-        self.open_bazel_button = self._create_button(button_frame, "Rosbag Playback", self.open_with_bazel)
-        self.launch_bazel_viz_button = self._create_button(button_frame, "Bazel Viz", self.launch_bazel_viz)
-        self.build_bazel_button = self._create_button(button_frame, "Build ...", self.run_bazel_build)
-        self.show_process_status_button = self._create_button(
-            button_frame, "Running Processes", self.show_process_status
-        )
+        self.open_bazel_button = self._create_button(button_frame, "Rosbag", self.open_with_bazel)
+        self.launch_bazel_viz_button = self._create_button(button_frame, "Viz", self.launch_bazel_viz)
+        self.topic_gui_button = self._create_button(button_frame, "Topic", self.launch_topic_gui_tool, state=tk.NORMAL)
+        self.av_plot_button = self._create_button(button_frame, "Plot", self.launch_av_plot_tool, state=tk.NORMAL)
+        self.build_bazel_button = self._create_button(button_frame, "Build", self.run_bazel_build)
+        self.show_process_status_button = self._create_button(button_frame, "Procs", self.show_process_status)
 
         self._button_map = {
             "open_file": self.open_file_button,
@@ -198,6 +201,20 @@ class FoxgloveAppGUIManager:
             self.log_message(message)
         if error:
             self.log_message(error, is_error=True)
+
+    def _launch_extra_bazel_tool(self, tool_name, command):
+        self.log_message(f"Launching {tool_name}...")
+        message, error, _ = self.logic.launch_bazel_tool(self.settings_tab.settings, command, tool_name)
+        if message:
+            self.log_message(message)
+        if error:
+            self.log_message(error, is_error=True)
+
+    def launch_topic_gui_tool(self):
+        self._launch_extra_bazel_tool("topic-gui", "bazel run //tools/topic:gui")
+
+    def launch_av_plot_tool(self):
+        self._launch_extra_bazel_tool("av-plot", "bazel run //tools/plot")
 
     def _run_in_thread(self, task):
         threading.Thread(target=task, daemon=True).start()
@@ -296,7 +313,6 @@ class FoxgloveAppGUIManager:
             ("p", lambda e: self.show_process_status()),
             ("f", lambda e: self.open_with_foxglove() if self.open_foxglove_button["state"] == tk.NORMAL else None),
             ("b", lambda e: self.open_with_bazel() if self.open_bazel_button["state"] == tk.NORMAL else None),
-            ("c", lambda e: self.copy_selected_path() if self.copy_path_button["state"] == tk.NORMAL else None),
             ("o", lambda e: self.open_selected_file() if self.open_file_button["state"] == tk.NORMAL else None),
             ("m", lambda e: self.open_in_file_manager()),
             ("q", lambda e: self.on_closing()),
@@ -366,8 +382,8 @@ class FoxgloveAppGUIManager:
         main_frame = ttk.Frame(shortcuts_window, padding="20")
         main_frame.pack(fill="both", expand=True)
 
-        title_label = ttk.Label(main_frame, text="Keyboard Shortcuts", font=("Arial", 14, "bold"))
-        title_label.pack(pady=(0, 15))
+        # title_label = ttk.Label(main_frame, text="Keyboard Shortcuts", font=("Arial", 14, "bold"))
+        # title_label.pack(pady=(0, 15))
 
         # Create scrollable frame
         canvas = tk.Canvas(main_frame)
@@ -393,11 +409,12 @@ class FoxgloveAppGUIManager:
             (
                 "File Operations",
                 [
-                    ("Ctrl+O", "Open selected file"),
-                    ("Ctrl+F", "Open with Foxglove"),
-                    ("Ctrl+B", "Open with Bazel"),
-                    ("Ctrl+C", "Copy file path"),
-                    ("Ctrl+M", "Open in file manager"),
+                    ("Ctrl+O", "Open selected item"),
+                    ("Ctrl+F", "Launch Foxglove"),
+                    ("Ctrl+B", "Launch Rosbag"),
+                    ("Ctrl+C", "Copy selected path(s)"),
+                    ("Ctrl+E", "Focus search filter"),
+                    ("Ctrl+M", "Open current folder in manager"),
                 ],
             ),
             (
@@ -407,6 +424,18 @@ class FoxgloveAppGUIManager:
                     ("Backspace", "Go to parent directory"),
                     ("Arrow Keys", "Navigate file lists"),
                     ("Double-Click", "Open file/folder"),
+                ],
+            ),
+            (
+                "Event Viewer",
+                [
+                    ("Ctrl+F or /", "Focus event viewer search"),
+                    ("Escape", "Clear search and focus event list"),
+                    ("V", "Play video at selected event"),
+                    ("B", "Play Bazel at selected event"),
+                    ("C", "Play Bazel from start at selected event"),
+                    ("S or L", "Show related MCAP"),
+                    ("Ctrl+F4", "Close event viewer tab/window"),
                 ],
             ),
             (
@@ -440,13 +469,13 @@ class FoxgloveAppGUIManager:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        close_button = ttk.Button(main_frame, text="Close", command=shortcuts_window.destroy)
-        close_button.pack(pady=(15, 0))
+        # close_button = ttk.Button(main_frame, text="Close", command=shortcuts_window.destroy)
+        # close_button.pack(pady=(15, 0))
 
     def _create_button(self, parent, text, command, state=tk.DISABLED, **pack_opts):
         """Helper to create and pack a ttk.Button with common options."""
         btn = ttk.Button(parent, text=text, command=command, state=state, style="Action.TButton")
-        btn.pack(side=tk.LEFT, padx=5, pady=5, expand=True, fill="x", **pack_opts)
+        btn.pack(side=tk.LEFT, padx=4, pady=4, **pack_opts)
         return btn
 
     # --- Cross-Tab Action Methods ---
@@ -474,24 +503,24 @@ class FoxgloveAppGUIManager:
     def copy_selected_path(self):
         """Copy the path of the selected item from the active tab to the clipboard."""
         current_tab = self.main_notebook.index(self.main_notebook.select())
-        item_path = None
+        selected_paths = []
 
         if current_tab == self._explorer_tab_index:
             selection = self.file_explorer_tab.explorer_listbox.curselection()
-            if selection:
-                idx = selection[0]
+            for idx in selection:
                 if idx < len(self.file_explorer_tab.explorer_files_list):
                     selected_item = self.file_explorer_tab.explorer_files_list[idx]
-                    item_path = os.path.join(self.file_explorer_tab.current_explorer_path, selected_item)
+                    selected_paths.append(os.path.join(self.file_explorer_tab.current_explorer_path, selected_item))
 
-        if item_path:
-            success, msg = self.file_explorer_logic.copy_to_clipboard(self.root, item_path)
+        if selected_paths:
+            clipboard_text = "\n".join(selected_paths)
+            success, msg = self.file_explorer_logic.copy_to_clipboard(self.root, clipboard_text)
             if success:
                 self.log_message(msg)
             else:
                 self.log_message(msg, is_error=True)
         else:
-            self.log_message("No single item selected to copy path from.", is_error=True)
+            self.log_message("No item selected to copy path from.", is_error=True)
 
     def _get_selected_mcap_files(self):
         """Return selected MCAP paths from the explorer, or empty list with error logged."""
@@ -582,6 +611,8 @@ class FoxgloveAppGUIManager:
         self._update_button_states({key: False for key in self._button_map})
         self.open_in_manager_button.config(state=tk.NORMAL)
         self.launch_bazel_viz_button.config(state=tk.NORMAL)
+        self.topic_gui_button.config(state=tk.NORMAL)
+        self.av_plot_button.config(state=tk.NORMAL)
         self.build_bazel_button.config(state=tk.NORMAL)
         self.show_process_status_button.config(state=tk.NORMAL)
 

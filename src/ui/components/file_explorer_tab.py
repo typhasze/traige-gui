@@ -25,6 +25,9 @@ class FileExplorerTab:
         file_explorer_logic: Any,
         log_message: Callable[..., None],
         update_button_states: Callable[[Dict[str, bool]], None],
+        copy_selected_path_cb: Optional[Callable[[], None]] = None,
+        open_with_foxglove_cb: Optional[Callable[[], None]] = None,
+        open_with_bazel_cb: Optional[Callable[[], None]] = None,
     ) -> None:
         self.frame = ttk.Frame(parent)
         self.notebook = parent
@@ -33,6 +36,9 @@ class FileExplorerTab:
         self.file_explorer_logic = file_explorer_logic
         self.log_message = log_message
         self._update_button_states = update_button_states
+        self._copy_selected_path_cb = copy_selected_path_cb
+        self._open_with_foxglove_cb = open_with_foxglove_cb
+        self._open_with_bazel_cb = open_with_bazel_cb
         self.focus_file_explorer_tab = None
 
         self._data_root = os.path.expanduser("~/data")
@@ -158,11 +164,48 @@ class FileExplorerTab:
         return "break"
 
     def _bind_widget_tree_shortcuts(self, widget):
-        widget.bind("<Control-f>", self._focus_search_filter, add="+")
-        widget.bind("<Control-F>", self._focus_search_filter, add="+")
+        widget.bind("<Control-e>", self._focus_search_filter, add="+")
+        widget.bind("<Control-E>", self._focus_search_filter, add="+")
+        widget.bind("<Control-f>", self._handle_foxglove_shortcut, add="+")
+        widget.bind("<Control-F>", self._handle_foxglove_shortcut, add="+")
+        widget.bind("<Control-b>", self._handle_bazel_shortcut, add="+")
+        widget.bind("<Control-B>", self._handle_bazel_shortcut, add="+")
+        widget.bind("<Control-c>", self._handle_copy_shortcut, add="+")
+        widget.bind("<Control-C>", self._handle_copy_shortcut, add="+")
         widget.bind("<Escape>", self._clear_link_and_search_filters, add="+")
         for child in widget.winfo_children():
             self._bind_widget_tree_shortcuts(child)
+
+    def _handle_copy_shortcut(self, event=None):
+        if not self._is_file_explorer_tab_active():
+            return None
+        widget = event.widget if event is not None else self.root.focus_get()
+        if (
+            isinstance(widget, (tk.Entry, ttk.Entry))
+            and hasattr(widget, "selection_present")
+            and widget.selection_present()
+        ):
+            return None
+        if self._copy_selected_path_cb is not None:
+            self._copy_selected_path_cb()
+            return "break"
+        return None
+
+    def _handle_foxglove_shortcut(self, event=None):
+        if not self._is_file_explorer_tab_active():
+            return None
+        if self._open_with_foxglove_cb is not None:
+            self._open_with_foxglove_cb()
+            return "break"
+        return None
+
+    def _handle_bazel_shortcut(self, event=None):
+        if not self._is_file_explorer_tab_active():
+            return None
+        if self._open_with_bazel_cb is not None:
+            self._open_with_bazel_cb()
+            return "break"
+        return None
 
     def on_listbox_keypress(self, event):
         """Focus search bar on key press in the listbox."""

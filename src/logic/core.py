@@ -482,6 +482,12 @@ class FoxgloveAppLogic:
         command = DEFAULT_SETTINGS["bazel_tools_viz_cmd"]
         return self._launch_process(command, "Bazel Tools Viz", cwd=self.bazel_working_dir)
 
+    def launch_bazel_tool(self, settings, command, tool_name):
+        self.bazel_working_dir = self.get_bazel_working_dir(settings)
+        if not self.bazel_working_dir or not os.path.isdir(self.bazel_working_dir):
+            return None, f"Bazel working directory not found: {self.bazel_working_dir}", None
+        return self._launch_process(command, tool_name, cwd=self.bazel_working_dir)
+
     def run_bazel_build(self, settings):
         self.bazel_working_dir = self.get_bazel_working_dir(settings)
         if not self.bazel_working_dir or not os.path.isdir(self.bazel_working_dir):
