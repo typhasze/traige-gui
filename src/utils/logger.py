@@ -29,7 +29,6 @@ import queue
 import threading
 from typing import Optional
 
-# ── Module-level constants ────────────────────────────────────────────────────
 LOG_DIR = os.path.expanduser("~/.traige_gui/logs")
 LOG_FILE = os.path.join(LOG_DIR, "traige_gui.log")
 LOG_FORMAT = "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s"
@@ -57,12 +56,10 @@ def setup_logging(level: int = logging.DEBUG) -> logging.Logger:
 
     root = logging.getLogger(ROOT_LOGGER_NAME)
     if root.handlers:
-        # Already configured – avoid duplicate handlers on re-import
         return root
 
     root.setLevel(level)
 
-    # ── Rotating file handler (captures everything DEBUG+) ────────────────
     file_handler = logging.handlers.RotatingFileHandler(
         LOG_FILE,
         maxBytes=MAX_LOG_BYTES,
@@ -73,7 +70,6 @@ def setup_logging(level: int = logging.DEBUG) -> logging.Logger:
     file_handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT))
     root.addHandler(file_handler)
 
-    # ── Console handler (WARNING+ only, useful during development) ─────────
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.WARNING)
     console_handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT))
@@ -123,7 +119,6 @@ class TkinterLogHandler(logging.Handler):
         self._queue: "queue.Queue[tuple[str, bool]]" = queue.Queue()
         self._main_thread_id = threading.main_thread().ident
         self._flush_scheduled = False
-        # Keep GUI output concise – full timestamp is in the log file
         self.setFormatter(logging.Formatter("%(message)s"))
         self._schedule_flush()
 

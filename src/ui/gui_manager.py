@@ -50,7 +50,6 @@ class FoxgloveAppGUIManager:
 
         self.file_explorer_tab.focus_file_explorer_tab = self.focus_file_explorer_tab
 
-        # ── Ensure nas_dir is pre-seeded before SettingsTab reads the file ──
         _bootstrap = SettingsManager(SETTINGS_FILE_PATH)
         if not _bootstrap.get("nas_dir"):
             initial_path = self.file_explorer_tab.current_explorer_path
@@ -63,20 +62,16 @@ class FoxgloveAppGUIManager:
         self.main_notebook.add(self.file_explorer_tab.frame, text="File Explorer")
         self.main_notebook.add(self.settings_tab.frame, text="Settings")
 
-        # Register callbacks for directory changes
         self.settings_tab.on_nas_dir_changed = self.update_file_explorer_nas_dir
         self.settings_tab.on_logging_dir_changed = self.update_file_explorer_logging_dir
 
-        # Initialize logging directory from settings (silent to avoid logging before log widget exists)
         logging_dir = self.settings_tab.get_setting("logging_dir")
         if logging_dir:
             self.file_explorer_tab.update_logging_root(logging_dir, silent=True)
 
-        # --- Shared Components ---
         self.create_shared_log_frame(main_frame)
         self.create_status_bar()
 
-        # Check if NAS directory exists and log error if not (after log widget is created)
         nas_dir = self.settings_tab.get_setting("nas_dir")
         if nas_dir:
             if not os.path.exists(nas_dir):
@@ -92,7 +87,6 @@ class FoxgloveAppGUIManager:
                     f"⚠️ NAS directory exists but is not accessible (permission denied): {nas_dir}", is_error=True
                 )
             else:
-                # Check if directory is empty (NAS not mounted)
                 try:
                     if not os.listdir(nas_dir):
                         self.log_message(
@@ -103,20 +97,16 @@ class FoxgloveAppGUIManager:
                 except Exception as e:
                     self.log_message(f"⚠️ Could not check NAS directory contents: {nas_dir} - {e}", is_error=True)
 
-        # --- Initial State ---
         self._cache_tab_indices()
-        self.on_tab_changed()  # Set initial button states
+        self.on_tab_changed()
         self.setup_signal_handlers()
         self.setup_keyboard_shortcuts()
 
-        # Bind tab change event
         self.main_notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
 
-        # Update status bar initially
         self.update_status_bar("Ready")
         self._building = False
 
-        # Lock minimum window size to prevent shrinking, but allow growth for new content
         self.root.update_idletasks()
         initial_width = self.root.winfo_width()
         initial_height = self.root.winfo_height()
@@ -135,13 +125,10 @@ class FoxgloveAppGUIManager:
             borderwidth=2,
             focusthickness=3,
             focuscolor="none",
-            padding=(6, 4),  # Horizontal padding 6px, vertical padding 4px
+            padding=(6, 4),
         )
 
-        # Hover effect
-        style.map(
-            "Action.TButton", background=[("active", "#3498DB"), ("disabled", "#BDC3C7")]  # Darker blue on hover
-        )  # Gray when disabled
+        style.map("Action.TButton", background=[("active", "#3498DB"), ("disabled", "#BDC3C7")])
 
     def create_shared_action_buttons(self, parent_frame):
         button_frame = ttk.Frame(parent_frame)

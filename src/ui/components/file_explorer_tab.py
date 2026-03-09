@@ -27,19 +27,16 @@ class FileExplorerTab:
         update_button_states: Callable[[Dict[str, bool]], None],
     ) -> None:
         self.frame = ttk.Frame(parent)
-        self.notebook = parent  # Store reference to the main notebook for creating tabs
+        self.notebook = parent
         self.root = root
         self.logic = logic
         self.file_explorer_logic = file_explorer_logic
         self.log_message = log_message
         self._update_button_states = update_button_states
-        self.focus_file_explorer_tab = None  # Callback to switch to file explorer tab
+        self.focus_file_explorer_tab = None
 
-        # State
         self._data_root = os.path.expanduser("~/data")
         self._abs_data_root = os.path.abspath(self._data_root)
-
-        # Logging directory will be set from settings
         self._logging_root = None
 
         self.current_explorer_path = self._data_root
@@ -47,35 +44,27 @@ class FileExplorerTab:
         self._history_set = set()
         self.explorer_files_list = []
 
-        # Analyze Link State
         self.analyze_link_filename = None
         self.analyze_link_folder = None
 
-        # Track event log viewers and their associated processes
         self.event_log_viewers = {}  # {window_id: {"window": tk.Toplevel, "processes": []}}
         self._next_viewer_id = 0
 
-        # Track event log viewer tabs: {viewer_id: {"frame": ttk.Frame, "processes": []}}
         self.event_log_viewer_tabs = {}
 
-        # Cache for MCAP file search to avoid repeated os.walk (performance optimization)
         self._mcap_cache = {}  # {rosbags_dir: (timestamp, mcap_files_list)}
         self._mcap_cache_ttl = 60  # Cache for 60 seconds
 
-        # Debounce timer id for search-triggered refreshes
         self._search_debounce_id: Optional[str] = None
 
-        # Handle double-click on notebook tabs to close event-log tabs
         self.notebook.bind("<Double-Button-1>", self._on_notebook_tab_click, add="+")
 
-        # UI Widgets
         self.create_widgets()
         self.bind_events()
 
         self.refresh_explorer()
 
     def create_widgets(self) -> None:
-        # Explorer path frame
         path_frame = ttk.Frame(self.frame)
         path_frame.pack(fill="x", padx=5, pady=(5, 1))
 
@@ -87,12 +76,10 @@ class FileExplorerTab:
         self.explorer_path_entry.pack(side=tk.LEFT, fill="x", expand=True)
         self.explorer_path_entry.bind("<FocusIn>", lambda e: e.widget.selection_clear())
 
-        # Navigation buttons
         self.go_home_button = self._create_button(path_frame, "Home", self.go_home_directory, side=tk.LEFT)
         self.go_logging_button = self._create_button(path_frame, "LOGGING", self.go_logging_directory, side=tk.LEFT)
         self.go_back_button = self._create_button(path_frame, "Back", self.go_back, side=tk.LEFT)
 
-        # Analyze Link frame
         link_frame = ttk.Frame(self.frame)
         link_frame.pack(fill="x", padx=5, pady=1)
 
@@ -106,7 +93,6 @@ class FileExplorerTab:
         self.analyze_button = self._create_button(link_frame, "Analyze", self.analyze_link, side=tk.LEFT)
         self.clear_button = self._create_button(link_frame, "Clear", self.clear_link_and_list, side=tk.LEFT)
 
-        # Search frame
         search_frame = ttk.Frame(self.frame)
         search_frame.pack(fill="x", padx=5, pady=(1, 5))
 
@@ -118,7 +104,6 @@ class FileExplorerTab:
         self.explorer_search_entry.pack(side=tk.LEFT, fill="x", expand=True)
         self.clear_search_button = self._create_button(search_frame, "Clear", self.clear_explorer_search, side=tk.LEFT)
 
-        # Explorer listbox
         list_frame = ttk.Frame(self.frame)
         list_frame.pack(fill="both", expand=True, padx=5, pady=5)
         self.explorer_listbox = tk.Listbox(list_frame, selectmode=tk.EXTENDED, exportselection=False)
@@ -146,11 +131,9 @@ class FileExplorerTab:
         self.explorer_listbox.bind("<BackSpace>", self.on_explorer_backspace_key)
         self.explorer_listbox.bind("<Key>", self.on_listbox_keypress)
 
-        # Keyboard shortcut for LOGGING directory (Ctrl+L)
         self.frame.bind_all("<Control-l>", lambda e: self.go_logging_directory())
         self.frame.bind_all("<Control-L>", lambda e: self.go_logging_directory())
 
-        # Tab-wide key handlers (works no matter which widget in this tab has focus)
         self._bind_widget_tree_shortcuts(self.frame)
 
     def _is_file_explorer_tab_active(self) -> bool:
@@ -183,16 +166,12 @@ class FileExplorerTab:
 
     def on_listbox_keypress(self, event):
         """Focus search bar on key press in the listbox."""
-        # Check if the key is a regular character (alphanumeric, punctuation, etc.)
         if event.char and event.char.isprintable() and len(event.char) == 1:
             self.explorer_search_entry.focus_set()
-            # The character from the event that triggered this is not automatically inserted,
-            # so we append it to the search variable.
             current_search = self.explorer_search_var.get()
             self.explorer_search_var.set(current_search + event.char)
-            # Move cursor to the end
             self.explorer_search_entry.icursor(tk.END)
-            return "break"  # Prevents the default listbox behavior for the key press
+            return "break"
 
     def _create_button(self, parent, text, command, state=tk.NORMAL, **pack_opts):
         btn = ttk.Button(parent, text=text, command=command, state=state, style="Action.TButton")
@@ -213,14 +192,12 @@ class FileExplorerTab:
 
         *on_done* is called on the main thread after the listbox is populated.
         """
-        # Cancel any search debounce that might trigger a second refresh
         if self._search_debounce_id:
             self.root.after_cancel(self._search_debounce_id)
             self._search_debounce_id = None
 
         self.root.config(cursor="watch")
 
-        # Clear listbox immediately on the main thread
         self.explorer_listbox.delete(0, tk.END)
         self.explorer_files_list.clear()
         self.explorer_listbox.selection_clear(0, tk.END)
@@ -308,15 +285,10 @@ class FileExplorerTab:
 
     def go_back(self) -> None:
         if self.explorer_history:
-            # Clear search filter when navigating back
             self.explorer_search_var.set("")
-
-            # Pop from history and also from the set for consistency
             previous_path = self.explorer_history.pop()
             if previous_path in self._history_set:
                 self._history_set.remove(previous_path)
-
-            # Remember the directory we're coming from to highlight it
             current_dir_name = os.path.basename(self.current_explorer_path)
             self.current_explorer_path = previous_path
             self.refresh_explorer(on_done=lambda n=current_dir_name: self.highlight_directory_in_explorer(n))
@@ -325,10 +297,8 @@ class FileExplorerTab:
         """Adds a path to the navigation history if it's not already the last one."""
         if not self.explorer_history or self.explorer_history[-1] != path:
             self.explorer_history.append(path)
-            # Limit history size
             if len(self.explorer_history) > 20:
                 self.explorer_history.pop(0)
-            # Rebuild the set from the list to ensure they are always in sync
             self._history_set = set(self.explorer_history)
 
     def go_up_directory(self) -> None:
@@ -339,7 +309,6 @@ class FileExplorerTab:
         if os.path.commonpath([parent_dir, self._abs_data_root]) != self._abs_data_root:
             return
 
-        # Remember the directory we're coming from to highlight it
         current_dir_name = os.path.basename(current)
         self._add_to_history(self.current_explorer_path)
         self.current_explorer_path = parent_dir
@@ -347,14 +316,9 @@ class FileExplorerTab:
 
     def go_home_directory(self) -> None:
         """Navigate to the home directory, adding the current path to history if it's different."""
-        # Clear search filter when going home
         self.explorer_search_var.set("")
-
-        # Add the current valid path to history if it's not the destination (home)
         if self.current_explorer_path != self._data_root:
             self._add_to_history(self.current_explorer_path)
-
-        # Set the current path to home and refresh the view
         self.current_explorer_path = self._data_root
         self.refresh_explorer()
 
@@ -366,25 +330,16 @@ class FileExplorerTab:
 
     def go_logging_directory(self):
         """Navigate to the LOGGING directory."""
-        # Clear search filter when navigating to LOGGING
         self.explorer_search_var.set("")
-
-        # Check if the LOGGING directory is configured
         if not self._logging_root:
             self.log_message("LOGGING directory not configured. Please check Settings.", is_error=True)
             return
-
-        # Check if the LOGGING directory exists
         if not os.path.exists(self._logging_root):
             self.log_message(f"LOGGING directory not found: {self._logging_root}", is_error=True)
             self.log_message("Please ensure the LOGGING drive is mounted.", is_error=False)
             return
-
-        # Add current path to history if different
         if self.current_explorer_path != self._logging_root:
             self._add_to_history(self.current_explorer_path)
-
-        # Navigate to LOGGING directory
         self.current_explorer_path = self._logging_root
         self.refresh_explorer()
         self.log_message(f"Navigated to LOGGING directory: {self._logging_root}")
@@ -395,7 +350,6 @@ class FileExplorerTab:
             self._add_to_history(self.current_explorer_path)
             self.current_explorer_path = selected_dir
             self.refresh_explorer()
-            # Auto-open event log if enabled
             self._auto_open_event_log_if_enabled()
 
     def navigate_to_path(self, event: Optional[Any] = None) -> None:
@@ -404,7 +358,6 @@ class FileExplorerTab:
             self._add_to_history(self.current_explorer_path)
             self.current_explorer_path = new_path
             self.refresh_explorer()
-            # Auto-open event log if enabled
             self._auto_open_event_log_if_enabled()
         else:
             self.log_message(f"Invalid path: {new_path}", is_error=True)
@@ -422,7 +375,6 @@ class FileExplorerTab:
                     self.current_explorer_path = item_path
                     self.clear_explorer_search()
                     self.refresh_explorer()
-                    # Auto-open event log if enabled
                     self._auto_open_event_log_if_enabled()
                 else:
                     self.open_file(item_path)
@@ -455,15 +407,12 @@ class FileExplorerTab:
                         self.open_file(item_path)
 
     def open_file(self, file_path: str) -> None:
-        # Check if this is an event_log_*.txt file
         filename = os.path.basename(file_path).lower()
         if filename.startswith("event_log_") and filename.endswith(".txt"):
             self.log_message(f"*unique file opened* - Event log file: {os.path.basename(file_path)}")
-            # Open custom event log viewer
             self.open_event_log_viewer(file_path)
             return
 
-        # Default file opening behavior for all other files
         success, msg = self.file_explorer_logic.open_file(file_path)
         if success:
             self.log_message(msg)
@@ -473,7 +422,6 @@ class FileExplorerTab:
     def open_event_log_viewer(self, file_path: str) -> None:
         """Open a custom viewer for event log files, either as window or tab based on settings."""
         try:
-            # Check settings to determine if we should open as tab
             settings = self._get_runtime_settings()
             open_as_tab = settings.get("event_log_viewer_as_tab", False)
             self.log_message(f"Opening event log viewer (as_tab={open_as_tab})")
@@ -491,13 +439,10 @@ class FileExplorerTab:
         viewer_id = self._next_viewer_id
         self._next_viewer_id += 1
 
-        # Create a new frame for the tab
         tab_frame = ttk.Frame(self.notebook, padding="10")
 
-        # Track this viewer tab
         self.event_log_viewer_tabs[viewer_id] = {"frame": tab_frame, "processes": [], "file_path": file_path}
 
-        # Build the viewer UI in the frame
         def on_close() -> None:
             self._cleanup_viewer_tab(viewer_id)
 
@@ -514,7 +459,7 @@ class FileExplorerTab:
             navigate_mcap_cb=lambda ts: self.navigate_to_mcap_from_timestamp(file_path, ts),
         ).build_ui()
 
-        # Add the tab before Settings so Settings remains rightmost
+        # Keep the Settings tab rightmost when inserting dynamic event tabs.
         tab_title = f"Event Log - {os.path.basename(file_path)[:20]}"
         settings_tab_index = self._get_settings_tab_index()
         if settings_tab_index is not None:
@@ -522,7 +467,6 @@ class FileExplorerTab:
         else:
             self.notebook.add(tab_frame, text=tab_title)
 
-        # Switch to the new tab
         self.notebook.select(tab_frame)
 
         self.log_message(f"Opened event log tab: {os.path.basename(file_path)} (double-click tab to close)")

@@ -9,7 +9,6 @@ from ..utils.utils import format_file_size, get_file_icon
 class FileExplorerLogic:
     def __init__(self, base_path: Optional[str] = None):
         self.base_path = base_path or DEFAULT_DATA_PATH
-        # Cache for file info to improve performance
         self._file_info_cache: Dict[str, Dict[str, Any]] = {}
         self._cache_size_limit = FILE_INFO_CACHE_SIZE_LIMIT
 
@@ -25,7 +24,6 @@ class FileExplorerLogic:
         if error:
             return [], []
 
-        # Apply hidden file filter if needed
         if not show_hidden:
             files = [f for f in files if not f.startswith(".")]
             directories = [d for d in directories if not d.startswith(".")]

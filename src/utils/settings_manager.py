@@ -32,10 +32,6 @@ from .logger import get_logger
 
 logger = get_logger(__name__)
 
-# ---------------------------------------------------------------------------
-# Settings schema — drives validate_settings()
-# ---------------------------------------------------------------------------
-
 #: Validation schema for each known settings key.
 #: Keys: ``type`` (Python type), ``required`` (bool), ``min_val``/``max_val``
 #: (numeric bounds), ``is_path`` (bool — path should ideally be a directory).
@@ -248,10 +244,6 @@ class SettingsManager:
         self.save()
         logger.debug("Settings reset to defaults")
 
-    # ------------------------------------------------------------------
-    # Key access helpers
-    # ------------------------------------------------------------------
-
     def get(self, key: str, default: Any = None) -> Any:
         """Return the value for *key*, or *default* if the key is absent."""
         return self.settings.get(key, default)
@@ -270,10 +262,6 @@ class SettingsManager:
     def as_dict(self) -> dict:
         """Return a shallow copy of all current settings."""
         return self.settings.copy()
-
-    # ------------------------------------------------------------------
-    # Convenience: validate common settings
-    # ------------------------------------------------------------------
 
     def validate_path(self, key: str) -> Tuple[bool, str]:
         """Check that the directory path stored under *key* exists and is readable.

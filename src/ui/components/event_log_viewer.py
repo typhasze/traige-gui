@@ -130,10 +130,7 @@ def parse_event_rows(
     data_lines: List[str],
     tree: ttk.Treeview,
 ) -> List[Tuple[str, ...]]:
-    """Parse tab-delimited event rows (with multi-line continuation) into *tree*.
-
-    UI updates are batched every 100 rows. Returns all events as 5-element tuples.
-    """
+    """Parse tab-delimited event rows (with multi-line continuation) into *tree*."""
     all_events: List[Tuple[str, ...]] = []
     current_parts: Optional[List[str]] = None
     batch_count = 0
@@ -173,7 +170,6 @@ def parse_event_rows(
                     current_parts = None
                     batch_count += 1
 
-            # Periodic UI refresh to prevent freezing on large files
             if batch_count >= BATCH_SIZE:
                 tree.update_idletasks()
                 batch_count = 0
@@ -232,12 +228,7 @@ def load_events(
     tree: ttk.Treeview,
     log_fn: Optional[Callable[..., None]] = None,
 ) -> List[Tuple[str, ...]]:
-    """Parse and load *file_path* into *tree*. Large files (>10 MB) emit a warning.
-
-    .. deprecated::
-        Prefer the async path in :meth:`EventLogViewer.build_ui` which calls
-        :func:`_parse_event_file` from a background thread.
-    """
+    """Parse and load *file_path* into *tree*. Large files (>10 MB) emit a warning."""
     all_events: List[Tuple[str, ...]] = []
 
     # Warn for large files
@@ -308,43 +299,31 @@ class EventLogViewer:
 
     # Public API
     def build_ui(self) -> None:
-        """Construct and pack all viewer widgets into :attr:`parent`.
-
-        All file I/O and parsing run in a background thread so the UI stays
-        responsive.  A "⏳ Loading…" placeholder is shown until events arrive.
-        """
+        """Construct and pack all viewer widgets into :attr:`parent`."""
         main_frame = ttk.Frame(self.parent, padding="10")
         main_frame.pack(fill="both", expand=True)
 
-        # File info header
         ttk.Label(
             main_frame,
             text=f"File: {self.file_path}",
             font=("Arial", 10, "bold"),
         ).pack(anchor="w", pady=(0, 10))
 
-        # Search / filter row
         _sf, search_var, search_entry, filter_result_label = self._create_search_frame(main_frame)
         self._search_var = search_var
 
-        # Event treeview (empty — data loads in background)
         tree = self._create_event_tree(main_frame)
         self._tree = tree
 
-        # Placeholder so users see something immediately
         loading_id = tree.insert("", "end", values=("⏳ Loading events…", "", "", "", ""))
 
-        # Action buttons + status label
         _bf, buttons, functions, status_label = self._create_action_buttons(main_frame, tree)
 
-        # Wire up interactions immediately — no data dependency
         self._setup_event_handlers(tree, buttons)
         update_status = self._setup_filtering(tree, search_var, filter_result_label, status_label)
 
-        # Keyboard shortcuts
         self._bind_keyboard_shortcuts(main_frame, search_entry, tree, functions)
 
-        # Warn for large files (fast stat, still on main thread)
         try:
             file_size = os.path.getsize(self.file_path)
             if file_size > 10 * 1024 * 1024 and self._log_message:
@@ -358,14 +337,12 @@ class EventLogViewer:
         file_path = self.file_path
 
         def _apply(events: List[Tuple[str, ...]]) -> None:
-            """Populate treeview on the main thread once parsing is done."""
             try:
                 tree.delete(loading_id)
             except Exception:  # nosec B110
                 pass
             for row in events:
                 tree.insert("", "end", values=row)
-            # Extend the existing list so _setup_filtering's captured reference sees data
             self._all_events.extend(events)
             logger.debug("Loaded %d events from %s", len(events), file_path)
             update_status()
@@ -394,12 +371,10 @@ class EventLogViewer:
         if self._search_var is not None:
             self._search_var.set(search_text)
 
-    # Private UI builders
     def _create_search_frame(
         self,
         parent: tk.Widget,
     ) -> Tuple[ttk.Frame, tk.StringVar, ttk.Entry, ttk.Label]:
-        """Create the search/filter bar and return its components."""
         search_frame = ttk.Frame(parent)
         search_frame.pack(fill="x", pady=(0, 10))
 
@@ -425,7 +400,6 @@ class EventLogViewer:
         return search_frame, search_var, search_entry, filter_result_label
 
     def _create_event_tree(self, parent: tk.Widget) -> ttk.Treeview:
-        """Create the five-column event treeview with scrollbars."""
         tree_container = ttk.Frame(parent)
         tree_container.pack(fill="both", expand=True)
 
@@ -459,11 +433,9 @@ class EventLogViewer:
         parent: tk.Widget,
         tree: ttk.Treeview,
     ) -> Tuple[ttk.Frame, dict, dict, ttk.Label]:
-        """Create action buttons and the status label; return both containers."""
         button_frame = ttk.Frame(parent)
         button_frame.pack(fill="x", pady=(10, 0))
 
-        # ---- helper: extract timestamp from selected row ----
         def _selected_ts() -> Optional[str]:
             sel = tree.selection()
             if sel:
@@ -472,7 +444,6 @@ class EventLogViewer:
                     return str(vals[0])
             return None
 
-        # ---- button action functions ----
         def play_video() -> None:
             if hasattr(tree, "play_video_func"):
                 tree.play_video_func()  # type: ignore[attr-defined]
@@ -501,7 +472,6 @@ class EventLogViewer:
                 except Exception as exc:
                     self._log_message(f"Error navigating to MCAP: {exc}", is_error=True)
 
-        # ---- create widgets ----
         btn_video = ttk.Button(
             button_frame,
             text="Video Timestamp",
@@ -538,7 +508,6 @@ class EventLogViewer:
         )
         btn_mcap.pack(side="left", padx=(0, 10))
 
-        # Status label sits directly after the action buttons
         status_label = ttk.Label(button_frame, text="")
         status_label.pack(side="left", padx=(10, 0))
 
@@ -564,7 +533,6 @@ class EventLogViewer:
         tree: ttk.Treeview,
         buttons: dict,
     ) -> None:
-        """Bind treeview row-selection and double-click handlers."""
 
         def on_row_select(event: tk.Event) -> None:  # type: ignore[type-arg]
             sel = tree.selection()
@@ -599,7 +567,6 @@ class EventLogViewer:
         filter_result_label: ttk.Label,
         status_label: ttk.Label,
     ) -> Callable[[], None]:
-        """Wire up search-var tracing; return the ``update_status`` callable."""
         all_events = self._all_events
 
         def update_status() -> None:
@@ -608,7 +575,6 @@ class EventLogViewer:
         def filter_events(*_args: object) -> None:
             search_text = search_var.get().lower().strip()
 
-            # Clear current rows
             for item in tree.get_children():
                 tree.delete(item)
 
@@ -642,7 +608,6 @@ class EventLogViewer:
         tree: ttk.Treeview,
         functions: dict,
     ) -> None:
-        """Bind single-key shortcuts for power users."""
 
         def focus_search(event: tk.Event) -> None:  # type: ignore[type-arg]
             search_entry.focus_set()

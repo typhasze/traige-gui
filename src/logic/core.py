@@ -36,8 +36,6 @@ class FoxgloveAppLogic:
         self._process_id_counter = 0
         self.log_callback = log_callback or (lambda *args, **kwargs: None)
         self._processes_lock = threading.RLock()
-
-        # Process health monitoring
         self._process_monitor_thread = None
         self._monitor_stop_event = threading.Event()
         self._start_process_monitor()
@@ -74,7 +72,7 @@ class FoxgloveAppLogic:
 
         for proc_info in processes_snapshot:
             proc = proc_info["process"]
-            if proc.poll() is not None:  # Process has terminated
+            if proc.poll() is not None:
                 dead_processes.append(proc_info)
             else:
                 # Check for potentially hanging processes
@@ -135,14 +133,12 @@ class FoxgloveAppLogic:
             self._process_monitor_thread.join(timeout=PROCESS_SHUTDOWN_TIMEOUT)
 
     def update_search_paths(self, primary_path: Optional[str], backup_path: Optional[str]) -> None:
-        """Updates the primary and backup search paths."""
         if primary_path:
             self.local_base_path_absolute = primary_path
         if backup_path:
             self.backup_base_path_absolute = backup_path
 
     def set_runtime_settings(self, settings: dict) -> None:
-        """Update runtime settings used by launchers and playback."""
         if isinstance(settings, dict):
             merged = DEFAULT_SETTINGS.copy()
             merged.update(settings)
@@ -156,13 +152,11 @@ class FoxgloveAppLogic:
         return None
 
     def _normalize_path_to_relative(self, full_path):
-        """Convert absolute path to relative from /data/ root."""
         if "/data/" in full_path:
             return "/" + full_path.split("/data/", 1)[1]
         return full_path
 
     def _extract_file_info_from_path(self, path):
-        """Return (folder, filename) for .mcap/.mp4 paths, else (None, None)."""
         if path.startswith("~/"):
             path = os.path.expanduser(path)
         if path.lower().endswith((".mcap", ".mp4")):
@@ -174,14 +168,12 @@ class FoxgloveAppLogic:
         return None, None
 
     def _extract_from_mpv_command(self, link):
-        """Extract the URL token from an mpv command string."""
         for part in link.split():
             if part.startswith(("http://", "https://")):
                 return part
         return None
 
     def _extract_from_bazel_command(self, link):
-        """Extract (folder, filename) from a bazel run command string."""
         for part in link.split():
             if part.startswith("//") or part in ("bazel", "run"):
                 continue
@@ -190,38 +182,28 @@ class FoxgloveAppLogic:
         return None, None
 
     def _extract_from_url(self, link):
-        """Extract (folder, filename) from a Foxglove or direct URL."""
         parsed_url = urllib.parse.urlparse(link)
         query_params = urllib.parse.parse_qs(parsed_url.query)
 
-        # Foxglove link with ds.url parameter
         if "ds.url" in query_params and query_params["ds.url"]:
             mcap_url_str = query_params["ds.url"][0]
             path_to_check = urllib.parse.urlparse(mcap_url_str).path
-        # Direct link
         else:
             path_to_check = parsed_url.path
 
         if not path_to_check:
             return None, None
 
-        # Normalize path - remove trailing slash and whitespace
         path_to_check = path_to_check.strip().rstrip("/")
 
-        # Check if it's a file (.mcap or .mp4)
         if path_to_check.lower().endswith((".mcap", ".mp4")):
             folder_path = os.path.dirname(path_to_check)
             filename = os.path.basename(path_to_check)
             return folder_path, filename
 
-        # It's a directory path (like /logs)
         return path_to_check, None
 
     def extract_info_from_link(self, link):
-        """Parse a Foxglove URL, direct URL, bazel/mpv command, or file path.
-
-        Returns (folder_path, filename) or (None, None) on failure.
-        """
         if not link.strip():
             return None, None
         try:
@@ -240,19 +222,16 @@ class FoxgloveAppLogic:
             return None, None
 
     def get_local_folder_path(self, extracted_remote_folder):
-        """Map a remote folder path to local; tries main path then backup."""
         relative_path = extracted_remote_folder.lstrip("/")
 
         main_path = os.path.join(self.local_base_path_absolute, relative_path)
         if os.path.isdir(main_path):
             return main_path
 
-        # Try backup path
         backup_path = os.path.join(self.backup_base_path_absolute, relative_path)
         if os.path.isdir(backup_path):
             return backup_path
 
-        # If neither path exists, return the intended main path, but log that it's not found
         self.log_callback(
             f"Could not find local directory for '{relative_path}' at primary or backup locations.", is_error=True
         )
@@ -290,7 +269,6 @@ class FoxgloveAppLogic:
         return False
 
     def _kill_proc(self, proc, name: str) -> None:
-        """Send SIGTERM then SIGKILL (if needed) to *proc*."""
         try:
             if sys.platform != "win32":
                 os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
@@ -336,7 +314,6 @@ class FoxgloveAppLogic:
 
             preexec_fn = os.setsid if sys.platform != "win32" else None
 
-            # Redirect output to DEVNULL to prevent pipe buffer blocking in long-running GUI processes
             proc = subprocess.Popen(
                 command,
                 cwd=cwd,
@@ -479,7 +456,6 @@ class FoxgloveAppLogic:
         return selected
 
     def launch_foxglove_browser(self, mcap_filepath_absolute):
-        """Launch Foxglove Studio in browser with the specified MCAP file."""
         if not os.path.isfile(mcap_filepath_absolute):
             return None, f"MCAP file not found: {mcap_filepath_absolute}", None
 
@@ -494,7 +470,6 @@ class FoxgloveAppLogic:
             return None, message, None
 
     def _build_bazel_bag_cmd(self, base_command, rate, files_str, start_time):
-        """Build the bazel bag GUI shell command string."""
         if start_time is not None:
             self.log_callback(f"Starting playback at offset: {int(start_time)}s")
             return f"{base_command} -- --start-offset {int(start_time)} --rate={rate} {files_str}"
@@ -606,7 +581,6 @@ class FoxgloveAppLogic:
         return False, f"{process_name} not found in running processes"
 
     def terminate_process_by_id(self, proc_id: int) -> bool:
-        """Terminate a specific process by its ID."""
         with self._processes_lock:
             processes_snapshot = list(self.running_processes)
 

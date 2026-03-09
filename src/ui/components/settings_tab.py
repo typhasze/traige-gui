@@ -68,15 +68,13 @@ class SettingsTab:
         self.vars = {}
         self.entries = {}
 
-        # Delegate all persistence to SettingsManager
         self._manager = SettingsManager(SETTINGS_FILE_PATH)
-        self.settings = self._manager.settings  # convenient alias (same dict object)
+        self.settings = self._manager.settings
 
         self.logic.set_runtime_settings(self.settings)
         self.on_nas_dir_changed: Optional[Callable[[str], None]] = None
         self.on_logging_dir_changed: Optional[Callable[[str], None]] = None
         self.create_widgets()
-        # Initialize logic with settings after loading them
         self.logic.update_search_paths(self.settings.get("nas_dir"), self.settings.get("backup_nas_dir"))
 
     def load_settings(self) -> dict:
@@ -117,8 +115,8 @@ class SettingsTab:
         settings_frame.pack(fill="x", padx=10, pady=10)
 
         row = 0
-        checkbox_col = 0  # Track column position for checkboxes
-        max_checkbox_cols = 3  # Maximum checkboxes per row
+        checkbox_col = 0
+        max_checkbox_cols = 3
         checkbox_row_frame = None
 
         for config in self.settings_config:
@@ -136,7 +134,6 @@ class SettingsTab:
                     variable=var,
                     command=lambda k=key, v=var: self._on_bool_setting_changed(k, v),
                 )
-                # Place checkboxes horizontally with consistent gap, wrapping to next row when needed
                 widget.pack(side=tk.LEFT, padx=(0, 18))
                 self.entries[key] = widget
 
@@ -145,7 +142,6 @@ class SettingsTab:
                     checkbox_col = 0
                     row += 1
             else:
-                # For non-checkbox items, start on a new row if we're mid-checkbox-row
                 if checkbox_col > 0:
                     checkbox_col = 0
                     row += 1
@@ -164,7 +160,6 @@ class SettingsTab:
 
         settings_frame.columnconfigure(1, weight=1)
 
-        # Buttons
         button_frame = ttk.Frame(self.frame)
         button_frame.pack(fill="x", padx=10, pady=5)
         self.save_button = ttk.Button(
@@ -212,19 +207,15 @@ class SettingsTab:
             else:
                 new_settings[key] = var.get()
 
-        # Save the new settings
         self.save_settings(new_settings)
 
-        # Now that self.settings is updated, get the new values
         new_nas_dir = self.settings.get("nas_dir")
         new_logging_dir = self.settings.get("logging_dir")
 
-        # Check if the nas_dir has changed and trigger the callback
         if self.on_nas_dir_changed and new_nas_dir != old_nas_dir:
             if isinstance(new_nas_dir, str) and new_nas_dir:
                 self.on_nas_dir_changed(new_nas_dir)
 
-        # Check if the logging_dir has changed and trigger the callback
         if self.on_logging_dir_changed and new_logging_dir != old_logging_dir:
             if isinstance(new_logging_dir, str) and new_logging_dir:
                 self.on_logging_dir_changed(new_logging_dir)
@@ -233,8 +224,7 @@ class SettingsTab:
 
     def reset_settings_button(self):
         self.reset_settings()
-        # Temporarily block the bool-change callback (vars.set triggers it)
-        # by patching save_settings to a no-op during the UI refresh loop.
+        # Avoid triggering per-toggle saves while we repopulate all Tk variables.
         _real_save = self.save_settings
         self.save_settings = lambda *a, **kw: (True, None)  # type: ignore[assignment]
         try:
