@@ -624,6 +624,10 @@ class EventLogViewer:
             action()
             return "break"
 
+        def close_tab(event: tk.Event) -> str:  # type: ignore[type-arg]
+            self.on_close()
+            return "break"
+
         targets = (parent, search_entry, tree)
 
         for target in targets:
@@ -640,6 +644,7 @@ class EventLogViewer:
             target.bind("<Control-F>", focus_search, add="+")
             target.bind("/", focus_search, add="+")
             target.bind("<Escape>", clear_search_and_focus_tree, add="+")
+            target.bind("<Control-F4>", close_tab, add="+")
 
     @staticmethod
     def _select_all_text(event: tk.Event) -> str:  # type: ignore[type-arg]
