@@ -35,6 +35,7 @@ class FoxgloveAppLogic:
         self.settings = DEFAULT_SETTINGS.copy()
         self._process_id_counter = 0
         self.log_callback = log_callback or (lambda *args, **kwargs: None)
+        self._processes_lock = threading.RLock()
 
         # Process health monitoring
         self._process_monitor_thread = None
@@ -68,7 +69,10 @@ class FoxgloveAppLogic:
         dead_processes = []
         current_time = time.time()
 
-        for proc_info in list(self.running_processes):
+        with self._processes_lock:
+            processes_snapshot = list(self.running_processes)
+
+        for proc_info in processes_snapshot:
             proc = proc_info["process"]
             if proc.poll() is not None:  # Process has terminated
                 dead_processes.append(proc_info)
@@ -84,16 +88,21 @@ class FoxgloveAppLogic:
                         runtime / 3600,
                     )
 
-        for proc_info in dead_processes:
-            if proc_info in self.running_processes:
-                self.running_processes.remove(proc_info)
+        if dead_processes:
+            with self._processes_lock:
+                for proc_info in dead_processes:
+                    if proc_info in self.running_processes:
+                        self.running_processes.remove(proc_info)
 
     def get_process_status(self):
         """Get current status of all tracked processes."""
-        status = {"total": len(self.running_processes), "running": 0, "dead": 0, "processes": []}
+        with self._processes_lock:
+            processes_snapshot = list(self.running_processes)
+
+        status = {"total": len(processes_snapshot), "running": 0, "dead": 0, "processes": []}
 
         current_time = time.time()
-        for proc_info in self.running_processes:
+        for proc_info in processes_snapshot:
             proc = proc_info["process"]
             is_running = proc.poll() is None
             start_time = proc_info.get("start_time", current_time)
@@ -249,43 +258,32 @@ class FoxgloveAppLogic:
         )
         return main_path
 
-    def list_files_in_directory(self, local_folder_path_absolute, file_extension=None):
-        """List files in a directory, optionally filtered by extension. Returns (items, error)."""
-        if not os.path.isdir(local_folder_path_absolute):
-            return [], f"Local folder not found or is not a directory: {local_folder_path_absolute}"
-        try:
-            ext_lower = file_extension.lower() if file_extension else None
-            items = [
-                item
-                for item in os.listdir(local_folder_path_absolute)
-                if ext_lower is None or item.lower().endswith(ext_lower)
-            ]
-            items.sort(key=str.lower)
-            return items, None
-        except PermissionError:
-            return [], f"Permission denied to access folder: {local_folder_path_absolute}"
-        except Exception as e:
-            return [], f"An unexpected error occurred while listing files: {e}"
-
     def _is_any_viz_running(self):
         viz_processes = {
             PROCESS_NAMES["FOXGLOVE_STUDIO"],
             PROCESS_NAMES["BAZEL_TOOLS_VIZ"],
             PROCESS_NAMES["BAZEL_BAG_GUI"],
         }
-        return any(p["process"].poll() is None and p["name"] in viz_processes for p in self.running_processes)
+        with self._processes_lock:
+            return any(p["process"].poll() is None and p["name"] in viz_processes for p in self.running_processes)
 
     def _terminate_process_by_name(self, name: str) -> None:
-        for proc_info in list(self.running_processes):
+        with self._processes_lock:
+            targets = [proc_info for proc_info in self.running_processes if proc_info["name"] == name]
+
+        for proc_info in targets:
             if proc_info["name"] == name:
                 proc = proc_info["process"]
                 if proc.poll() is None:
                     self._kill_proc(proc, name)
-                if proc_info in self.running_processes:
-                    self.running_processes.remove(proc_info)
+                with self._processes_lock:
+                    if proc_info in self.running_processes:
+                        self.running_processes.remove(proc_info)
 
     def _is_process_running_by_name(self, name):
-        for proc_info in self.running_processes:
+        with self._processes_lock:
+            processes_snapshot = list(self.running_processes)
+        for proc_info in processes_snapshot:
             if proc_info["name"] == name:
                 if proc_info["process"].poll() is None:
                     return True
@@ -323,7 +321,7 @@ class FoxgloveAppLogic:
         use_shell = isinstance(command, str)
         if name == "Bazel Tools Viz":
             if self._is_process_running_by_name(name):
-                return f"{name} is already running.", None
+                return f"{name} is already running.", None, None
         elif name == "Foxglove Studio":
             self._terminate_process_by_name(name)
         elif name in ["Bazel Bag GUI", "MPV Video"]:
@@ -363,19 +361,20 @@ class FoxgloveAppLogic:
             except Exception as e:
                 self.log_callback(f"Warning: Could not validate startup for {name}: {e}", is_error=True)
 
-            proc_id = self._process_id_counter
-            self._process_id_counter += 1
-            self.running_processes.append(
-                {
-                    "name": name,
-                    "process": proc,
-                    "path": mcap_path,
-                    "command": command,
-                    "cwd": cwd,
-                    "start_time": time.time(),
-                    "id": proc_id,
-                }
-            )
+            with self._processes_lock:
+                proc_id = self._process_id_counter
+                self._process_id_counter += 1
+                self.running_processes.append(
+                    {
+                        "name": name,
+                        "process": proc,
+                        "path": mcap_path,
+                        "command": command,
+                        "cwd": cwd,
+                        "start_time": time.time(),
+                        "id": proc_id,
+                    }
+                )
 
             return f"{name} launched (PID: {proc.pid}).", None, proc_id
 
@@ -592,7 +591,9 @@ class FoxgloveAppLogic:
         return self._launch_process(command, "MPV Video", mcap_path=video_filepath, single_instance=single_instance)
 
     def check_process_loaded(self, process_name):
-        for proc_info in self.running_processes:
+        with self._processes_lock:
+            processes_snapshot = list(self.running_processes)
+        for proc_info in processes_snapshot:
             if proc_info["name"] == process_name:
                 if proc_info["process"].poll() is None:
                     runtime = time.time() - proc_info["start_time"]
@@ -603,24 +604,31 @@ class FoxgloveAppLogic:
 
     def terminate_process_by_id(self, proc_id: int) -> bool:
         """Terminate a specific process by its ID."""
-        for proc_info in list(self.running_processes):
+        with self._processes_lock:
+            processes_snapshot = list(self.running_processes)
+
+        for proc_info in processes_snapshot:
             if proc_info.get("id") == proc_id:
                 proc = proc_info["process"]
                 name = proc_info["name"]
                 if proc.poll() is None:
                     self._kill_proc(proc, name)
                     self.log_callback(f"{name} terminated (ID: {proc_id}).")
-                if proc_info in self.running_processes:
-                    self.running_processes.remove(proc_info)
+                with self._processes_lock:
+                    if proc_info in self.running_processes:
+                        self.running_processes.remove(proc_info)
                 return True
         return False
 
     def terminate_all_processes(self):
         self._stop_process_monitor()
         msgs = []
-        if not self.running_processes:
+        with self._processes_lock:
+            processes_snapshot = list(self.running_processes)
+
+        if not processes_snapshot:
             msgs.append("No processes were recorded as running by this application.")
-        for proc_info in list(self.running_processes):
+        for proc_info in processes_snapshot:
             proc, name = proc_info["process"], proc_info["name"]
             if proc.poll() is None:
                 msgs.append(f"Terminating {name} (PID: {proc.pid})...")
@@ -631,8 +639,9 @@ class FoxgloveAppLogic:
                     msgs.append(f"Error terminating {name}: {e}")
             else:
                 msgs.append(f"{name} (PID: {proc.pid}) was already terminated.")
-            if proc_info in self.running_processes:
-                self.running_processes.remove(proc_info)
+            with self._processes_lock:
+                if proc_info in self.running_processes:
+                    self.running_processes.remove(proc_info)
         symlink_dir = "/tmp/selected_bags_symlinks"
         if os.path.exists(symlink_dir):
             try:

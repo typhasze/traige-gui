@@ -114,6 +114,7 @@ class FoxgloveAppGUIManager:
 
         # Update status bar initially
         self.update_status_bar("Ready")
+        self._building = False
 
         # Lock minimum window size to prevent shrinking, but allow growth for new content
         self.root.update_idletasks()
@@ -212,10 +213,15 @@ class FoxgloveAppGUIManager:
         threading.Thread(target=task, daemon=True).start()
 
     def run_bazel_build(self):
+        if getattr(self, "_building", False):
+            self.log_message("Bazel build is already running.")
+            return
+
         self.log_message("Starting Bazel build (bazel build //...)...")
         self.status_label.config(foreground="red")
         self.show_progress(True)
         self._building = True
+        self.build_bazel_button.config(state=tk.DISABLED)
         self._show_building_status()
 
         def build_task():
@@ -235,6 +241,7 @@ class FoxgloveAppGUIManager:
 
     def _bazel_build_complete(self, message, error):
         self._building = False
+        self.build_bazel_button.config(state=tk.NORMAL)
         self.show_progress(False)
         self.status_label.config(foreground="")
         if message:
@@ -244,27 +251,6 @@ class FoxgloveAppGUIManager:
             self.update_status_bar("Build failed", "")
         else:
             self.update_status_bar("Build complete", "")
-
-    def run_bazel_clean(self):
-        self.log_message("Running Bazel clean...")
-        self.update_status_bar("Cleaning...", "")
-        self.show_progress(True)
-
-        def clean_task():
-            message, error = self.logic.run_bazel_clean(self.settings_tab.settings)
-            self.root.after(0, lambda: self._bazel_clean_complete(message, error))
-
-        self._run_in_thread(clean_task)
-
-    def _bazel_clean_complete(self, message, error):
-        self.show_progress(False)
-        if message:
-            self.log_message(message)
-        if error:
-            self.log_message(error, is_error=True)
-            self.update_status_bar("Clean failed", "")
-        else:
-            self.update_status_bar("Clean complete", "")
 
     def show_process_status(self):
         self.log_message("📊 Current Process Status:", clear_first=False)

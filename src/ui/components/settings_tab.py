@@ -80,8 +80,7 @@ class SettingsTab:
         self._manager = SettingsManager(SETTINGS_FILE_PATH)
         self.settings = self._manager.settings  # convenient alias (same dict object)
 
-        if hasattr(self.logic, "set_runtime_settings"):
-            self.logic.set_runtime_settings(self.settings)
+        self.logic.set_runtime_settings(self.settings)
         self.on_nas_dir_changed: Optional[Callable[[str], None]] = None
         self.on_logging_dir_changed: Optional[Callable[[str], None]] = None
         self.create_widgets()
@@ -92,8 +91,7 @@ class SettingsTab:
         """Reload settings from disc and refresh the in-memory alias."""
         self._manager.settings = self._manager.load()
         self.settings = self._manager.settings
-        if hasattr(self.logic, "set_runtime_settings"):
-            self.logic.set_runtime_settings(self.settings)
+        self.logic.set_runtime_settings(self.settings)
         logger.debug("Settings reloaded via SettingsManager")
         return self.settings
 
@@ -105,8 +103,7 @@ class SettingsTab:
         success, error = self._manager.save(settings_dict)
         if success:
             self.settings = self._manager.settings
-            if hasattr(self.logic, "set_runtime_settings"):
-                self.logic.set_runtime_settings(self.settings)
+            self.logic.set_runtime_settings(self.settings)
             self.logic.update_search_paths(self.settings.get("nas_dir"), self.settings.get("backup_nas_dir"))
             logger.debug("Settings persisted successfully")
         else:
@@ -117,8 +114,7 @@ class SettingsTab:
         """Reset all settings to application defaults and persist immediately."""
         self._manager.reset()
         self.settings = self._manager.settings
-        if hasattr(self.logic, "set_runtime_settings"):
-            self.logic.set_runtime_settings(self.settings)
+        self.logic.set_runtime_settings(self.settings)
 
     def get_setting(self, key: str):
         """Return the value for *key* from the current settings."""

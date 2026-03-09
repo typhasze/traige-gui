@@ -25,6 +25,8 @@ GUI integration (call once in gui_manager.py after the log widget is created)::
 import logging
 import logging.handlers
 import os
+import queue
+import threading
 from typing import Optional
 
 # ── Module-level constants ────────────────────────────────────────────────────
@@ -118,35 +120,66 @@ class TkinterLogHandler(logging.Handler):
         self.text_widget = text_widget
         self.max_lines = max_lines
         self._clear_pending = False
+        self._queue: "queue.Queue[tuple[str, bool]]" = queue.Queue()
+        self._main_thread_id = threading.main_thread().ident
+        self._flush_scheduled = False
         # Keep GUI output concise – full timestamp is in the log file
         self.setFormatter(logging.Formatter("%(message)s"))
+        self._schedule_flush()
 
-    def set_clear_pending(self) -> None:
-        """Clear the widget content before the next :meth:`emit` call."""
-        self._clear_pending = True
+    def _schedule_flush(self) -> None:
+        if self._flush_scheduled:
+            return
+        self._flush_scheduled = True
+        self.text_widget.after(50, self._drain_queue)
 
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            msg = self.format(record)
-            is_error = record.levelno >= logging.ERROR
-            widget = self.text_widget
+    def _drain_queue(self) -> None:
+        self._flush_scheduled = False
+        widget = self.text_widget
+        if not int(widget.winfo_exists()):
+            return
 
+        if self._clear_pending:
             widget.config(state="normal")
+            widget.delete("1.0", "end")
+            widget.config(state="disabled")
+            self._clear_pending = False
 
-            if self._clear_pending:
-                widget.delete("1.0", "end")
-                self._clear_pending = False
+        had_items = False
+        while True:
+            try:
+                msg, is_error = self._queue.get_nowait()
+            except queue.Empty:
+                break
 
+            had_items = True
+            widget.config(state="normal")
             prefix = "ERROR: " if is_error else "INFO: "
             tag = "error" if is_error else "info"
             widget.insert("end", f"{prefix}{msg}\n", tag)
             widget.see("end")
 
-            # Prune oldest lines if the widget grows beyond max_lines
+        if had_items:
             line_count = int(widget.index("end-1c").split(".")[0])
             if line_count > self.max_lines:
                 widget.delete("1.0", f"{line_count - self.max_lines}.0")
-
             widget.config(state="disabled")
+
+        self._schedule_flush()
+
+    def set_clear_pending(self) -> None:
+        """Clear the widget content before the next :meth:`emit` call."""
+        self._clear_pending = True
+        self._schedule_flush()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            is_error = record.levelno >= logging.ERROR
+            self._queue.put((msg, is_error))
+            if threading.get_ident() == self._main_thread_id:
+                self._drain_queue()
+            else:
+                self._schedule_flush()
         except Exception:  # noqa: BLE001
             self.handleError(record)

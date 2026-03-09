@@ -66,7 +66,7 @@ class FileExplorerTab:
         self._search_debounce_id: Optional[str] = None
 
         # Handle clicks on notebook tabs (✕ to close event-log tabs)
-        self.notebook.bind("<Button-1>", self._on_notebook_tab_click, add="+")
+        self.notebook.bind("<Double-Button-1>", self._on_notebook_tab_click, add="+")
 
         # UI Widgets
         self.create_widgets()
@@ -494,7 +494,7 @@ class FileExplorerTab:
         # Switch to the new tab
         self.notebook.select(tab_frame)
 
-        self.log_message(f"Opened event log viewer as tab: {os.path.basename(file_path)}")
+        self.log_message(f"Opened event log tab: {os.path.basename(file_path)} (double-click tab to close)")
 
     def _get_settings_tab_index(self):
         """Return index of Settings tab if present."""
@@ -508,60 +508,25 @@ class FileExplorerTab:
         return None
 
     def _on_notebook_tab_click(self, event):
-        """Close event-log tabs when clicking their ✕ area."""
+        """Close event-log tabs on double-click anywhere on the tab strip."""
         try:
-            # Check if we clicked on a tab label
-            elem = self.notebook.identify(event.x, event.y)
-            if elem != "label":
+            # Only act when the double-click lands in the tab strip, not the content area
+            if not self.notebook.identify(event.x, event.y):
                 return
 
-            # Get the clicked tab
-            tab_index = self.notebook.index(f"@{event.x},{event.y}")
+            try:
+                tab_index = self.notebook.index(f"@{event.x},{event.y}")
+            except tk.TclError:
+                return
+
             tab_id = self.notebook.tabs()[tab_index]
             tab_text = self.notebook.tab(tab_id, "text")
 
-            # Only handle tabs with ✕ (event log tabs)
+            # Only close event-log tabs (title ends with ✕)
             if not tab_text.endswith("✕"):
                 return
 
-            # Force geometry update
-            self.notebook.update_idletasks()
-
-            # Get bbox
-            bbox = self.notebook.bbox(tab_index)
-
-            if bbox and len(bbox) == 4:
-                x, y, width, height = bbox
-                # If bbox is valid (not all zeros)
-                if width > 0:
-                    # The ✕ is in the rightmost 25% of the tab
-                    close_area_start = x + int(width * 0.75)
-
-                    # If clicking outside the close area, allow normal tab selection
-                    if event.x < close_area_start:
-                        return
-                else:
-                    # Fallback: estimate based on character count
-                    # Each character is roughly 8 pixels
-                    estimated_width = len(tab_text) * 8
-
-                    # Calculate where this tab starts by summing previous tab widths
-                    tab_start = 0
-                    for i in range(tab_index):
-                        prev_text = self.notebook.tab(self.notebook.tabs()[i], "text")
-                        tab_start += len(prev_text) * 8 + 10
-
-                    # Close area is rightmost 25% of estimated tab width
-                    close_area_start = tab_start + int(estimated_width * 0.75)
-
-                    if event.x < close_area_start:
-                        return
-            else:
-                return
-
-            # Close the tab
             tab_widget = self.notebook.nametowidget(tab_id)
-
             for viewer_id, viewer_info in list(self.event_log_viewer_tabs.items()):
                 if viewer_info.get("frame") == tab_widget:
                     self._cleanup_viewer_tab(viewer_id)
@@ -648,23 +613,22 @@ class FileExplorerTab:
         except Exception:
             return []
 
-    def _find_event_log_file(self, base_path: str) -> Optional[str]:
-        """Find event_log_*.txt file in the logs directory."""
+    def _find_event_log_files(self, base_path: str) -> List[str]:
+        """Find all event_log_*.txt files in the logs sub-directory of *base_path*."""
         try:
             logs_path = os.path.join(base_path, "logs")
             if not os.path.isdir(logs_path):
-                return None
-
-            # Look for event_log_*.txt files
-            for file in os.listdir(logs_path):
-                if file.lower().startswith("event_log_") and file.lower().endswith(".txt"):
-                    return os.path.join(logs_path, file)
-            return None
+                return []
+            return sorted(
+                os.path.join(logs_path, f)
+                for f in os.listdir(logs_path)
+                if f.lower().startswith("event_log_") and f.lower().endswith(".txt")
+            )
         except Exception:
-            return None
+            return []
 
     def _auto_open_event_log_if_enabled(self) -> bool:
-        """Auto-open event log for TG folders if the setting is enabled.
+        """Auto-open all event logs for TG/vehicle folders if the setting is enabled.
 
         Directory scanning runs in a background thread; all UI changes are
         dispatched back to the main thread via ``root.after``.
@@ -677,29 +641,32 @@ class FileExplorerTab:
             current_folder_name = os.path.basename(self.current_explorer_path)
             current_path = self.current_explorer_path
 
-            def _navigate_and_open(event_log_file: str) -> None:
-                """Main-thread: navigate to the logs dir and open the viewer."""
-                logs_path = os.path.dirname(event_log_file)
+            def _open_all(event_log_files: List[str]) -> None:
+                """Main-thread: navigate to the first log dir then open all viewers."""
+                if not event_log_files:
+                    return
+                first_logs_path = os.path.dirname(event_log_files[0])
                 self._add_to_history(self.current_explorer_path)
-                self.current_explorer_path = logs_path
-                self.refresh_explorer(on_done=lambda: self.open_event_log_viewer(event_log_file))
+                self.current_explorer_path = first_logs_path
+                self.refresh_explorer(on_done=lambda: [self.open_event_log_viewer(f) for f in event_log_files])
 
             if self._is_tg_folder(current_folder_name):
 
                 def _scan_tg() -> None:
                     vehicle_folders = self._get_vehicle_folders(current_path)
                     if len(vehicle_folders) != 1:
+                        # Multiple (or zero) vehicles — let the user navigate in manually
                         return
-                    vehicle_path = os.path.join(current_path, vehicle_folders[0])
-                    event_log_file = self._find_event_log_file(vehicle_path)
-                    if not event_log_file:
+                    vehicle_folder = vehicle_folders[0]
+                    vehicle_path = os.path.join(current_path, vehicle_folder)
+                    event_log_files = self._find_event_log_files(vehicle_path)
+                    if not event_log_files:
                         return
-                    folder = vehicle_folders[0]
                     self.root.after(
                         0,
-                        lambda f=folder, lf=event_log_file: (
-                            self.log_message(f"Auto-opening event log for {f}..."),
-                            _navigate_and_open(lf),
+                        lambda lf=event_log_files, vf=vehicle_folder: (
+                            self.log_message(f"Auto-opening {len(lf)} event log(s) for {vf}..."),
+                            _open_all(lf),
                         ),
                     )
 
@@ -712,14 +679,14 @@ class FileExplorerTab:
                     return False
 
                 def _scan_vehicle() -> None:
-                    event_log_file = self._find_event_log_file(current_path)
-                    if not event_log_file:
+                    event_log_files = self._find_event_log_files(current_path)
+                    if not event_log_files:
                         return
                     self.root.after(
                         0,
-                        lambda lf=event_log_file: (
-                            self.log_message(f"Auto-opening event log for {current_folder_name}..."),
-                            _navigate_and_open(lf),
+                        lambda lf=event_log_files: (
+                            self.log_message(f"Auto-opening {len(lf)} event log(s) for {current_folder_name}..."),
+                            _open_all(lf),
                         ),
                     )
 

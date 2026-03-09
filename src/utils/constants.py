@@ -78,7 +78,6 @@ FILE_ICON_MAP = {
     ".yml": "⚙️",
 }
 
-FOLDER_ICON = "📁"
 DEFAULT_FILE_ICON = "📄"
 
 # ============================================================================
@@ -88,11 +87,6 @@ FILE_INFO_CACHE_SIZE_LIMIT = 1000
 PROCESS_MONITOR_INTERVAL = 10  # seconds
 LONG_RUNNING_PROCESS_THRESHOLD = 7200  # 2 hours in seconds
 PROCESS_SHUTDOWN_TIMEOUT = 2  # seconds
-
-# ============================================================================
-# UI CONSTANTS
-# ============================================================================
-TAB_CLOSE_AREA_PERCENTAGE = 0.25  # 25% of tab width for close button
 
 # ============================================================================
 # FOXGLOVE CONSTANTS
