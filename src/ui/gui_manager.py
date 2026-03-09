@@ -120,7 +120,10 @@ class FoxgloveAppGUIManager:
         self.root.update_idletasks()
         initial_width = self.root.winfo_width()
         initial_height = self.root.winfo_height()
-        self.root.minsize(initial_width, initial_height)
+        extra_height = 175
+        target_height = initial_height + extra_height
+        self.root.geometry(f"{initial_width}x{target_height}")
+        self.root.minsize(initial_width, target_height)
 
     def setup_button_styles(self):
         style = ttk.Style()
@@ -164,10 +167,10 @@ class FoxgloveAppGUIManager:
 
     def create_shared_log_frame(self, parent_frame):
         status_frame = ttk.LabelFrame(parent_frame, text="Log", padding="10")
-        status_frame.pack(padx=5, pady=5, fill="both", expand=True)
+        status_frame.pack(padx=5, pady=5, fill="x", expand=False)
 
         log_container = ttk.Frame(status_frame)
-        log_container.pack(fill="both", expand=True)
+        log_container.pack(fill="x", expand=False)
 
         log_yscrollbar = ttk.Scrollbar(log_container, orient=tk.VERTICAL)
         log_xscrollbar = ttk.Scrollbar(log_container, orient=tk.HORIZONTAL)

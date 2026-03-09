@@ -575,7 +575,7 @@ class FileExplorerTab:
         # Create a new window for the event log viewer
         viewer_window = tk.Toplevel(self.root)
         viewer_window.title(f"Event Log Viewer - {os.path.basename(file_path)}")
-        viewer_window.geometry("1000x600")
+        viewer_window.geometry("1000x520")
 
         # Track this viewer
         self.event_log_viewers[viewer_id] = {"window": viewer_window, "processes": [], "file_path": file_path}

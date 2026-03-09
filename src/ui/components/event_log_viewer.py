@@ -430,7 +430,7 @@ class EventLogViewer:
         tree_container.pack(fill="both", expand=True)
 
         columns = ("current_time", "timestamp", "txt_manual", "txt_criticality", "ui_mode")
-        tree = ttk.Treeview(tree_container, columns=columns, show="headings", height=20)
+        tree = ttk.Treeview(tree_container, columns=columns, show="headings", height=14)
 
         tree.heading("current_time", text="Current Time")
         tree.heading("timestamp", text="Timestamp")
