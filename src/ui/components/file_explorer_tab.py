@@ -65,7 +65,7 @@ class FileExplorerTab:
         # Debounce timer id for search-triggered refreshes
         self._search_debounce_id: Optional[str] = None
 
-        # Handle clicks on notebook tabs (✕ to close event-log tabs)
+        # Handle double-click on notebook tabs to close event-log tabs
         self.notebook.bind("<Double-Button-1>", self._on_notebook_tab_click, add="+")
 
         # UI Widgets
@@ -149,6 +149,37 @@ class FileExplorerTab:
         # Keyboard shortcut for LOGGING directory (Ctrl+L)
         self.frame.bind_all("<Control-l>", lambda e: self.go_logging_directory())
         self.frame.bind_all("<Control-L>", lambda e: self.go_logging_directory())
+
+        # Tab-wide key handlers (works no matter which widget in this tab has focus)
+        self._bind_widget_tree_shortcuts(self.frame)
+
+    def _is_file_explorer_tab_active(self) -> bool:
+        try:
+            return self.notebook.select() == str(self.frame)
+        except Exception:
+            return False
+
+    def _focus_search_filter(self, event=None):
+        if not self._is_file_explorer_tab_active():
+            return None
+        self.explorer_search_entry.focus_set()
+        self.explorer_search_entry.icursor(tk.END)
+        return "break"
+
+    def _clear_link_and_search_filters(self, event=None):
+        if not self._is_file_explorer_tab_active():
+            return None
+        self.link_var.set("")
+        self.explorer_search_var.set("")
+        self.explorer_listbox.focus_set()
+        return "break"
+
+    def _bind_widget_tree_shortcuts(self, widget):
+        widget.bind("<Control-f>", self._focus_search_filter, add="+")
+        widget.bind("<Control-F>", self._focus_search_filter, add="+")
+        widget.bind("<Escape>", self._clear_link_and_search_filters, add="+")
+        for child in widget.winfo_children():
+            self._bind_widget_tree_shortcuts(child)
 
     def on_listbox_keypress(self, event):
         """Focus search bar on key press in the listbox."""
@@ -484,7 +515,7 @@ class FileExplorerTab:
         ).build_ui()
 
         # Add the tab before Settings so Settings remains rightmost
-        tab_title = f"Event Log - {os.path.basename(file_path)[:20]} ✕"
+        tab_title = f"Event Log - {os.path.basename(file_path)[:20]}"
         settings_tab_index = self._get_settings_tab_index()
         if settings_tab_index is not None:
             self.notebook.insert(settings_tab_index, tab_frame, text=tab_title)
@@ -522,11 +553,10 @@ class FileExplorerTab:
             tab_id = self.notebook.tabs()[tab_index]
             tab_text = self.notebook.tab(tab_id, "text")
 
-            # Only close event-log tabs (title ends with ✕)
-            if not tab_text.endswith("✕"):
+            tab_widget = self.notebook.nametowidget(tab_id)
+            if tab_text == "Settings":
                 return
 
-            tab_widget = self.notebook.nametowidget(tab_id)
             for viewer_id, viewer_info in list(self.event_log_viewer_tabs.items()):
                 if viewer_info.get("frame") == tab_widget:
                     self._cleanup_viewer_tab(viewer_id)

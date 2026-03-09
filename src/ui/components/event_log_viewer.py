@@ -342,7 +342,7 @@ class EventLogViewer:
         update_status = self._setup_filtering(tree, search_var, filter_result_label, status_label)
 
         # Keyboard shortcuts
-        self._bind_keyboard_shortcuts(main_frame, search_entry, functions)
+        self._bind_keyboard_shortcuts(main_frame, search_entry, tree, functions)
 
         # Warn for large files (fast stat, still on main thread)
         try:
@@ -639,6 +639,7 @@ class EventLogViewer:
         self,
         parent: tk.Widget,
         search_entry: ttk.Entry,
+        tree: ttk.Treeview,
         functions: dict,
     ) -> None:
         """Bind single-key shortcuts for power users."""
@@ -646,18 +647,34 @@ class EventLogViewer:
         def focus_search(event: tk.Event) -> None:  # type: ignore[type-arg]
             search_entry.focus_set()
 
-        for key in ("v", "V"):
-            parent.bind(f"<{key}>", lambda e, f=functions: f["play_video"]())
-        for key in ("b", "B"):
-            parent.bind(f"<{key}>", lambda e, f=functions: f["play_bazel"]())
-        for key in ("s", "S", "l", "L"):
-            parent.bind(f"<{key}>", lambda e, f=functions: f["show_mcap"]())
-        for key in ("c", "C"):
-            parent.bind(f"<{key}>", lambda e, f=functions: f["play_bazel_from_start"]())
+        def clear_search_and_focus_tree(event: tk.Event) -> str:  # type: ignore[type-arg]
+            if self._search_var is not None:
+                self._search_var.set("")
+            tree.focus_set()
+            return "break"
 
-        parent.bind("<Control-f>", focus_search)
-        parent.bind("<Control-F>", focus_search)
-        parent.bind("/", focus_search)
+        def run_shortcut(event: tk.Event, action: Callable[[], None]):  # type: ignore[type-arg]
+            if event.widget == search_entry:
+                return None
+            action()
+            return "break"
+
+        targets = (parent, search_entry, tree)
+
+        for target in targets:
+            for key in ("v", "V"):
+                target.bind(f"<{key}>", lambda e, f=functions: run_shortcut(e, f["play_video"]), add="+")
+            for key in ("b", "B"):
+                target.bind(f"<{key}>", lambda e, f=functions: run_shortcut(e, f["play_bazel"]), add="+")
+            for key in ("s", "S", "l", "L"):
+                target.bind(f"<{key}>", lambda e, f=functions: run_shortcut(e, f["show_mcap"]), add="+")
+            for key in ("c", "C"):
+                target.bind(f"<{key}>", lambda e, f=functions: run_shortcut(e, f["play_bazel_from_start"]), add="+")
+
+            target.bind("<Control-f>", focus_search, add="+")
+            target.bind("<Control-F>", focus_search, add="+")
+            target.bind("/", focus_search, add="+")
+            target.bind("<Escape>", clear_search_and_focus_tree, add="+")
 
     @staticmethod
     def _select_all_text(event: tk.Event) -> str:  # type: ignore[type-arg]
