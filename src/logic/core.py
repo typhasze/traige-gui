@@ -504,7 +504,8 @@ class FoxgloveAppLogic:
         self.bazel_working_dir = self.get_bazel_working_dir(settings)
         if not self.bazel_working_dir or not os.path.isdir(self.bazel_working_dir):
             return None, f"Bazel working directory not found: {self.bazel_working_dir}", None
-        return self._launch_process(settings.get("bazel_tools_viz_cmd"), "Bazel Tools Viz", cwd=self.bazel_working_dir)
+        command = DEFAULT_SETTINGS["bazel_tools_viz_cmd"]
+        return self._launch_process(command, "Bazel Tools Viz", cwd=self.bazel_working_dir)
 
     def run_bazel_build(self, settings):
         self.bazel_working_dir = self.get_bazel_working_dir(settings)
@@ -546,8 +547,9 @@ class FoxgloveAppLogic:
 
     def launch_bazel_bag_gui(self, mcap_path, settings, start_time=None):
         self.bazel_working_dir = self.get_bazel_working_dir(settings)
+        base_command = DEFAULT_SETTINGS["bazel_bag_gui_cmd"]
         command = self._build_bazel_bag_cmd(
-            settings.get("bazel_bag_gui_cmd"), settings.get("bazel_bag_gui_rate", 1.0), mcap_path, start_time
+            base_command, settings.get("bazel_bag_gui_rate", 1.0), mcap_path, start_time
         )
         return self._launch_process(
             command,
@@ -567,8 +569,9 @@ class FoxgloveAppLogic:
         if not mcap_files:
             return None, "No .mcap files found to play.", symlink_dir
         files_str = " ".join(f'"{f}"' for f in mcap_files)
+        base_command = DEFAULT_SETTINGS["bazel_bag_gui_cmd"]
         command = self._build_bazel_bag_cmd(
-            settings.get("bazel_bag_gui_cmd"), settings.get("bazel_bag_gui_rate", 1.0), files_str, start_time
+            base_command, settings.get("bazel_bag_gui_rate", 1.0), files_str, start_time
         )
         message, error, proc_id = self._launch_process(
             command,
