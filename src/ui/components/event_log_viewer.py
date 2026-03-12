@@ -35,6 +35,7 @@ from tkinter import ttk
 from typing import Callable, List, Optional, Tuple
 
 from ...utils.logger import get_logger
+from .tooltip import attach_tooltip
 
 logger = get_logger(__name__)
 
@@ -390,12 +391,14 @@ class EventLogViewer:
         filter_result_label = ttk.Label(search_frame, text="")
         filter_result_label.pack(side="left", padx=(10, 0))
 
-        ttk.Button(
+        clear_btn = ttk.Button(
             search_frame,
             text="Clear",
             command=lambda: search_var.set(""),
             style="Action.TButton",
-        ).pack(side="left", padx=(5, 0))
+        )
+        clear_btn.pack(side="left", padx=(5, 0))
+        attach_tooltip(clear_btn, "Clear search text and show all events. (Ctrl+E to search)")
 
         return search_frame, search_var, search_entry, filter_result_label
 
@@ -480,6 +483,7 @@ class EventLogViewer:
             style="Action.TButton",
         )
         btn_video.pack(side="left", padx=(0, 10))
+        attach_tooltip(btn_video, "Play video at selected event timestamp. (V)")
 
         btn_bazel = ttk.Button(
             button_frame,
@@ -489,6 +493,7 @@ class EventLogViewer:
             style="Action.TButton",
         )
         btn_bazel.pack(side="left", padx=(0, 10))
+        attach_tooltip(btn_bazel, "Play rosbag at selected event timestamp. (B)")
 
         btn_bazel_start = ttk.Button(
             button_frame,
@@ -498,6 +503,7 @@ class EventLogViewer:
             style="Action.TButton",
         )
         btn_bazel_start.pack(side="left", padx=(0, 10))
+        attach_tooltip(btn_bazel_start, "Play rosbag from beginning of the selected bag. (C)")
 
         btn_mcap = ttk.Button(
             button_frame,
@@ -507,12 +513,15 @@ class EventLogViewer:
             style="Action.TButton",
         )
         btn_mcap.pack(side="left", padx=(0, 10))
+        attach_tooltip(btn_mcap, "Locate and highlight corresponding rosbag in File Explorer. (S/L)")
 
         status_label = ttk.Label(button_frame, text="")
         status_label.pack(side="left", padx=(10, 0))
 
         close_text = "Close Tab"
-        ttk.Button(button_frame, text=close_text, command=self.on_close, style="Action.TButton").pack(side="right")
+        close_btn = ttk.Button(button_frame, text=close_text, command=self.on_close, style="Action.TButton")
+        close_btn.pack(side="right")
+        attach_tooltip(close_btn, "Close this event viewer tab or window. (Ctrl+F4)")
 
         buttons = {
             "play_video": btn_video,
@@ -640,8 +649,8 @@ class EventLogViewer:
             for key in ("c", "C"):
                 target.bind(f"<{key}>", lambda e, f=functions: run_shortcut(e, f["play_bazel_from_start"]), add="+")
 
-            target.bind("<Control-f>", focus_search, add="+")
-            target.bind("<Control-F>", focus_search, add="+")
+            target.bind("<Control-e>", focus_search, add="+")
+            target.bind("<Control-E>", focus_search, add="+")
             target.bind("/", focus_search, add="+")
             target.bind("<Escape>", clear_search_and_focus_tree, add="+")
             target.bind("<Control-F4>", close_tab, add="+")

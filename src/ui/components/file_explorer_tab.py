@@ -12,6 +12,7 @@ from ...utils.constants import DEFAULT_SETTINGS
 from ...utils.logger import get_logger
 from ...utils.utils import get_file_icon
 from .event_log_viewer import EventLogViewer, parse_timestamp
+from .tooltip import attach_tooltip
 
 logger = get_logger(__name__)
 
@@ -60,6 +61,14 @@ class FileExplorerTab:
 
         self._mcap_cache = {}  # {rosbags_dir: (timestamp, mcap_files_list)}
         self._mcap_cache_ttl = 60  # Cache for 60 seconds
+
+        self._button_tooltips = {
+            "Home": "Go to configured NAS/home data directory. (Ctrl+H)",
+            "LOGGING": "Go to configured LOGGING directory. (Ctrl+L)",
+            "Back": "Go to the previous folder in history.",
+            "Analyze": "Analyze pasted link/path and navigate to matching file/folder.",
+            "Clear": "Clear this field.",
+        }
 
         self._search_debounce_id: Optional[str] = None
 
@@ -137,6 +146,8 @@ class FileExplorerTab:
         self.explorer_listbox.bind("<BackSpace>", self.on_explorer_backspace_key)
         self.explorer_listbox.bind("<Key>", self.on_listbox_keypress)
 
+        self.frame.bind_all("<Control-h>", lambda e: self.go_home_directory())
+        self.frame.bind_all("<Control-H>", lambda e: self.go_home_directory())
         self.frame.bind_all("<Control-l>", lambda e: self.go_logging_directory())
         self.frame.bind_all("<Control-L>", lambda e: self.go_logging_directory())
 
@@ -219,6 +230,7 @@ class FileExplorerTab:
     def _create_button(self, parent, text, command, state=tk.NORMAL, **pack_opts):
         btn = ttk.Button(parent, text=text, command=command, state=state, style="Action.TButton")
         btn.pack(padx=2, **pack_opts)
+        attach_tooltip(btn, self._button_tooltips.get(text, text))
         return btn
 
     def on_explorer_search(self, *args):

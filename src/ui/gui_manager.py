@@ -14,6 +14,7 @@ from ..utils.logger import TkinterLogHandler, get_logger
 from ..utils.settings_manager import SettingsManager
 from .components.file_explorer_tab import FileExplorerTab
 from .components.settings_tab import SettingsTab
+from .components.tooltip import attach_tooltip
 
 logger = get_logger(__name__)
 
@@ -38,6 +39,18 @@ class FoxgloveAppGUIManager:
         self.main_notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
         self._button_map = {}
+        self._button_tooltips = {
+            "Open": "Open the selected file or folder.",
+            "Copy": "Copy selected path(s) to clipboard. (Ctrl+C)",
+            "Manager": "Open the current folder in the system file manager. (Ctrl+M)",
+            "Foxglove": "Launch selected MCAP file(s) in Foxglove. (Ctrl+F)",
+            "Rosbag": "Launch selected MCAP file(s) in Bazel rosbag playback. (Ctrl+B)",
+            "Viz": "Run bazel tools visualization from Bazel working directory.",
+            "Topic": "Run topic-gui: bazel run //tools/topic:gui.",
+            "Plot": "Run av-plot: bazel run //tools/plot.",
+            "Build": "Run bazel build //... in Bazel working directory.",
+            "Procs": "Show tracked process status, PID, and runtime. (Ctrl+P)",
+        }
         self.create_shared_action_buttons(main_frame)
         self.file_explorer_tab = FileExplorerTab(
             self.main_notebook,
@@ -313,8 +326,9 @@ class FoxgloveAppGUIManager:
             ("p", lambda e: self.show_process_status()),
             ("f", lambda e: self.open_with_foxglove() if self.open_foxglove_button["state"] == tk.NORMAL else None),
             ("b", lambda e: self.open_with_bazel() if self.open_bazel_button["state"] == tk.NORMAL else None),
-            ("o", lambda e: self.open_selected_file() if self.open_file_button["state"] == tk.NORMAL else None),
             ("m", lambda e: self.open_in_file_manager()),
+            ("h", lambda e: self.file_explorer_tab.go_home_directory()),
+            ("l", lambda e: self.file_explorer_tab.go_logging_directory()),
             ("q", lambda e: self.on_closing()),
         ]
         for key, cb in ctrl_shortcuts:
@@ -476,6 +490,7 @@ class FoxgloveAppGUIManager:
         """Helper to create and pack a ttk.Button with common options."""
         btn = ttk.Button(parent, text=text, command=command, state=state, style="Action.TButton")
         btn.pack(side=tk.LEFT, padx=4, pady=4, **pack_opts)
+        attach_tooltip(btn, self._button_tooltips.get(text, text))
         return btn
 
     # --- Cross-Tab Action Methods ---

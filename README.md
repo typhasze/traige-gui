@@ -47,6 +47,7 @@ Python GUI for managing and analyzing autonomous vehicle rosbag data, event logs
   - Press `Ctrl+E` to focus the search filter explicitly
 - **NAS connection monitoring**: Automatic detection and warnings for unmounted/inaccessible NAS drives
 - **Clipboard integration**: Copy one or multiple selected file paths to the clipboard
+- **Hover tooltips**: All action buttons and setting toggles show contextual descriptions on hover
 
 ### 📊 Event Log Viewer
 - **Flexible viewing modes**: Open event logs as windows or notebook tabs

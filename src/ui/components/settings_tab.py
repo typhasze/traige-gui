@@ -5,6 +5,7 @@ from typing import Callable, Optional
 from ...utils.constants import DEFAULT_SETTINGS, SETTINGS_FILE_PATH
 from ...utils.logger import get_logger
 from ...utils.settings_manager import SettingsManager
+from .tooltip import attach_tooltip
 
 logger = get_logger(__name__)
 
@@ -70,6 +71,19 @@ class SettingsTab:
 
         self._manager = SettingsManager(SETTINGS_FILE_PATH)
         self.settings = self._manager.settings
+        self._setting_tooltips = {
+            "bazel_working_dir": "Directory where Bazel commands run.",
+            "nas_dir": "Primary NAS data root used by File Explorer.",
+            "backup_nas_dir": "Fallback data root when primary NAS path is unavailable.",
+            "logging_dir": "Path to LOGGING drive used by quick navigation.",
+            "max_foxglove_files": "Maximum number of MCAP files to open in Foxglove at once.",
+            "bazel_bag_gui_rate": "Playback rate for Bazel rosbag GUI.",
+            "open_foxglove_in_browser": "Open single MCAP in browser Foxglove instead of desktop app.",
+            "single_instance_video": "Keep only one MPV video process at a time.",
+            "single_instance_rosbag": "Keep only one Bazel rosbag process at a time.",
+            "auto_open_event_log_for_tg": "Auto-open event logs when entering TG folders.",
+            "event_log_viewer_as_tab": "Open event viewer inside main notebook tab.",
+        }
 
         self.logic.set_runtime_settings(self.settings)
         self.on_nas_dir_changed: Optional[Callable[[str], None]] = None
@@ -135,6 +149,7 @@ class SettingsTab:
                     command=lambda k=key, v=var: self._on_bool_setting_changed(k, v),
                 )
                 widget.pack(side=tk.LEFT, padx=(0, 18))
+                attach_tooltip(widget, self._setting_tooltips.get(key, config["label"]))
                 self.entries[key] = widget
 
                 checkbox_col += 1
@@ -166,10 +181,12 @@ class SettingsTab:
             button_frame, text="Save Settings", command=self.save_settings_button, style="Action.TButton"
         )
         self.save_button.pack(side=tk.LEFT, padx=5)
+        attach_tooltip(self.save_button, "Save current settings to ~/.foxglove_gui_settings.json.")
         self.reset_button = ttk.Button(
             button_frame, text="Reset to Defaults", command=self.reset_settings_button, style="Action.TButton"
         )
         self.reset_button.pack(side=tk.LEFT, padx=5)
+        attach_tooltip(self.reset_button, "Restore all settings to built-in defaults.")
 
     def _on_bool_setting_changed(self, key, var):
         """Apply boolean settings immediately to runtime logic and save to disk."""
