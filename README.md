@@ -27,7 +27,7 @@ Python GUI for managing and analyzing autonomous vehicle rosbag data, event logs
 ### 📁 File Explorer Tab
 - **Navigate directories**: Browse data folders in an intuitive file explorer
 - **Quick access shortcuts**:
-  - Home button: Navigate to configured NAS data directory
+  - Home button: Navigate to configured NAS data directory (Ctrl+H)
   - LOGGING button: Navigate to external LOGGING drive (Ctrl+L)
   - Back button: Return to previous directory
 - **Compact action toolbar**: Fast access to `Open`, `Copy`, `Manager`, `Foxglove`, `Rosbag`, `Viz`, `Topic`, `Plot`, `Build`, and `Procs`
@@ -69,7 +69,7 @@ Python GUI for managing and analyzing autonomous vehicle rosbag data, event logs
 - **File navigation**: Jump to and highlight the corresponding MCAP file - press 'L'
 - **Event selection**: Select events to view details and playback actions
 - **Timestamp parsing**: Intelligent parsing of various timestamp formats
-- **Search functionality**: Quick search with Ctrl+F or '/' (Vim-style)
+- **Search functionality**: Quick search with Ctrl+E or '/' (Vim-style)
   - Shows live filter feedback ("No matches found" / "Showing X of Y")
 - **Event count display**: Shows total events in the log
 - **Tab management**: Double-click event log tabs to close them
@@ -270,11 +270,11 @@ triage_gui
 4. Browse events in the sortable table (timestamp, description, criticality, UI mode)
 5. Select an event row to enable action buttons
 6. Use action buttons or keyboard shortcuts:
-   - **Video Timestamp (V)**: Launch video at exact event timestamp with mpv
-   - **Rosbag Timestamp (B)**: Launch rosbag playback at exact event timestamp with `--start-offset`
-   - **Current Rosbag (C)**: Play the current MCAP file from the beginning
-   - **Rosbag Location (L)**: Navigate to and highlight the corresponding MCAP file
-7. Use search (Ctrl+F or /) to find events
+  - **Play video (V)**: Launch video at exact event timestamp with mpv
+  - **Play Rosbag (B)**: Launch rosbag playback at exact event timestamp with `--start-offset`
+  - **Rosbag from Start (C)**: Play the current MCAP file from the beginning
+  - **Locate Rosbag (S/L)**: Navigate to and highlight the corresponding MCAP file
+7. Use search (Ctrl+E or /) to find events
   - Viewer shows live filter status ("No matches found" / "Showing X of Y")
   - Large files display a warning and load asynchronously
 8. **Close tabs**: Double-click on event log tabs to close them (when using tab mode)
@@ -335,12 +335,13 @@ triage_gui
 - **Ctrl+Q**: Quit application
 - **F1**: Show keyboard shortcuts help
 - **F5**: Refresh current tab
+- **Ctrl+Tab**: Move to the tab on the right (loops to first tab at the end)
 - **Ctrl+P**: Show process status
 
 </td><td>
 
 ### 🧭 File Operations
-- **Ctrl+O**: Open selected item
+- *(Applies when File Explorer tab is active)*
 - **Ctrl+B**: Launch Rosbag playback
 - **Ctrl+C**: Copy selected path(s)
 - **Ctrl+M**: Open current folder in file manager
@@ -352,6 +353,7 @@ triage_gui
 <tr><td>
 
 ### 📂 Navigation
+- **Ctrl+H**: Navigate to NAS/Home directory
 - **Ctrl+L**: Navigate to LOGGING directory
 - **Enter**: Navigate into selected folder / Open file
 - **Backspace**: Navigate to parent directory
@@ -367,7 +369,7 @@ triage_gui
 - **B**: Play Bazel at selected event timestamp
 - **C**: Play Bazel from the start of the current bag
 - **S** or **L**: Show related MCAP / rosbag location
-- **Ctrl+F** or **/**: Focus search field
+- **Ctrl+E** or **/**: Focus search field
 - **Escape**: Clear search filter and refocus the event list
 - **Ctrl+F4**: Close event viewer tab or window
 - **Double-click tab**: Close event viewer tab

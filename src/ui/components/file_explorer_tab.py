@@ -61,6 +61,7 @@ class FileExplorerTab:
 
         self._mcap_cache = {}  # {rosbags_dir: (timestamp, mcap_files_list)}
         self._mcap_cache_ttl = 60  # Cache for 60 seconds
+        self._explorer_nav_index: Optional[int] = None
 
         self._button_tooltips = {
             "Home": "Go to configured NAS/home data directory. (Ctrl+H)",
@@ -144,12 +145,14 @@ class FileExplorerTab:
         self.explorer_listbox.bind("<Double-1>", self.on_explorer_double_click)
         self.explorer_listbox.bind("<Return>", self.on_explorer_enter_key)
         self.explorer_listbox.bind("<BackSpace>", self.on_explorer_backspace_key)
+        self.explorer_listbox.bind("<Up>", self.focus_explorer_listbox_up)
+        self.explorer_listbox.bind("<Down>", self.focus_explorer_listbox_down)
         self.explorer_listbox.bind("<Key>", self.on_listbox_keypress)
 
-        self.frame.bind_all("<Control-h>", lambda e: self.go_home_directory())
-        self.frame.bind_all("<Control-H>", lambda e: self.go_home_directory())
-        self.frame.bind_all("<Control-l>", lambda e: self.go_logging_directory())
-        self.frame.bind_all("<Control-L>", lambda e: self.go_logging_directory())
+        self.frame.bind_all("<Control-h>", self._handle_home_shortcut)
+        self.frame.bind_all("<Control-H>", self._handle_home_shortcut)
+        self.frame.bind_all("<Control-l>", self._handle_logging_shortcut)
+        self.frame.bind_all("<Control-L>", self._handle_logging_shortcut)
 
         self._bind_widget_tree_shortcuts(self.frame)
 
@@ -217,6 +220,18 @@ class FileExplorerTab:
             self._open_with_bazel_cb()
             return "break"
         return None
+
+    def _handle_home_shortcut(self, event=None):
+        if not self._is_file_explorer_tab_active():
+            return None
+        self.go_home_directory()
+        return "break"
+
+    def _handle_logging_shortcut(self, event=None):
+        if not self._is_file_explorer_tab_active():
+            return None
+        self.go_logging_directory()
+        return "break"
 
     def on_listbox_keypress(self, event):
         """Focus search bar on key press in the listbox."""
@@ -305,6 +320,13 @@ class FileExplorerTab:
                 display_texts = [item[0] for item in batch_items]
                 self.explorer_listbox.insert(tk.END, *display_texts)
                 self.explorer_files_list.extend(item[1] for item in batch_items)
+
+                if self._explorer_nav_index is None or self._explorer_nav_index >= len(batch_items):
+                    self._explorer_nav_index = 0
+                self.explorer_listbox.selection_clear(0, tk.END)
+                self.explorer_listbox.selection_anchor(self._explorer_nav_index)
+                self.explorer_listbox.activate(self._explorer_nav_index)
+                self.explorer_listbox.see(self._explorer_nav_index)
 
             for idx, (_, name) in enumerate(batch_items):
                 nl = name.lower()
@@ -618,7 +640,9 @@ class FileExplorerTab:
         tab_frame = viewer_info["frame"]
         try:
             self.notebook.forget(tab_frame)
-            self.notebook.select(0)
+            tab_frame.destroy()
+            self.notebook.select(self.frame)
+            self.root.after_idle(lambda: self.explorer_listbox.focus_set())
         except Exception as e:
             self.log_message(f"Failed to remove event log tab: {e}", is_error=False)
 
@@ -731,6 +755,9 @@ class FileExplorerTab:
         selection = self.explorer_listbox.curselection()
         states = {"open_file": False, "copy_path": False, "open_with_foxglove": False, "open_with_bazel": False}
 
+        if selection:
+            self._explorer_nav_index = selection[0]
+
         selected_paths = []
         if selection:
             for idx in selection:
@@ -776,16 +803,29 @@ class FileExplorerTab:
 
     def _focus_explorer_listbox_move(self, direction, event=None):
         self.explorer_listbox.focus_set()
-        cur = self.explorer_listbox.curselection()
         max_idx = self.explorer_listbox.size() - 1
+        if max_idx < 0:
+            return "break"
+
+        cur = self.explorer_listbox.curselection()
         if cur:
-            idx = cur[0] + direction
-            idx = max(0, min(idx, max_idx))
+            base_idx = cur[0]
+        elif self._explorer_nav_index is not None and 0 <= self._explorer_nav_index <= max_idx:
+            base_idx = self._explorer_nav_index
         else:
-            idx = 0
+            try:
+                base_idx = int(self.explorer_listbox.index(tk.ACTIVE))
+            except Exception:
+                base_idx = 0
+
+        idx = max(0, min(base_idx + direction, max_idx))
         self.explorer_listbox.selection_clear(0, tk.END)
         self.explorer_listbox.selection_set(idx)
+        self.explorer_listbox.selection_anchor(idx)
+        self.explorer_listbox.activate(idx)
         self.explorer_listbox.see(idx)
+        self._explorer_nav_index = idx
+        self.on_explorer_select(suppress_log=True)
         return "break"
 
     def focus_explorer_listbox_up(self, event=None):
@@ -860,7 +900,9 @@ class FileExplorerTab:
                 if fname.lower() == filename.strip().lower():
                     try:
                         self.explorer_listbox.selection_clear(0, tk.END)
-                        self.explorer_listbox.selection_set(idx)
+                        self._explorer_nav_index = idx
+                        self.explorer_listbox.selection_anchor(idx)
+                        self.explorer_listbox.activate(idx)
                         self.explorer_listbox.see(idx)
                         self.explorer_listbox.itemconfig(idx, {"bg": "yellow"})
                         self.on_explorer_select(suppress_log=True)
@@ -892,7 +934,9 @@ class FileExplorerTab:
                     if os.path.isdir(item_path):
                         try:
                             self.explorer_listbox.selection_clear(0, tk.END)
-                            self.explorer_listbox.selection_set(idx)
+                            self._explorer_nav_index = idx
+                            self.explorer_listbox.selection_anchor(idx)
+                            self.explorer_listbox.activate(idx)
                             self.explorer_listbox.see(idx)
                             self.explorer_listbox.itemconfig(idx, {"bg": "lightblue"})
                             self.on_explorer_select(suppress_log=True)

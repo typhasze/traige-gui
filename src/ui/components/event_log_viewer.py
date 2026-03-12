@@ -297,6 +297,7 @@ class EventLogViewer:
         self._tree: Optional[ttk.Treeview] = None
         self._search_var: Optional[tk.StringVar] = None
         self._all_events: List[Tuple[str, ...]] = []
+        self._last_logged_selection_key: Optional[str] = None
 
     # Public API
     def build_ui(self) -> None:
@@ -324,6 +325,7 @@ class EventLogViewer:
         update_status = self._setup_filtering(tree, search_var, filter_result_label, status_label)
 
         self._bind_keyboard_shortcuts(main_frame, search_entry, tree, functions)
+        self.parent.after_idle(tree.focus_set)
 
         try:
             file_size = os.path.getsize(self.file_path)
@@ -345,6 +347,13 @@ class EventLogViewer:
             for row in events:
                 tree.insert("", "end", values=row)
             self._all_events.extend(events)
+            if events and not tree.selection():
+                first_item = tree.get_children()[0]
+                tree.selection_set(first_item)
+                tree.focus(first_item)
+                tree.see(first_item)
+                tree.event_generate("<<TreeviewSelect>>")
+            tree.focus_set()
             logger.debug("Loaded %d events from %s", len(events), file_path)
             update_status()
 
@@ -549,7 +558,15 @@ class EventLogViewer:
                 vals = tree.item(sel[0])["values"]
                 if vals:
                     current_time = str(vals[0])
-                    self._log_message(f"Selected event: {vals[0]} - {vals[2] if len(vals) > 2 else ''}")
+                    if current_time.startswith("⏳ Loading events"):
+                        return
+
+                    description = str(vals[2]) if len(vals) > 2 else ""
+                    selection_key = f"{current_time}|{description}"
+                    if selection_key != self._last_logged_selection_key:
+                        self._log_message(f"Selected event: {vals[0]} - {description}")
+                        self._last_logged_selection_key = selection_key
+
                     if self._play_video_cb:
                         cb = self._play_video_cb
                         tree.play_video_func = lambda _ts=current_time: cb(_ts)  # type: ignore[attr-defined]
@@ -568,6 +585,7 @@ class EventLogViewer:
 
         tree.bind("<<TreeviewSelect>>", lambda e: (on_row_select(e), update_button_states()))
         tree.bind("<Double-1>", on_double_click)
+        tree.focus_set()
 
     def _setup_filtering(
         self,
@@ -618,22 +636,79 @@ class EventLogViewer:
         functions: dict,
     ) -> None:
 
+        def is_viewer_active() -> bool:
+            if not self.is_tab:
+                return True
+            try:
+                notebook = parent.nametowidget(parent.winfo_parent())
+                if isinstance(notebook, ttk.Notebook):
+                    return notebook.select() == str(parent)
+            except Exception:  # nosec B110
+                return False
+            return True
+
         def focus_search(event: tk.Event) -> None:  # type: ignore[type-arg]
+            if not is_viewer_active():
+                return
             search_entry.focus_set()
 
+        def ensure_tree_focus_selection() -> None:
+            items = tree.get_children()
+            if not items:
+                tree.focus_set()
+                return
+
+            selected = tree.selection()
+            target_item = selected[0] if selected and selected[0] in items else items[0]
+            tree.selection_set(target_item)
+            tree.focus(target_item)
+            tree.see(target_item)
+            tree.focus_set()
+
         def clear_search_and_focus_tree(event: tk.Event) -> str:  # type: ignore[type-arg]
+            if not is_viewer_active():
+                return "break"
             if self._search_var is not None:
                 self._search_var.set("")
+            parent.after_idle(ensure_tree_focus_selection)
+            return "break"
+
+        def move_tree_selection_from_search(step: int) -> str:
+            if not is_viewer_active():
+                return "break"
+            items = tree.get_children()
+            if not items:
+                return "break"
+
+            selected = tree.selection()
+            if not selected:
+                next_index = 0 if step > 0 else len(items) - 1
+            else:
+                current_item = selected[0]
+                try:
+                    current_index = items.index(current_item)
+                except ValueError:
+                    current_index = -1
+                next_index = max(0, min(len(items) - 1, current_index + step))
+
+            next_item = items[next_index]
+            tree.selection_set(next_item)
+            tree.focus(next_item)
+            tree.see(next_item)
             tree.focus_set()
             return "break"
 
         def run_shortcut(event: tk.Event, action: Callable[[], None]):  # type: ignore[type-arg]
+            if not is_viewer_active():
+                return None
             if event.widget == search_entry:
                 return None
             action()
             return "break"
 
         def close_tab(event: tk.Event) -> str:  # type: ignore[type-arg]
+            if not is_viewer_active():
+                return "break"
             self.on_close()
             return "break"
 
@@ -654,6 +729,9 @@ class EventLogViewer:
             target.bind("/", focus_search, add="+")
             target.bind("<Escape>", clear_search_and_focus_tree, add="+")
             target.bind("<Control-F4>", close_tab, add="+")
+
+        search_entry.bind("<Down>", lambda _e: move_tree_selection_from_search(1), add="+")
+        search_entry.bind("<Up>", lambda _e: move_tree_selection_from_search(-1), add="+")
 
     @staticmethod
     def _select_all_text(event: tk.Event) -> str:  # type: ignore[type-arg]

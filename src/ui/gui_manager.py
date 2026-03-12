@@ -321,14 +321,21 @@ class FoxgloveAppGUIManager:
         self.root.bind("<Escape>", lambda e: self.clear_all_selections())
         self.root.bind("<F5>", lambda e: self.refresh_current_tab())
         self.root.bind("<F1>", lambda e: self.show_keyboard_shortcuts())
+        self.root.bind("<Control-Tab>", self.cycle_tabs_forward)
+        self.root.bind("<Control-ISO_Left_Tab>", self.cycle_tabs_forward)
+        self.main_notebook.bind("<Control-Tab>", self.cycle_tabs_forward, add="+")
+        self.main_notebook.bind("<Control-ISO_Left_Tab>", self.cycle_tabs_forward, add="+")
+
+        def if_explorer_active(action):
+            return lambda e: action() if self.main_notebook.select() == str(self.file_explorer_tab.frame) else None
 
         ctrl_shortcuts = [
             ("p", lambda e: self.show_process_status()),
             ("f", lambda e: self.open_with_foxglove() if self.open_foxglove_button["state"] == tk.NORMAL else None),
             ("b", lambda e: self.open_with_bazel() if self.open_bazel_button["state"] == tk.NORMAL else None),
-            ("m", lambda e: self.open_in_file_manager()),
-            ("h", lambda e: self.file_explorer_tab.go_home_directory()),
-            ("l", lambda e: self.file_explorer_tab.go_logging_directory()),
+            ("m", if_explorer_active(self.open_in_file_manager)),
+            ("h", if_explorer_active(self.file_explorer_tab.go_home_directory)),
+            ("l", if_explorer_active(self.file_explorer_tab.go_logging_directory)),
             ("q", lambda e: self.on_closing()),
         ]
         for key, cb in ctrl_shortcuts:
@@ -387,6 +394,85 @@ class FoxgloveAppGUIManager:
         elif current_tab_index == self._settings_tab_index:
             self.update_status_bar("Settings tab active")
 
+    def cycle_tabs_forward(self, event=None):
+        """Move to the next notebook tab, wrapping to the first tab at the end."""
+        try:
+            tabs = self.main_notebook.tabs()
+            if not tabs:
+                return "break"
+            current_index = self.main_notebook.index(self.main_notebook.select())
+            next_index = (current_index + 1) % len(tabs)
+            self.main_notebook.select(next_index)
+            self.on_tab_changed()
+            self._focus_current_tab_widget()
+        except tk.TclError:
+            return "break"
+        return "break"
+
+    def _focus_current_tab_widget(self):
+        """Move keyboard focus to a useful widget inside the selected tab."""
+        try:
+            selected_tab_id = self.main_notebook.select()
+            if not selected_tab_id:
+                return
+            tab_widget = self.main_notebook.nametowidget(selected_tab_id)
+        except tk.TclError:
+            return
+
+        if tab_widget == self.file_explorer_tab.frame:
+
+            def _focus_explorer_listbox():
+                listbox = self.file_explorer_tab.explorer_listbox
+                size = listbox.size()
+                if size > 0:
+                    current = listbox.curselection()
+                    index = current[0] if current else self.file_explorer_tab._explorer_nav_index
+                    if index is None or not (0 <= index < size):
+                        index = 0
+                    listbox.selection_clear(0, tk.END)
+                    listbox.selection_anchor(index)
+                    listbox.activate(index)
+                    listbox.see(index)
+                listbox.focus_set()
+
+            self.root.after_idle(_focus_explorer_listbox)
+            return
+
+        if tab_widget == self.settings_tab.frame:
+            entry_widgets = self.settings_tab.get_entry_widgets()
+            if entry_widgets:
+                self.root.after_idle(entry_widgets[0].focus_set)
+            else:
+                self.root.after_idle(tab_widget.focus_set)
+            return
+
+        def _find_treeview(widget):
+            if isinstance(widget, ttk.Treeview):
+                return widget
+            for child in widget.winfo_children():
+                found = _find_treeview(child)
+                if found is not None:
+                    return found
+            return None
+
+        tree = _find_treeview(tab_widget)
+        if tree is not None:
+
+            def _focus_tree():
+                items = tree.get_children()
+                if items and not tree.selection():
+                    first_item = items[0]
+                    tree.selection_set(first_item)
+                    tree.focus(first_item)
+                    tree.see(first_item)
+                    tree.event_generate("<<TreeviewSelect>>")
+                tree.focus_set()
+
+            self.root.after_idle(_focus_tree)
+            return
+
+        self.root.after_idle(tab_widget.focus_set)
+
     def show_keyboard_shortcuts(self):
         """Display a window with all keyboard shortcuts."""
         shortcuts_window = tk.Toplevel(self.root)
@@ -418,12 +504,12 @@ class FoxgloveAppGUIManager:
                     ("Ctrl+Q", "Quit application"),
                     ("F1", "Show this help"),
                     ("F5", "Refresh current tab"),
+                    ("Ctrl+Tab", "Move to next tab (wrap around)"),
                 ],
             ),
             (
                 "File Operations",
                 [
-                    ("Ctrl+O", "Open selected item"),
                     ("Ctrl+F", "Launch Foxglove"),
                     ("Ctrl+B", "Launch Rosbag"),
                     ("Ctrl+C", "Copy selected path(s)"),
@@ -624,7 +710,9 @@ class FoxgloveAppGUIManager:
         current_tab_index = self.main_notebook.index(self.main_notebook.select())
 
         self._update_button_states({key: False for key in self._button_map})
-        self.open_in_manager_button.config(state=tk.NORMAL)
+        self.open_in_manager_button.config(
+            state=tk.NORMAL if current_tab_index == self._explorer_tab_index else tk.DISABLED
+        )
         self.launch_bazel_viz_button.config(state=tk.NORMAL)
         self.topic_gui_button.config(state=tk.NORMAL)
         self.av_plot_button.config(state=tk.NORMAL)
@@ -635,6 +723,8 @@ class FoxgloveAppGUIManager:
             self.file_explorer_tab.on_explorer_select(None, suppress_log=True)
         else:
             self._update_button_states({key: False for key in ("open_with_foxglove", "open_with_bazel", "copy_path")})
+
+        self._focus_current_tab_widget()
 
     def _cache_tab_indices(self):
         """Cache tab indices for performance optimization"""
