@@ -474,7 +474,7 @@ class EventLogViewer:
 
         btn_video = ttk.Button(
             button_frame,
-            text="Video Timestamp",
+            text="Play Video",
             command=play_video,
             state="disabled",
             style="Action.TButton",
@@ -483,7 +483,7 @@ class EventLogViewer:
 
         btn_bazel = ttk.Button(
             button_frame,
-            text="Rosbag Timestamp",
+            text="Play Rosbag",
             command=play_bazel,
             state="disabled",
             style="Action.TButton",
@@ -492,7 +492,7 @@ class EventLogViewer:
 
         btn_bazel_start = ttk.Button(
             button_frame,
-            text="Current Rosbag",
+            text="Rosbag from Start",
             command=play_bazel_from_start,
             state="disabled",
             style="Action.TButton",
@@ -501,7 +501,7 @@ class EventLogViewer:
 
         btn_mcap = ttk.Button(
             button_frame,
-            text="Rosbag Location",
+            text="Locate Rosbag",
             command=show_mcap_in_explorer,
             state="disabled",
             style="Action.TButton",
@@ -511,7 +511,7 @@ class EventLogViewer:
         status_label = ttk.Label(button_frame, text="")
         status_label.pack(side="left", padx=(10, 0))
 
-        close_text = "Close Tab" if self.is_tab else "Close"
+        close_text = "Close Tab"
         ttk.Button(button_frame, text=close_text, command=self.on_close, style="Action.TButton").pack(side="right")
 
         buttons = {
