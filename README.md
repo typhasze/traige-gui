@@ -200,9 +200,10 @@ git clone <repository-url>
 cd traige-gui
 ```
 
-**Step 2 :** Install mpv for video playback
+**Step 2 :** Install additional dependencies
 ```bash
 # Ubuntu/Debian
+sudo apt-get install python3 python3-pip
 sudo apt-get install mpv
 sudo snap install foxglove-studio
 ```
@@ -210,6 +211,7 @@ sudo snap install foxglove-studio
 **Step 3 (Optional):** Add convenience function to `~/.bashrc`
 ```bash
 triage_gui() {
+    mount_all_nas # make sure NAS is mounted before opening GUI
     cd
     nohup ./traige-gui/src/main.py &
 }
