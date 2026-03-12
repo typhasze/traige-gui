@@ -61,13 +61,14 @@ Python GUI for managing and analyzing autonomous vehicle rosbag data, event logs
   - Also triggers when navigating directly into a vehicle folder that is inside a TG folder
 - **Structured view**: Searchable event table
 - **Column display**: Timestamp, event description, criticality, and UI mode
-- **Video playback**: Play video at selected event timestamp (via mpv) - press 'V'
+- **Video playback**: Play video at selected event timestamp (via mpv) - press 'Ctrl+V'
   - Double-click an event row to play video immediately
 - **Bazel playback options**:
-  - Launch at event timestamp with `--start-offset` - press 'B'
-  - Play from beginning of bag - press 'C'
-- **File navigation**: Jump to and highlight the corresponding MCAP file - press 'L'
+  - Launch at event timestamp with `--start-offset` - press 'Ctrl+B'
+  - Play from beginning of bag - press 'Ctrl+C'
+- **File navigation**: Jump to and highlight the corresponding MCAP file - press 'Ctrl+L'
 - **Event selection**: Select events to view details and playback actions
+- **Keyboard-first actions**: Event action shortcuts use `Ctrl+` combinations (`Ctrl+V`, `Ctrl+B`, `Ctrl+C`, `Ctrl+L`)
 - **Timestamp parsing**: Intelligent parsing of various timestamp formats
 - **Search functionality**: Quick search with Ctrl+E or '/' (Vim-style)
   - Shows live filter feedback ("No matches found" / "Showing X of Y")
@@ -270,10 +271,10 @@ triage_gui
 4. Browse events in the sortable table (timestamp, description, criticality, UI mode)
 5. Select an event row to enable action buttons
 6. Use action buttons or keyboard shortcuts:
-  - **Play video (V)**: Launch video at exact event timestamp with mpv
-  - **Play Rosbag (B)**: Launch rosbag playback at exact event timestamp with `--start-offset`
-  - **Rosbag from Start (C)**: Play the current MCAP file from the beginning
-  - **Locate Rosbag (S/L)**: Navigate to and highlight the corresponding MCAP file
+  - **Play video (Ctrl+V)**: Launch video at exact event timestamp with mpv
+  - **Play Rosbag (Ctrl+B)**: Launch rosbag playback at exact event timestamp with `--start-offset`
+  - **Rosbag from Start (Ctrl+C)**: Play the current MCAP file from the beginning
+  - **Locate Rosbag (Ctrl+L)**: Navigate to and highlight the corresponding MCAP file
 7. Use search (Ctrl+E or /) to find events
   - Viewer shows live filter status ("No matches found" / "Showing X of Y")
   - Large files display a warning and load asynchronously
@@ -335,7 +336,7 @@ triage_gui
 - **Ctrl+Q**: Quit application
 - **F1**: Show keyboard shortcuts help
 - **F5**: Refresh current tab
-- **Ctrl+Tab**: Move to the tab on the right (loops to first tab at the end)
+- **Ctrl+Tab**: Move to the tab on the right (loops to first tab at the end) and focus the selected tab
 - **Ctrl+P**: Show process status
 
 </td><td>
@@ -365,11 +366,13 @@ triage_gui
 </td><td>
 
 ### 📊 Event Log Viewer
-- **V**: Play video at selected event timestamp
-- **B**: Play Bazel at selected event timestamp
-- **C**: Play Bazel from the start of the current bag
-- **S** or **L**: Show related MCAP / rosbag location
+- *(Applies when an Event Log Viewer tab/window is active)*
+- **Ctrl+V**: Play video at selected event timestamp
+- **Ctrl+B**: Play Bazel at selected event timestamp
+- **Ctrl+C**: Play Bazel from the start of the current bag
+- **Ctrl+L**: Show related MCAP / rosbag location
 - **Ctrl+E** or **/**: Focus search field
+- **Up/Down**: Move event-row selection (from search field or event table)
 - **Escape**: Clear search filter and refocus the event list
 - **Ctrl+F4**: Close event viewer tab or window
 - **Double-click tab**: Close event viewer tab

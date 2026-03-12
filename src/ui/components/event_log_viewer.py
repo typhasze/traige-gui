@@ -492,7 +492,7 @@ class EventLogViewer:
             style="Action.TButton",
         )
         btn_video.pack(side="left", padx=(0, 10))
-        attach_tooltip(btn_video, "Play video at selected event timestamp. (V)")
+        attach_tooltip(btn_video, "Play video at selected event timestamp. (Ctrl+V)")
 
         btn_bazel = ttk.Button(
             button_frame,
@@ -502,7 +502,7 @@ class EventLogViewer:
             style="Action.TButton",
         )
         btn_bazel.pack(side="left", padx=(0, 10))
-        attach_tooltip(btn_bazel, "Play rosbag at selected event timestamp. (B)")
+        attach_tooltip(btn_bazel, "Play rosbag at selected event timestamp. (Ctrl+B)")
 
         btn_bazel_start = ttk.Button(
             button_frame,
@@ -512,7 +512,7 @@ class EventLogViewer:
             style="Action.TButton",
         )
         btn_bazel_start.pack(side="left", padx=(0, 10))
-        attach_tooltip(btn_bazel_start, "Play rosbag from beginning of the selected bag. (C)")
+        attach_tooltip(btn_bazel_start, "Play rosbag from beginning of the selected bag. (Ctrl+C)")
 
         btn_mcap = ttk.Button(
             button_frame,
@@ -522,7 +522,7 @@ class EventLogViewer:
             style="Action.TButton",
         )
         btn_mcap.pack(side="left", padx=(0, 10))
-        attach_tooltip(btn_mcap, "Locate and highlight corresponding rosbag in File Explorer. (S/L)")
+        attach_tooltip(btn_mcap, "Locate and highlight corresponding rosbag in File Explorer. (Ctrl+L)")
 
         status_label = ttk.Label(button_frame, text="")
         status_label.pack(side="left", padx=(10, 0))
@@ -715,14 +715,14 @@ class EventLogViewer:
         targets = (parent, search_entry, tree)
 
         for target in targets:
-            for key in ("v", "V"):
-                target.bind(f"<{key}>", lambda e, f=functions: run_shortcut(e, f["play_video"]), add="+")
-            for key in ("b", "B"):
-                target.bind(f"<{key}>", lambda e, f=functions: run_shortcut(e, f["play_bazel"]), add="+")
-            for key in ("s", "S", "l", "L"):
-                target.bind(f"<{key}>", lambda e, f=functions: run_shortcut(e, f["show_mcap"]), add="+")
-            for key in ("c", "C"):
-                target.bind(f"<{key}>", lambda e, f=functions: run_shortcut(e, f["play_bazel_from_start"]), add="+")
+            target.bind("<Control-v>", lambda e, f=functions: run_shortcut(e, f["play_video"]), add="+")
+            target.bind("<Control-V>", lambda e, f=functions: run_shortcut(e, f["play_video"]), add="+")
+            target.bind("<Control-b>", lambda e, f=functions: run_shortcut(e, f["play_bazel"]), add="+")
+            target.bind("<Control-B>", lambda e, f=functions: run_shortcut(e, f["play_bazel"]), add="+")
+            target.bind("<Control-l>", lambda e, f=functions: run_shortcut(e, f["show_mcap"]), add="+")
+            target.bind("<Control-L>", lambda e, f=functions: run_shortcut(e, f["show_mcap"]), add="+")
+            target.bind("<Control-c>", lambda e, f=functions: run_shortcut(e, f["play_bazel_from_start"]), add="+")
+            target.bind("<Control-C>", lambda e, f=functions: run_shortcut(e, f["play_bazel_from_start"]), add="+")
 
             target.bind("<Control-e>", focus_search, add="+")
             target.bind("<Control-E>", focus_search, add="+")

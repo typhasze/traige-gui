@@ -323,10 +323,7 @@ class FileExplorerTab:
 
                 if self._explorer_nav_index is None or self._explorer_nav_index >= len(batch_items):
                     self._explorer_nav_index = 0
-                self.explorer_listbox.selection_clear(0, tk.END)
-                self.explorer_listbox.selection_anchor(self._explorer_nav_index)
-                self.explorer_listbox.activate(self._explorer_nav_index)
-                self.explorer_listbox.see(self._explorer_nav_index)
+                self._set_explorer_cursor(self._explorer_nav_index)
 
             for idx, (_, name) in enumerate(batch_items):
                 nl = name.lower()
@@ -801,6 +798,35 @@ class FileExplorerTab:
         elif viewer_id in self.event_log_viewer_tabs:
             self.event_log_viewer_tabs[viewer_id]["processes"].append(proc_id)
 
+    def _set_explorer_cursor(
+        self,
+        index: int,
+        *,
+        select: bool = False,
+        focus: bool = False,
+        notify: bool = False,
+    ) -> None:
+        """Set listbox cursor state (anchor/active/visible), optionally selecting/focusing."""
+        max_idx = self.explorer_listbox.size() - 1
+        if max_idx < 0:
+            if focus:
+                self.explorer_listbox.focus_set()
+            return
+
+        idx = max(0, min(index, max_idx))
+        self.explorer_listbox.selection_clear(0, tk.END)
+        if select:
+            self.explorer_listbox.selection_set(idx)
+        self.explorer_listbox.selection_anchor(idx)
+        self.explorer_listbox.activate(idx)
+        self.explorer_listbox.see(idx)
+        self._explorer_nav_index = idx
+
+        if notify:
+            self.on_explorer_select(suppress_log=True)
+        if focus:
+            self.explorer_listbox.focus_set()
+
     def _focus_explorer_listbox_move(self, direction, event=None):
         self.explorer_listbox.focus_set()
         max_idx = self.explorer_listbox.size() - 1
@@ -819,14 +845,26 @@ class FileExplorerTab:
                 base_idx = 0
 
         idx = max(0, min(base_idx + direction, max_idx))
-        self.explorer_listbox.selection_clear(0, tk.END)
-        self.explorer_listbox.selection_set(idx)
-        self.explorer_listbox.selection_anchor(idx)
-        self.explorer_listbox.activate(idx)
-        self.explorer_listbox.see(idx)
-        self._explorer_nav_index = idx
-        self.on_explorer_select(suppress_log=True)
+        self._set_explorer_cursor(idx, select=True, focus=True, notify=True)
         return "break"
+
+    def focus_for_keyboard_navigation(self):
+        """Focus the explorer list for keyboard nav, preserving current cursor context."""
+        size = self.explorer_listbox.size()
+        if size > 0:
+            current = self.explorer_listbox.curselection()
+            if current:
+                index = current[0]
+            elif self._explorer_nav_index is not None and 0 <= self._explorer_nav_index < size:
+                index = self._explorer_nav_index
+            else:
+                try:
+                    index = int(self.explorer_listbox.index(tk.ACTIVE))
+                except Exception:
+                    index = 0
+            self._set_explorer_cursor(index, focus=True)
+            return
+        self.explorer_listbox.focus_set()
 
     def focus_explorer_listbox_up(self, event=None):
         return self._focus_explorer_listbox_move(-1, event)
@@ -899,14 +937,8 @@ class FileExplorerTab:
             for idx, fname in enumerate(self.explorer_files_list):
                 if fname.lower() == filename.strip().lower():
                     try:
-                        self.explorer_listbox.selection_clear(0, tk.END)
-                        self._explorer_nav_index = idx
-                        self.explorer_listbox.selection_anchor(idx)
-                        self.explorer_listbox.activate(idx)
-                        self.explorer_listbox.see(idx)
+                        self._set_explorer_cursor(idx, focus=True, notify=True)
                         self.explorer_listbox.itemconfig(idx, {"bg": "yellow"})
-                        self.on_explorer_select(suppress_log=True)
-                        self.explorer_listbox.focus_set()
                     except tk.TclError as e:
                         self.log_message(f"Warning: Could not highlight file: {e}", is_error=False)
                     break
@@ -933,14 +965,8 @@ class FileExplorerTab:
                     item_path = os.path.join(self.current_explorer_path, fname)
                     if os.path.isdir(item_path):
                         try:
-                            self.explorer_listbox.selection_clear(0, tk.END)
-                            self._explorer_nav_index = idx
-                            self.explorer_listbox.selection_anchor(idx)
-                            self.explorer_listbox.activate(idx)
-                            self.explorer_listbox.see(idx)
+                            self._set_explorer_cursor(idx, focus=True, notify=True)
                             self.explorer_listbox.itemconfig(idx, {"bg": "lightblue"})
-                            self.on_explorer_select(suppress_log=True)
-                            self.explorer_listbox.focus_set()
                         except tk.TclError as e:
                             self.log_message(f"Warning: Could not highlight directory: {e}", is_error=False)
                         break
@@ -1366,7 +1392,6 @@ class FileExplorerTab:
 
             # Refresh and then highlight/select when done
             def _on_nav_done():
-                self._select_file_in_listbox(mcap_filename)
                 self.highlight_file_in_explorer(mcap_filename)
                 if self.focus_file_explorer_tab:
                     self.focus_file_explorer_tab()
@@ -1377,20 +1402,3 @@ class FileExplorerTab:
 
         except Exception as e:
             self.log_message(f"Error navigating to MCAP: {e}", is_error=True)
-
-    def _select_file_in_listbox(self, filename):
-        """Helper method to select a specific file in the listbox."""
-        try:
-            # Search for the file in the listbox
-            for i in range(self.explorer_listbox.size()):
-                item = self.explorer_listbox.get(i)
-                if item == filename:
-                    self.explorer_listbox.selection_clear(0, tk.END)
-                    self.explorer_listbox.selection_set(i)
-                    self.explorer_listbox.see(i)
-                    self.explorer_listbox.activate(i)
-                    # Trigger selection event to update button states
-                    self.on_explorer_select(None)
-                    break
-        except Exception as e:
-            self.log_message(f"Error selecting file in listbox: {e}", is_error=True)

@@ -403,8 +403,6 @@ class FoxgloveAppGUIManager:
             current_index = self.main_notebook.index(self.main_notebook.select())
             next_index = (current_index + 1) % len(tabs)
             self.main_notebook.select(next_index)
-            self.on_tab_changed()
-            self._focus_current_tab_widget()
         except tk.TclError:
             return "break"
         return "break"
@@ -420,22 +418,7 @@ class FoxgloveAppGUIManager:
             return
 
         if tab_widget == self.file_explorer_tab.frame:
-
-            def _focus_explorer_listbox():
-                listbox = self.file_explorer_tab.explorer_listbox
-                size = listbox.size()
-                if size > 0:
-                    current = listbox.curselection()
-                    index = current[0] if current else self.file_explorer_tab._explorer_nav_index
-                    if index is None or not (0 <= index < size):
-                        index = 0
-                    listbox.selection_clear(0, tk.END)
-                    listbox.selection_anchor(index)
-                    listbox.activate(index)
-                    listbox.see(index)
-                listbox.focus_set()
-
-            self.root.after_idle(_focus_explorer_listbox)
+            self.root.after_idle(self.file_explorer_tab.focus_for_keyboard_navigation)
             return
 
         if tab_widget == self.settings_tab.frame:
@@ -504,7 +487,7 @@ class FoxgloveAppGUIManager:
                     ("Ctrl+Q", "Quit application"),
                     ("F1", "Show this help"),
                     ("F5", "Refresh current tab"),
-                    ("Ctrl+Tab", "Move to next tab (wrap around)"),
+                    ("Ctrl+Tab", "Move to next tab (wrap around) and focus it"),
                 ],
             ),
             (
@@ -529,12 +512,13 @@ class FoxgloveAppGUIManager:
             (
                 "Event Viewer",
                 [
-                    ("Ctrl+F or /", "Focus event viewer search"),
+                    ("Ctrl+E or /", "Focus event viewer search"),
+                    ("Up/Down", "Move event-row selection"),
                     ("Escape", "Clear search and focus event list"),
-                    ("V", "Play video at selected event"),
-                    ("B", "Play Bazel at selected event"),
-                    ("C", "Play Bazel from start at selected event"),
-                    ("S or L", "Show related MCAP"),
+                    ("Ctrl+V", "Play video at selected event"),
+                    ("Ctrl+B", "Play Bazel at selected event"),
+                    ("Ctrl+C", "Play Bazel from start at selected event"),
+                    ("Ctrl+L", "Show related MCAP"),
                     ("Ctrl+F4", "Close event viewer tab/window"),
                 ],
             ),
