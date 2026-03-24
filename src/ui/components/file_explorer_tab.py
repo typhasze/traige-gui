@@ -72,6 +72,7 @@ class FileExplorerTab:
         }
 
         self._search_debounce_id: Optional[str] = None
+        self.on_directory_changed: Optional[Callable[[str], None]] = None
 
         self.notebook.bind("<Double-Button-1>", self._on_notebook_tab_click, add="+")
 
@@ -337,6 +338,8 @@ class FileExplorerTab:
             self.root.config(cursor="")
             if on_done:
                 on_done()
+            if self.on_directory_changed:
+                self.on_directory_changed(self.current_explorer_path)
 
     def get_selected_explorer_mcap_paths(self):
         selection = self.explorer_listbox.curselection()

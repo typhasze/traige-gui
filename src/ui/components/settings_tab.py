@@ -1,3 +1,4 @@
+import threading
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Optional
@@ -88,6 +89,7 @@ class SettingsTab:
         self.logic.set_runtime_settings(self.settings)
         self.on_nas_dir_changed: Optional[Callable[[str], None]] = None
         self.on_logging_dir_changed: Optional[Callable[[str], None]] = None
+        self.on_branch_changed: Optional[Callable[[], None]] = None
         self.create_widgets()
         self.logic.update_search_paths(self.settings.get("nas_dir"), self.settings.get("backup_nas_dir"))
 
@@ -175,6 +177,33 @@ class SettingsTab:
 
         settings_frame.columnconfigure(1, weight=1)
 
+        # --- Git Branch row (below Bazel Working Directory) ---
+        if checkbox_col > 0:
+            row += 1
+        git_label = ttk.Label(settings_frame, text="Bazel Git Branch:")
+        git_label.grid(row=row, column=0, sticky="w", padx=5, pady=2)
+
+        git_row_frame = ttk.Frame(settings_frame)
+        git_row_frame.grid(row=row, column=1, sticky="we", padx=5, pady=2)
+
+        self._git_branch_var = tk.StringVar(value="—")
+        self._git_branch_combo = ttk.Combobox(
+            git_row_frame, textvariable=self._git_branch_var, width=40, state="readonly"
+        )
+        self._git_branch_combo.pack(side=tk.LEFT, fill="x", expand=True)
+        attach_tooltip(self._git_branch_combo, "Current git branch of the Bazel working directory.")
+
+        refresh_btn = ttk.Button(git_row_frame, text="↻", width=3, command=self._refresh_git_branch)
+        refresh_btn.pack(side=tk.LEFT, padx=(4, 0))
+        attach_tooltip(refresh_btn, "Refresh branch list from Bazel working directory.")
+
+        checkout_btn = ttk.Button(git_row_frame, text="Checkout", command=self._git_checkout_selected)
+        checkout_btn.pack(side=tk.LEFT, padx=(4, 0))
+        attach_tooltip(checkout_btn, "Switch to the selected git branch.")
+
+        row += 1
+        self.frame.after(200, self._refresh_git_branch)
+
         button_frame = ttk.Frame(self.frame)
         button_frame.pack(fill="x", padx=10, pady=5)
         self.save_button = ttk.Button(
@@ -255,6 +284,58 @@ class SettingsTab:
         finally:
             self.save_settings = _real_save
         self.log_message("Settings reset to defaults.")
+
+    def _refresh_git_branch(self):
+        """Load git branches from the Bazel working directory in a background thread."""
+        working_dir = self.get_setting("bazel_working_dir") or ""
+        if not working_dir:
+            self._git_branch_var.set("(no dir set)")
+            return
+
+        def _fetch():
+            current, err = self.logic.get_git_branch(working_dir)
+            branches, _ = self.logic.get_git_branches(working_dir)
+            self.frame.after(0, lambda: self._apply_git_branch_data(current, branches, err))
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _apply_git_branch_data(self, current, branches, error):
+        if error:
+            self._git_branch_var.set(f"Error: {error}")
+            self._git_branch_combo.config(values=[])
+            return
+        self._git_branch_combo.config(values=branches)
+        if current and current in branches:
+            self._git_branch_var.set(current)
+        elif current:
+            self._git_branch_var.set(current)
+
+    def _git_checkout_selected(self):
+        branch = self._git_branch_var.get()
+        working_dir = self.get_setting("bazel_working_dir") or ""
+        if not branch or branch.startswith("Error") or branch == "—":
+            self.log_message("No valid branch selected.", is_error=True)
+            return
+        if not working_dir:
+            self.log_message("Bazel working directory is not set.", is_error=True)
+            return
+
+        self.log_message(f"Checking out branch '{branch}'...")
+
+        def _do_checkout():
+            success, msg = self.logic.git_checkout(working_dir, branch)
+            self.frame.after(0, lambda: self._on_checkout_done(success, msg))
+
+        threading.Thread(target=_do_checkout, daemon=True).start()
+
+    def _on_checkout_done(self, success, message):
+        if success:
+            self.log_message(f"git checkout: {message}")
+        else:
+            self.log_message(f"git checkout failed: {message}", is_error=True)
+        self._refresh_git_branch()
+        if self.on_branch_changed:
+            self.on_branch_changed()
 
     def get_entry_widgets(self):
         return tuple(self.entries[config["key"]] for config in self.settings_config if config["widget"] == "entry")

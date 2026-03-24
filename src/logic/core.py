@@ -151,6 +151,96 @@ class FoxgloveAppLogic:
             return settings.get("bazel_working_dir")
         return None
 
+    def parse_build_info(self, folder_path: str) -> tuple:
+        """Find build_info*.txt in folder_path and return (info_dict, error).
+
+        info_dict keys: commit_hash, git_name, revision_short
+        """
+        import glob as _glob
+
+        pattern = os.path.join(os.path.expanduser(folder_path), "build_info*.txt")
+        matches = _glob.glob(pattern)
+        if not matches:
+            return None, "No build_info*.txt found in this folder"
+        try:
+            wanted = {
+                "STABLE_BUILD_GIT_REVISION": "commit_hash",
+                "STABLE_BUILD_GIT_NAME": "git_name",
+                "STABLE_BUILD_GIT_REVISION_SHORT": "revision_short",
+            }
+            info = {}
+            with open(matches[0]) as f:
+                for line in f:
+                    for key, field in wanted.items():
+                        if line.startswith(key + " "):
+                            info[field] = line.strip().split(None, 1)[1]
+            if "commit_hash" not in info:
+                return None, "STABLE_BUILD_GIT_REVISION not found in build_info file"
+            return info, None
+        except Exception as e:
+            return None, str(e)
+
+    def get_git_branch(self, working_dir: str) -> tuple:
+        """Return (branch_name, error_message) for the given directory."""
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=os.path.expanduser(working_dir),
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip(), None
+            return None, result.stderr.strip() or "Not a git repository"
+        except FileNotFoundError:
+            return None, "git not found"
+        except subprocess.TimeoutExpired:
+            return None, "git timed out"
+        except Exception as e:
+            return None, str(e)
+
+    def get_git_branches(self, working_dir: str) -> tuple:
+        """Return (list_of_branches, error_message) for the given directory."""
+        try:
+            result = subprocess.run(
+                ["git", "branch", "--sort=-committerdate"],
+                cwd=os.path.expanduser(working_dir),
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                branches = [b.lstrip("* ").strip() for b in result.stdout.splitlines() if b.strip()]
+                return branches, None
+            return [], result.stderr.strip() or "Not a git repository"
+        except FileNotFoundError:
+            return [], "git not found"
+        except subprocess.TimeoutExpired:
+            return [], "git timed out"
+        except Exception as e:
+            return [], str(e)
+
+    def git_checkout(self, working_dir: str, branch: str) -> tuple:
+        """Checkout *branch* in *working_dir*. Returns (success, message)."""
+        try:
+            result = subprocess.run(
+                ["git", "checkout", branch],
+                cwd=os.path.expanduser(working_dir),
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if result.returncode == 0:
+                return True, result.stderr.strip() or f"Switched to branch '{branch}'"
+            return False, result.stderr.strip() or f"Failed to checkout '{branch}'"
+        except FileNotFoundError:
+            return False, "git not found"
+        except subprocess.TimeoutExpired:
+            return False, "git checkout timed out"
+        except Exception as e:
+            return False, str(e)
+
     def _normalize_path_to_relative(self, full_path):
         if "/data/" in full_path:
             return "/" + full_path.split("/data/", 1)[1]

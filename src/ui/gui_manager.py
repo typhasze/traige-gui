@@ -80,6 +80,8 @@ class FoxgloveAppGUIManager:
 
         self.settings_tab.on_nas_dir_changed = self.update_file_explorer_nas_dir
         self.settings_tab.on_logging_dir_changed = self.update_file_explorer_logging_dir
+        self.settings_tab.on_branch_changed = self._refresh_branch_label
+        self.file_explorer_tab.on_directory_changed = self._auto_sync_branch
 
         logging_dir = self.settings_tab.get_setting("logging_dir")
         if logging_dir:
@@ -87,6 +89,7 @@ class FoxgloveAppGUIManager:
 
         self.create_shared_log_frame(main_frame)
         self.create_status_bar()
+        self.root.after(300, self._refresh_branch_label)
 
         nas_dir = self.settings_tab.get_setting("nas_dir")
         if nas_dir:
@@ -232,6 +235,41 @@ class FoxgloveAppGUIManager:
     def _run_in_thread(self, task):
         threading.Thread(target=task, daemon=True).start()
 
+    def _auto_sync_branch(self, folder: str):
+        """Called on every directory change. Silently syncs git branch if build_info*.txt is present."""
+        import threading
+
+        working_dir = self.settings_tab.get_setting("bazel_working_dir") or ""
+        if not working_dir:
+            return
+
+        def _task():
+            info, err = self.logic.parse_build_info(folder)
+            if err:
+                # No build_info found — silent, nothing to do
+                return
+
+            commit_hash = info["commit_hash"]
+            self.root.after(0, lambda: self.log_message(f"build_info found — checking out {commit_hash[:12]}…"))
+            success, msg = self.logic.git_checkout(working_dir, commit_hash)
+            self.root.after(0, lambda: self._on_sync_done(success, msg, info))
+
+        threading.Thread(target=_task, daemon=True).start()
+
+    def _on_sync_done(self, success, message, info: dict):
+        ref = info.get("revision_short") or info["commit_hash"][:12]
+        if success:
+            self.log_message(f"Checked out {ref}: {message}")
+            git_name = info.get("git_name", "")
+            revision_short = info.get("revision_short", ref)
+            label = f"{git_name}-{revision_short}" if git_name else revision_short
+            self.branch_label.config(text=label)
+        else:
+            self.log_message(f"Checkout failed: {message}", is_error=True)
+            self._refresh_branch_label()
+        if hasattr(self, "settings_tab"):
+            self.settings_tab._refresh_git_branch()
+
     def run_bazel_build(self):
         if getattr(self, "_building", False):
             self.log_message("Bazel build is already running.")
@@ -356,12 +394,23 @@ class FoxgloveAppGUIManager:
         )
         self.status_label.pack(side="left", fill="x", expand=True, padx=(0, 5))
 
+        self.branch_label = ttk.Label(
+            self.status_frame,
+            text="branch: —",
+            relief=tk.SUNKEN,
+            anchor=tk.CENTER,
+            width=28,
+            font=("TkDefaultFont", 10),
+            padding=(6, 6),
+        )
+        self.branch_label.pack(side="right", padx=(5, 0))
+
         self.selection_label = ttk.Label(
             self.status_frame,
             text="No selection",
             relief=tk.SUNKEN,
-            anchor=tk.E,
-            width=30,
+            anchor=tk.CENTER,
+            width=20,
             font=("TkDefaultFont", 10),
             padding=(6, 6),
         )
@@ -374,6 +423,21 @@ class FoxgloveAppGUIManager:
         self.status_label.config(text=message)
         if selection_info:
             self.selection_label.config(text=selection_info)
+
+    def _refresh_branch_label(self):
+        """Fetch git branch of Bazel working dir in background and update the status bar label."""
+        working_dir = self.settings_tab.get_setting("bazel_working_dir") or ""
+        if not working_dir:
+            return
+
+        import threading
+
+        def _fetch():
+            branch, _ = self.logic.get_git_branch(working_dir)
+            text = f"branch: {branch}" if branch else "branch: —"
+            self.root.after(0, lambda: self.branch_label.config(text=text))
+
+        threading.Thread(target=_fetch, daemon=True).start()
 
     def show_progress(self, show=True):
         """Show or hide the progress indicator."""
