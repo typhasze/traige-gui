@@ -125,6 +125,7 @@ class FoxgloveAppGUIManager:
 
         self.update_status_bar("Ready")
         self._building = False
+        self._checkout_generation = 0
 
         self.root.update_idletasks()
         initial_width = self.root.winfo_width()
@@ -185,6 +186,8 @@ class FoxgloveAppGUIManager:
             log_container, height=6, wrap=tk.WORD, yscrollcommand=log_yscrollbar.set, state=tk.DISABLED
         )
         self.log_text.tag_config("error", foreground="red")
+        self.log_text.tag_config("git_pending", foreground="#9B59B6")
+        self.log_text.tag_config("git_success", foreground="#27AE60")
         log_yscrollbar.config(command=self.log_text.yview)
         log_xscrollbar.config(command=self.log_text.xview)
 
@@ -197,6 +200,12 @@ class FoxgloveAppGUIManager:
         self._tk_log_handler.setLevel(logging.INFO)
         logging.getLogger("traige_gui").addHandler(self._tk_log_handler)
         logger.debug("TkinterLogHandler attached to log widget")
+
+    def log_git(self, message: str, status: str = "pending") -> None:
+        """Write a git status message with colour: pending=purple, success=green, error=red."""
+        tag = {"pending": "git_pending", "success": "git_success", "error": "error"}.get(status, "git_pending")
+        if hasattr(self, "_tk_log_handler"):
+            self._tk_log_handler.emit_tagged(message, tag)
 
     def log_message(self, message, is_error=False, clear_first=False):
         """Route *message* through Python logging to the log file and GUI widget.
@@ -243,30 +252,49 @@ class FoxgloveAppGUIManager:
         if not working_dir:
             return
 
+        self._checkout_generation += 1
+        generation = self._checkout_generation
+
         def _task():
             info, err = self.logic.parse_build_info(folder)
             if err:
-                # No build_info found — silent, nothing to do
-                return
+                return  # No build_info — silent
+
+            if generation != self._checkout_generation:
+                return  # Superseded by a newer request
 
             commit_hash = info["commit_hash"]
-            self.root.after(0, lambda: self.log_message(f"build_info found — checking out {commit_hash[:12]}…"))
+            self.root.after(0, lambda: self._begin_checkout_ui(commit_hash, generation))
+
             success, msg = self.logic.git_checkout(working_dir, commit_hash)
-            self.root.after(0, lambda: self._on_sync_done(success, msg, info))
+
+            if generation != self._checkout_generation:
+                return  # Superseded while checkout was running
+
+            self.root.after(0, lambda: self._on_sync_done(success, msg, info, generation))
 
         threading.Thread(target=_task, daemon=True).start()
 
-    def _on_sync_done(self, success, message, info: dict):
+    def _begin_checkout_ui(self, commit_hash: str, generation: int):
+        if generation != self._checkout_generation:
+            return
+        self.log_git(f"build_info found — checking out {commit_hash[:12]}…", "pending")
+        self.build_bazel_button.config(state=tk.DISABLED)
+
+    def _on_sync_done(self, success, message, info: dict, generation: int):
+        if generation != self._checkout_generation:
+            return  # Stale — a newer checkout already superseded this one
         ref = info.get("revision_short") or info["commit_hash"][:12]
         if success:
-            self.log_message(f"Checked out {ref}: {message}")
             git_name = info.get("git_name", "")
             revision_short = info.get("revision_short", ref)
             label = f"{git_name}-{revision_short}" if git_name else revision_short
+            self.log_git(f"Checked out {label}", "success")
             self.branch_label.config(text=label)
         else:
-            self.log_message(f"Checkout failed: {message}", is_error=True)
+            self.log_git(f"Checkout failed: {message}", "error")
             self._refresh_branch_label()
+        self.build_bazel_button.config(state=tk.NORMAL)
         if hasattr(self, "settings_tab"):
             self.settings_tab._refresh_git_branch()
 

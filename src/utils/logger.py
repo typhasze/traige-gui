@@ -116,7 +116,7 @@ class TkinterLogHandler(logging.Handler):
         self.text_widget = text_widget
         self.max_lines = max_lines
         self._clear_pending = False
-        self._queue: "queue.Queue[tuple[str, bool]]" = queue.Queue()
+        self._queue: "queue.Queue[tuple[str, str]]" = queue.Queue()
         self._main_thread_id = threading.main_thread().ident
         self._flush_scheduled = False
         self.setFormatter(logging.Formatter("%(message)s"))
@@ -143,14 +143,13 @@ class TkinterLogHandler(logging.Handler):
         had_items = False
         while True:
             try:
-                msg, is_error = self._queue.get_nowait()
+                msg, tag = self._queue.get_nowait()
             except queue.Empty:
                 break
 
             had_items = True
             widget.config(state="normal")
-            prefix = "ERROR: " if is_error else "INFO: "
-            tag = "error" if is_error else "info"
+            prefix = "ERROR: " if tag == "error" else "INFO: "
             widget.insert("end", f"{prefix}{msg}\n", tag)
             widget.see("end")
 
@@ -170,11 +169,19 @@ class TkinterLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             msg = self.format(record)
-            is_error = record.levelno >= logging.ERROR
-            self._queue.put((msg, is_error))
+            tag = "error" if record.levelno >= logging.ERROR else "info"
+            self._queue.put((msg, tag))
             if threading.get_ident() == self._main_thread_id:
                 self._drain_queue()
             else:
                 self._schedule_flush()
         except Exception:  # noqa: BLE001
             self.handleError(record)
+
+    def emit_tagged(self, msg: str, tag: str) -> None:
+        """Enqueue *msg* with an explicit widget tag (bypasses log-level mapping)."""
+        self._queue.put((msg, tag))
+        if threading.get_ident() == self._main_thread_id:
+            self._drain_queue()
+        else:
+            self._schedule_flush()
