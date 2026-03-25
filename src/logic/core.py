@@ -151,6 +151,32 @@ class FoxgloveAppLogic:
             return settings.get("bazel_working_dir")
         return None
 
+    def parse_stable_status(self, working_dir: str) -> tuple:
+        """Read <working_dir>/bazel-out/stable-status.txt and return (info_dict, error).
+
+        info_dict keys: commit_hash, git_name, revision_short
+        """
+        path = os.path.join(os.path.expanduser(working_dir), "bazel-out", "stable-status.txt")
+        if not os.path.isfile(path):
+            return None, f"stable-status.txt not found: {path}"
+        try:
+            wanted = {
+                "STABLE_BUILD_GIT_REVISION": "commit_hash",
+                "STABLE_BUILD_GIT_NAME": "git_name",
+                "STABLE_BUILD_GIT_REVISION_SHORT": "revision_short",
+            }
+            info = {}
+            with open(path) as f:
+                for line in f:
+                    for key, field in wanted.items():
+                        if line.startswith(key + " "):
+                            info[field] = line.strip().split(None, 1)[1]
+            if not info:
+                return None, "No recognised fields in stable-status.txt"
+            return info, None
+        except Exception as e:
+            return None, str(e)
+
     def parse_build_info(self, folder_path: str) -> tuple:
         """Find build_info*.txt in folder_path and return (info_dict, error).
 

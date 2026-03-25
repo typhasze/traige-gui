@@ -134,11 +134,17 @@ class SettingsTab:
         checkbox_col = 0
         max_checkbox_cols = 3
         checkbox_row_frame = None
+        _git_row_inserted = False
 
         for config in self.settings_config:
             key = config["key"]
             value = self.get_setting(key)
             if config["type"] == "bool":
+                if not _git_row_inserted:
+                    _git_row_inserted = True
+                    self._build_git_branch_row(settings_frame, row)
+                    row += 1
+
                 if checkbox_col == 0:
                     checkbox_row_frame = ttk.Frame(settings_frame)
                     checkbox_row_frame.grid(row=row, column=0, columnspan=2, sticky="w", padx=5, pady=5)
@@ -176,19 +182,20 @@ class SettingsTab:
             self.vars[key] = var
 
         settings_frame.columnconfigure(1, weight=1)
+        self.frame.after(200, self._refresh_git_branch)
 
-        # --- Git Branch row (below Bazel Working Directory) ---
-        if checkbox_col > 0:
-            row += 1
-        git_label = ttk.Label(settings_frame, text="Bazel Git Branch:")
-        git_label.grid(row=row, column=0, sticky="w", padx=5, pady=2)
+    def _build_git_branch_row(self, settings_frame, row):
+        ttk.Label(settings_frame, text="Bazel Git Branch:").grid(row=row, column=0, sticky="w", padx=5, pady=2)
 
         git_row_frame = ttk.Frame(settings_frame)
         git_row_frame.grid(row=row, column=1, sticky="we", padx=5, pady=2)
 
+        ttk.Style().map(
+            "GitBranch.TCombobox", fieldbackground=[("readonly", "white")], foreground=[("readonly", "black")]
+        )
         self._git_branch_var = tk.StringVar(value="—")
         self._git_branch_combo = ttk.Combobox(
-            git_row_frame, textvariable=self._git_branch_var, width=40, state="readonly"
+            git_row_frame, textvariable=self._git_branch_var, width=40, state="readonly", style="GitBranch.TCombobox"
         )
         self._git_branch_combo.pack(side=tk.LEFT, fill="x", expand=True)
         attach_tooltip(self._git_branch_combo, "Current git branch of the Bazel working directory.")
@@ -200,9 +207,6 @@ class SettingsTab:
         checkout_btn = ttk.Button(git_row_frame, text="Checkout", command=self._git_checkout_selected)
         checkout_btn.pack(side=tk.LEFT, padx=(4, 0))
         attach_tooltip(checkout_btn, "Switch to the selected git branch.")
-
-        row += 1
-        self.frame.after(200, self._refresh_git_branch)
 
         button_frame = ttk.Frame(self.frame)
         button_frame.pack(fill="x", padx=10, pady=5)

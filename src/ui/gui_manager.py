@@ -90,6 +90,7 @@ class FoxgloveAppGUIManager:
         self.create_shared_log_frame(main_frame)
         self.create_status_bar()
         self.root.after(300, self._refresh_branch_label)
+        self.root.after(300, self._refresh_workspace_build_label)
 
         nas_dir = self.settings_tab.get_setting("nas_dir")
         if nas_dir:
@@ -149,6 +150,10 @@ class FoxgloveAppGUIManager:
         )
 
         style.map("Action.TButton", background=[("active", "#3498DB"), ("disabled", "#BDC3C7")])
+
+        style.configure("StatusBar.TLabel", font=("TkDefaultFont", 10, "bold"), padding=(6, 6))
+        style.configure("StatusBarWarn.TLabel", font=("TkDefaultFont", 10, "bold"), foreground="red", padding=(6, 6))
+        style.configure("StatusBarOk.TLabel", font=("TkDefaultFont", 10, "bold"), foreground="#27AE60", padding=(6, 6))
 
     def create_shared_action_buttons(self, parent_frame):
         button_frame = ttk.Frame(parent_frame)
@@ -290,7 +295,7 @@ class FoxgloveAppGUIManager:
             revision_short = info.get("revision_short", ref)
             label = f"{git_name}-{revision_short}" if git_name else revision_short
             self.log_git(f"Checked out {label}", "success")
-            self.branch_label.config(text=label)
+            self.branch_label.config(text=f"Branch: {label}")
         else:
             self.log_git(f"Checkout failed: {message}", "error")
             self._refresh_branch_label()
@@ -337,6 +342,7 @@ class FoxgloveAppGUIManager:
             self.update_status_bar("Build failed", "")
         else:
             self.update_status_bar("Build complete", "")
+            self._refresh_workspace_build_label()
 
     def show_process_status(self):
         self.log_message("📊 Current Process Status:", clear_first=False)
@@ -424,14 +430,23 @@ class FoxgloveAppGUIManager:
 
         self.branch_label = ttk.Label(
             self.status_frame,
-            text="branch: —",
+            text="Branch: —",
             relief=tk.SUNKEN,
             anchor=tk.CENTER,
             width=28,
-            font=("TkDefaultFont", 10),
-            padding=(6, 6),
+            style="StatusBar.TLabel",
         )
         self.branch_label.pack(side="right", padx=(5, 0))
+
+        self.workspace_build_label = ttk.Label(
+            self.status_frame,
+            text="Build: —",
+            relief=tk.SUNKEN,
+            anchor=tk.CENTER,
+            width=28,
+            style="StatusBar.TLabel",
+        )
+        self.workspace_build_label.pack(side="right", padx=(5, 0))
 
         self.selection_label = ttk.Label(
             self.status_frame,
@@ -439,8 +454,7 @@ class FoxgloveAppGUIManager:
             relief=tk.SUNKEN,
             anchor=tk.CENTER,
             width=20,
-            font=("TkDefaultFont", 10),
-            padding=(6, 6),
+            style="StatusBar.TLabel",
         )
         self.selection_label.pack(side="right", padx=(5, 0))
 
@@ -452,6 +466,50 @@ class FoxgloveAppGUIManager:
         if selection_info:
             self.selection_label.config(text=selection_info)
 
+    def _refresh_workspace_build_label(self):
+        """Read stable-status.txt from the Bazel working dir and update the workspace build label."""
+        working_dir = self.settings_tab.get_setting("bazel_working_dir") or ""
+        if not working_dir:
+            return
+
+        import threading
+
+        def _fetch():
+            info, _ = self.logic.parse_stable_status(working_dir)
+            if info:
+                git_name = info.get("git_name", "")
+                rev_short = info.get("revision_short", "")
+                build_commit = info.get("commit_hash", "")
+                text = f"{git_name}-{rev_short}" if git_name and rev_short else git_name or rev_short or "—"
+            else:
+                text = "—"
+                build_commit = ""
+
+            head, _ = self.logic.get_git_branch(working_dir)
+            # get full HEAD hash to compare against stable-status commit
+            import subprocess as _sp
+
+            try:
+                r = _sp.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=os.path.expanduser(working_dir),
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                head_hash = r.stdout.strip() if r.returncode == 0 else ""
+            except Exception:
+                head_hash = ""
+
+            if build_commit and head_hash:
+                branch_style = "StatusBarWarn.TLabel" if build_commit != head_hash else "StatusBarOk.TLabel"
+            else:
+                branch_style = "StatusBar.TLabel"
+            self.root.after(0, lambda: self.workspace_build_label.config(text=f"Build: {text}"))
+            self.root.after(0, lambda s=branch_style: self.branch_label.config(style=s))
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
     def _refresh_branch_label(self):
         """Fetch git branch of Bazel working dir in background and update the status bar label."""
         working_dir = self.settings_tab.get_setting("bazel_working_dir") or ""
@@ -462,7 +520,7 @@ class FoxgloveAppGUIManager:
 
         def _fetch():
             branch, _ = self.logic.get_git_branch(working_dir)
-            text = f"branch: {branch}" if branch else "branch: —"
+            text = f"Branch: {branch}" if branch else "Branch: —"
             self.root.after(0, lambda: self.branch_label.config(text=text))
 
         threading.Thread(target=_fetch, daemon=True).start()
