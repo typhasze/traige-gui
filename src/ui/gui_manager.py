@@ -300,6 +300,7 @@ class FoxgloveAppGUIManager:
             self.log_git(f"Checkout failed: {message}", "error")
             self._refresh_branch_label()
         self.build_bazel_button.config(state=tk.NORMAL)
+        self._refresh_workspace_build_label()
         if hasattr(self, "settings_tab"):
             self.settings_tab._refresh_git_branch()
 
@@ -448,23 +449,11 @@ class FoxgloveAppGUIManager:
         )
         self.workspace_build_label.pack(side="right", padx=(5, 0))
 
-        self.selection_label = ttk.Label(
-            self.status_frame,
-            text="No selection",
-            relief=tk.SUNKEN,
-            anchor=tk.CENTER,
-            width=20,
-            style="StatusBar.TLabel",
-        )
-        self.selection_label.pack(side="right", padx=(5, 0))
-
         self.progress_bar = ttk.Progressbar(self.status_frame, mode="indeterminate", length=100)
 
-    def update_status_bar(self, message, selection_info=None):
+    def update_status_bar(self, message, selection_info=None):  # noqa: ARG002
         """Update status bar with current information."""
         self.status_label.config(text=message)
-        if selection_info:
-            self.selection_label.config(text=selection_info)
 
     def _refresh_workspace_build_label(self):
         """Read stable-status.txt from the Bazel working dir and update the workspace build label."""
