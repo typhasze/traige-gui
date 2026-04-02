@@ -149,7 +149,11 @@ class TkinterLogHandler(logging.Handler):
 
             had_items = True
             widget.config(state="normal")
-            prefix = "ERROR: " if tag == "error" else "INFO: "
+            prefix = {
+                "error": "ERROR: ",
+                "git_pending": "  ⎇  ",
+                "git_success": "  ⎇  ",
+            }.get(tag, "INFO:  ")
             widget.insert("end", f"{prefix}{msg}\n", tag)
             widget.see("end")
 

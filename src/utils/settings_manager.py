@@ -49,6 +49,9 @@ _SETTINGS_SCHEMA: Dict[str, Any] = {
     "single_instance_rosbag": {"type": bool, "required": False},
     "auto_open_event_log_for_tg": {"type": bool, "required": False},
     "event_log_viewer_as_tab": {"type": bool, "required": False},
+    "auto_git_branch_switch": {"type": bool, "required": False},
+    "git_fetch_on_startup": {"type": bool, "required": False},
+    "git_default_branch": {"type": str, "required": False},
 }
 
 

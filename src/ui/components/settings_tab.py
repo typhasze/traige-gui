@@ -30,6 +30,13 @@ class SettingsTab:
             "widget": "entry",
             "width": 20,
         },
+        {
+            "label": "Git Default Branch:",
+            "key": "git_default_branch",
+            "type": "str",
+            "widget": "entry",
+            "width": 30,
+        },
         {"label": "Bazel Bag GUI Rate:", "key": "bazel_bag_gui_rate", "type": "float", "widget": "entry", "width": 20},
         {
             "label": "Open Foxglove in browser",
@@ -61,6 +68,18 @@ class SettingsTab:
             "type": "bool",
             "widget": "checkbutton",
         },
+        {
+            "label": "Auto-switch git branch on folder change",
+            "key": "auto_git_branch_switch",
+            "type": "bool",
+            "widget": "checkbutton",
+        },
+        {
+            "label": "Git fetch on startup",
+            "key": "git_fetch_on_startup",
+            "type": "bool",
+            "widget": "checkbutton",
+        },
     ]
 
     def __init__(self, parent, logic, log_message):
@@ -84,6 +103,9 @@ class SettingsTab:
             "single_instance_rosbag": "Keep only one Bazel rosbag process at a time.",
             "auto_open_event_log_for_tg": "Auto-open event logs when entering TG folders.",
             "event_log_viewer_as_tab": "Open event viewer inside main notebook tab.",
+            "auto_git_branch_switch": "Auto-checkout the git branch matching build_info when navigating folders.",
+            "git_fetch_on_startup": "Run 'git fetch --all --tags --prune --force' at startup to update remote refs.",
+            "git_default_branch": "Branch to checkout on startup (e.g. develop). Leave blank to keep current branch.",
         }
 
         self.logic.set_runtime_settings(self.settings)

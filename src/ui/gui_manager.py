@@ -128,6 +128,8 @@ class FoxgloveAppGUIManager:
         self._building = False
         self._checkout_generation = 0
 
+        self.root.after(500, self._startup_git_tasks)
+
         self.root.update_idletasks()
         initial_width = self.root.winfo_width()
         initial_height = self.root.winfo_height()
@@ -249,9 +251,72 @@ class FoxgloveAppGUIManager:
     def _run_in_thread(self, task):
         threading.Thread(target=task, daemon=True).start()
 
+    def _startup_git_tasks(self):
+        """Run git fetch and default-branch checkout at startup in a background thread."""
+        working_dir = self.settings_tab.get_setting("bazel_working_dir") or ""
+        if not working_dir:
+            return
+
+        do_fetch = self.settings_tab.get_setting("git_fetch_on_startup")
+        auto_switch = self.settings_tab.get_setting("auto_git_branch_switch")
+        default_branch = (self.settings_tab.get_setting("git_default_branch") or "").strip()
+
+        def _task():
+            if do_fetch:
+                self.root.after(0, lambda: self.log_git("fetch: updating…", "pending"))
+                success, msg = self.logic.git_fetch(working_dir)
+                fetch_status = "pending" if not success else "success"
+                fetch_msg = "fetch: completed." if success else f"fetch: failed — {msg}"
+                self.root.after(0, lambda m=fetch_msg, s=fetch_status: self.log_git(m, s if success else "error"))
+                if success:
+                    self.root.after(0, self._refresh_branch_label)
+
+            if not auto_switch or not default_branch:
+                return
+
+            current, err = self.logic.get_git_branch(working_dir)
+            if err or current == default_branch:
+                return
+
+            # Detached HEAD (current == "HEAD") always switches — it's not a local branch.
+            # For named branches, only switch if they have a remote upstream tracking ref;
+            # purely local branches (no upstream) are left untouched.
+            if current != "HEAD":
+                import subprocess as _sp
+
+                try:
+                    check = _sp.run(
+                        ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+                        cwd=working_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    has_upstream = check.returncode == 0
+                except Exception:
+                    has_upstream = False
+
+                if not has_upstream:
+                    self.root.after(
+                        0,
+                        lambda b=current: self.log_git(f"staying on local branch '{b}'", "pending"),
+                    )
+                    return
+
+            success, msg = self.logic.git_checkout(working_dir, default_branch)
+            checkout_msg = f"switched to '{default_branch}'." if success else f"checkout failed — {msg}"
+            self.root.after(0, lambda m=checkout_msg: self.log_git(m, "success" if success else "error"))
+            if success:
+                self.root.after(0, self._refresh_branch_label)
+
+        threading.Thread(target=_task, daemon=True).start()
+
     def _auto_sync_branch(self, folder: str):
         """Called on every directory change. Silently syncs git branch if build_info*.txt is present."""
         import threading
+
+        if not self.settings_tab.get_setting("auto_git_branch_switch"):
+            return
 
         working_dir = self.settings_tab.get_setting("bazel_working_dir") or ""
         if not working_dir:
@@ -474,24 +539,30 @@ class FoxgloveAppGUIManager:
                 text = "—"
                 build_commit = ""
 
-            head, _ = self.logic.get_git_branch(working_dir)
-            # get full HEAD hash to compare against stable-status commit
-            import subprocess as _sp
+            current_branch, _ = self.logic.get_git_branch(working_dir)
 
-            try:
-                r = _sp.run(
-                    ["git", "rev-parse", "HEAD"],
-                    cwd=os.path.expanduser(working_dir),
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                head_hash = r.stdout.strip() if r.returncode == 0 else ""
-            except Exception:
-                head_hash = ""
+            if current_branch == "HEAD":
+                # Detached HEAD — check exact commit match against the last build.
+                import subprocess as _sp
 
-            if build_commit and head_hash:
-                branch_style = "StatusBarWarn.TLabel" if build_commit != head_hash else "StatusBarOk.TLabel"
+                try:
+                    r = _sp.run(
+                        ["git", "rev-parse", "HEAD"],
+                        cwd=os.path.expanduser(working_dir),
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    head_hash = r.stdout.strip() if r.returncode == 0 else ""
+                except Exception:
+                    head_hash = ""
+                if build_commit and head_hash:
+                    branch_style = "StatusBarOk.TLabel" if build_commit == head_hash else "StatusBarWarn.TLabel"
+                else:
+                    branch_style = "StatusBar.TLabel"
+            elif git_name and current_branch:
+                # Named branch — green when branch name matches the built branch.
+                branch_style = "StatusBarOk.TLabel" if current_branch == git_name else "StatusBarWarn.TLabel"
             else:
                 branch_style = "StatusBar.TLabel"
             self.root.after(0, lambda: self.workspace_build_label.config(text=f"Build: {text}"))
@@ -511,6 +582,7 @@ class FoxgloveAppGUIManager:
             branch, _ = self.logic.get_git_branch(working_dir)
             text = f"Branch: {branch}" if branch else "Branch: —"
             self.root.after(0, lambda: self.branch_label.config(text=text))
+            self.root.after(0, self._refresh_workspace_build_label)
 
         threading.Thread(target=_fetch, daemon=True).start()
 

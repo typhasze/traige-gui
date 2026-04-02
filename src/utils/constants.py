@@ -35,6 +35,9 @@ DEFAULT_SETTINGS = {
     "single_instance_rosbag": True,
     "auto_open_event_log_for_tg": True,
     "event_log_viewer_as_tab": True,
+    "auto_git_branch_switch": True,
+    "git_fetch_on_startup": True,
+    "git_default_branch": "develop",
 }
 
 # ============================================================================

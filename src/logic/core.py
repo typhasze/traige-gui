@@ -247,6 +247,26 @@ class FoxgloveAppLogic:
         except Exception as e:
             return [], str(e)
 
+    def git_fetch(self, working_dir: str) -> tuple:
+        """Run 'git fetch --all --tags --prune --force' in *working_dir*. Returns (success, message)."""
+        try:
+            result = subprocess.run(
+                ["git", "fetch", "--all", "--tags", "--prune", "--force"],
+                cwd=os.path.expanduser(working_dir),
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if result.returncode == 0:
+                return True, result.stderr.strip() or "Fetch completed."
+            return False, result.stderr.strip() or "git fetch failed"
+        except FileNotFoundError:
+            return False, "git not found"
+        except subprocess.TimeoutExpired:
+            return False, "git fetch timed out"
+        except Exception as e:
+            return False, str(e)
+
     def git_checkout(self, working_dir: str, branch: str) -> tuple:
         """Checkout *branch* in *working_dir*. Returns (success, message)."""
         try:
